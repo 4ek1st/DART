@@ -1,0 +1,10 @@
+.gradle/
+**/build/
+local.properties
+*.jks
+*.keystore
+outputs/
+.idea/
+*.iml
+.codex-remote-attachments/
+.superpowers/
