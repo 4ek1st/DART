@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="264" viewBox="0 0 960 264" role="img" aria-labelledby="title desc">
   <title id="title">DART — Discover Art</title>
-  <desc id="desc">Тёмный баннер с голубым знаком DART и абстрактными карточками коллекции.</desc>
+  <desc id="desc">Dark banner with a blue DART mark and abstract art cards.</desc>
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="960" y2="264" gradientUnits="userSpaceOnUse"><stop stop-color="#101a2a"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
     <linearGradient id="accent" x1="84" y1="74" x2="194" y2="194" gradientUnits="userSpaceOnUse"><stop stop-color="#71d8ff"/><stop offset="1" stop-color="#3788ff"/></linearGradient>

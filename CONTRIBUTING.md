@@ -1,24 +1,24 @@
-# Разработка DART
+# Contributing to DART
 
-[← На главную](README.md) · [Правила проекта](AGENTS.md)
+[← Back to the main page](README.md) · [Project rules](AGENTS.md)
 
-## Локальный запуск
+## Run locally
 
-Нужны .NET 8 SDK, Node.js и Microsoft Edge WebView2 Runtime. Для сценария
-публикации также нужны PowerShell 7, Git и GitHub CLI.
+You need the .NET 8 SDK, Node.js, and the Microsoft Edge WebView2 Runtime.
+Publishing also requires PowerShell 7, Git, and GitHub CLI.
 
-Запускайте приложение с отдельным тестовым профилем:
+Run the app with a separate test profile:
 
 ```powershell
 dotnet run --project ArtCatalog.csproj -- --data-dir <test-profile>
 ```
 
-Имя проекта и namespace `ArtCatalog` сохранены для совместимости.
-Название программы — **DART — Discover Art**. Android находится в отдельном проекте.
+The `ArtCatalog` project name and namespace remain for compatibility.
+The app is called **DART — Discover Art**. Android is a separate project.
 
-## Проверки
+## Checks
 
-В PowerShell:
+In PowerShell:
 
 ```powershell
 $tests = @(Get-ChildItem tests -Filter '*.test.cjs' -File | Select-Object -ExpandProperty FullName)
@@ -27,38 +27,38 @@ dotnet run --project tests/Rule34FixtureTests.csproj -c Release
 dotnet run --project tests/updates/UpdateSystemTests.csproj -c Release
 ```
 
-Фикстуры используют временные данные. Соблюдайте ограничение для отдельного
-нативного теста `tests/chrome`, указанное в [AGENTS.md](AGENTS.md): его сборка
-была заблокирована антивирусом и требует отдельного расследования.
+Fixtures use temporary data. Follow the restriction in [AGENTS.md](AGENTS.md)
+for the separate `tests/chrome` native UI harness: its build output was
+quarantined by antivirus and needs independent investigation.
 
-## Выпуск официального обновления
+## Publish an official update
 
-Перед выпуском измените версию в `ArtCatalog.csproj`, проверьте изменения и
-сделайте коммит. Используйте зарегистрированную общую папку исходников и
-существующий закрытый ключ выпуска:
+Before a release, change the version in `ArtCatalog.csproj`, review the
+changes, and commit them. Use the registered canonical source directory
+and the existing private release key:
 
 ```powershell
 ./scripts/Publish-Release.ps1 -Version <new-version> -NotesFile <release-notes.md> -PublishGitHub
 ```
 
-Сценарий проверяет регистрацию исходников, базу последнего выпуска,
-Git-историю, чистоту рабочего дерева, тесты и изменение файлов во время
-сборки. Затем создаёт полный EXE и подписанный манифест для GitHub Releases.
+The script checks the source registration, previous release base, Git
+history, clean working tree, tests, and source drift during the build.
+It then creates a complete EXE and signed manifest for GitHub Releases.
 
-Подпись — ECDSA P-256; файл проверяется по размеру и SHA-256. Установка
-проверяет версию, последовательность и связь с предыдущими выпусками.
-Активная версия выбирается защищённой записью; файлы принятых выпусков
-находятся в отдельных неизменяемых папках.
+The signature uses ECDSA P-256; the file is checked by size and SHA-256.
+Installation verifies the version, sequence, and connection to previous
+releases. A protected record selects the active version, and accepted
+release files live in separate immutable directories.
 
-Для первого выпуска установка и ключ однократно регистрируются через
-`Updates/ReleaseTool`. Официальные обновления подписываются ключом владельца;
-в Git и релизы закрытый ключ не попадает.
+The first release registers the install and key once through
+`Updates/ReleaseTool`. Official updates require the owner's private key,
+which must never enter Git or release assets.
 
-Не копируйте EXE, DLL или интерфейс поверх установленной программы и не
-удаляйте защитные файлы, чтобы обойти отказ. После начальной регистрации
-устанавливайте через кнопку обновления или защищённый launcher. Закладки,
-подписки, учётные данные и профиль пользователя должны оставаться отдельно
-от исходников и релизов.
+Do not copy an EXE, DLL, or frontend files over an installed app, or delete
+protected files to bypass a rejected update. After initial registration,
+install through the update button or guarded launcher. Keep bookmarks,
+subscriptions, credentials, and the user profile separate from source code
+and release assets.
 
-Для небольшого исправления опишите проблему в [issue](https://github.com/4ek1st/DART/issues)
-или откройте pull request с описанием изменения и выполненных проверок.
+For a small fix, describe the problem in an [issue](https://github.com/4ek1st/DART/issues)
+or open a pull request with your changes and the checks you ran.

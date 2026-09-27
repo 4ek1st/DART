@@ -2,35 +2,35 @@
 
 <img src="docs/assets/dart-banner.svg" alt="DART — Discover Art" width="900">
 
-Находите новые арты. Сохраняйте любимое. Следите за авторами.
+Discover new art. Save your favorites. Follow the artists you love.
 
 <a href="https://github.com/4ek1st/DART/releases/latest/download/DART.Windows.exe">
-  <img src="docs/assets/download-windows.svg" alt="Скачать для Windows" width="244" height="48">
+  <img src="docs/assets/download-windows.svg" alt="Download for Windows" width="244" height="48">
 </a>
 
-[Все версии](https://github.com/4ek1st/DART/releases) · [Руководство](docs/GUIDE.md) · [Сообщить о проблеме](https://github.com/4ek1st/DART/issues)
+[All releases](https://github.com/4ek1st/DART/releases) · [User guide](docs/GUIDE.md) · [Report an issue](https://github.com/4ek1st/DART/issues)
 
-<sub>Windows · x64 · Требуется подключение к интернету</sub>
+<sub>Windows · x64 · Internet connection required</sub>
 
 </div>
 
-## Всё в одном месте
+## Everything in one place
 
-- **Поиск** — теги, популярные работы и фильтры источников.
-- **Рекомендации** — подбор по вашим лайкам с настройкой любимых и исключённых тегов.
-- **Подписки** — новые работы авторов, за которыми вы следите.
-- **Ваша коллекция** — закладки, история, вкладки, изображения и видео.
+- **Explore** — search by tags, discover popular posts, and filter by source.
+- **Recommendations** — find art based on your likes, with favorite and excluded tags.
+- **Following** — see new work from the artists you follow.
+- **Your collection** — keep bookmarks, history, tabs, images, and videos together.
 
-**Источники:** Danbooru · Gelbooru · Rule34 · Sankaku.
+**Sources:** Danbooru · Gelbooru · Rule34 · Sankaku.
 
-## Начать просто
+## Get started
 
-1. [Скачайте DART](https://github.com/4ek1st/DART/releases/latest/download/DART.Windows.exe) и запустите EXE.
-2. Откройте **«Источники и настройки»** и подключите нужные каталоги.
-3. Ищите арты, ставьте сердечки и подписывайтесь на авторов.
+1. [Download DART](https://github.com/4ek1st/DART/releases/latest/download/DART.Windows.exe) and run the EXE.
+2. Open the app settings and connect the sources you want to use.
+3. Explore, save your favorites, and follow artists.
 
-Если программа попросит WebView2, установите [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2).
+If prompted, install the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2).
 
 ---
 
-[Настройка источников и обновления](docs/GUIDE.md) · [Для разработчиков](CONTRIBUTING.md)
+[Sources and updates](docs/GUIDE.md) · [For contributors](CONTRIBUTING.md)
