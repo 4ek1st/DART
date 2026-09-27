@@ -1776,17 +1776,46 @@ function tabHasCatalogTitle(tab) {
     tab.kind === 'detail' && !/^(Работа|Artwork|Werk) #/.test(tab.title);
 }
 
+function tabStripLayout(width, count, scrollLeft, activeIndex, revealActive, gap = 5) {
+  const capacity = Math.max(1, Math.floor((width + gap) / (125 + gap)));
+  if (count <= capacity) return { overflow: false, first: 0 };
+  // Fit a whole number of tabs into the viewport, including the last page.
+  // This keeps the left edge at a tab boundary even when the window shrinks.
+  const tabWidth = (width - gap * (capacity - 1)) / capacity;
+  let first = Math.round(scrollLeft / (tabWidth + gap));
+  if (revealActive && activeIndex >= 0)
+    first = Math.max(activeIndex - capacity + 1, Math.min(first, activeIndex));
+  first = Math.max(0, Math.min(first, count - capacity));
+  return { overflow: true, first, tabWidth, scrollLeft: first * (tabWidth + gap) };
+}
+
+function alignTabStrip(revealActive = false) {
+  if (!tabsNode.clientWidth || !tabsNode.children.length) return;
+  const nodes = [...tabsNode.querySelectorAll('.tab')];
+  const gap = parseFloat(getComputedStyle(tabsNode).columnGap) || 0;
+  const layout = tabStripLayout(tabsNode.clientWidth, nodes.length, tabsNode.scrollLeft,
+    nodes.findIndex(node => node.classList.contains('active')), revealActive, gap);
+  tabsNode.classList.toggle('tabs-overflowing', layout.overflow);
+  if (layout.overflow) tabsNode.style.setProperty('--overflow-tab-width', `${layout.tabWidth}px`);
+  else tabsNode.style.removeProperty('--overflow-tab-width');
+  tabsNode.scrollLeft = layout.scrollLeft || 0;
+}
+
 function renderChrome() {
   const markup = tabs.map(tab => `<div class="tab ${tab.id === activeId ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.pinned ? 'pinned' : ''}" data-kind="${tab.kind}" role="tab" aria-selected="${tab.id === activeId}" tabindex="${tab.id === activeId ? 0 : -1}" data-tab="${tab.id}" ${tabHasCatalogTitle(tab) ? `data-i18n-keep="${escapeHtml(JSON.stringify([tab.title]))}"` : ''} title="${escapeHtml(tab.title)}${tab.preview ? ' · Временный просмотр. Двойной клик — закрепить' : ''}">
     <span class="tab-mark"></span><span class="tab-title"${tabHasCatalogTitle(tab) ? ' data-no-i18n' : ''}>${escapeHtml(tab.title)}</span>
     ${tab.preview || tab.pinned ? `<button class="tab-pin ${tab.pinned ? 'active' : ''}" type="button" data-pin="${tab.id}" title="${tab.pinned ? 'Открепить' : 'Закрепить'} вкладку" aria-label="${tab.pinned ? 'Открепить' : 'Закрепить'} вкладку">${svg('pin')}</button>` : ''}
     <button class="tab-close" type="button" data-close="${tab.id}" title="Закрыть вкладку" aria-label="Закрыть вкладку">×</button></div>`).join('');
   if (markup !== renderedTabsMarkup) {
-    const previousActive = tabsNode.querySelector('.tab.active')?.dataset.tab;
+    const activeNode = tabsNode.querySelector('.tab.active');
+    const previousActive = activeNode?.dataset.tab;
+    const activeBounds = activeNode?.getBoundingClientRect();
+    const stripBounds = tabsNode.getBoundingClientRect();
+    const activeWasVisible = activeBounds && activeBounds.left >= stripBounds.left - 1 &&
+      activeBounds.right <= stripBounds.right + 1;
     tabsNode.innerHTML = markup;
     renderedTabsMarkup = markup;
-    if (previousActive !== String(activeId))
-      tabsNode.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    alignTabStrip(previousActive !== String(activeId) || activeWasVisible);
   }
   const listButton = document.getElementById('tab-list-button');
   listButton.innerHTML = `${svg('list')}<span>${tabs.length}</span>`;
@@ -2773,6 +2802,7 @@ window.addEventListener('resize', () => {
   if (tab?.virtualState) tab.virtualState = {};
   if (tab) render();
 });
+new ResizeObserver(() => alignTabStrip(true)).observe(tabsNode);
 
 document.querySelectorAll('[data-icon]').forEach(node => node.innerHTML = svg(node.dataset.icon));
 document.getElementById('back-button').innerHTML = svg('back');

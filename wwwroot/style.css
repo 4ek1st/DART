@@ -51,6 +51,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .tabs { display: flex; flex: 1; min-width: 0; align-items: stretch; gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; height: 36px; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab { height: 34px; min-width: 125px; max-width: 220px; flex: 0 1 190px; display: flex; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: 8px 8px 0 0; background: #242424; color: #a9a9a9; padding: 0 8px 0 13px; text-align: left; white-space: nowrap; }
+.tabs.tabs-overflowing { scroll-snap-type: x mandatory; }
+.tabs.tabs-overflowing .tab { flex: 0 0 var(--overflow-tab-width); min-width: 0; max-width: none; scroll-snap-align: start; }
 .tab:hover { background: #313131; color: white; }
 .tab.active { background: var(--top); border-color: #353535; border-bottom-color: var(--top); color: #fff; }
 .tab .tab-mark { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--blue); }
