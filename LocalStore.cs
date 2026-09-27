@@ -27,6 +27,7 @@ public sealed class PublicSettings
 
 public sealed class ContentPreferences
 {
+    public string Language { get; set; } = "en";
     public string AiMode { get; set; } = "all";
     public List<string> ExcludedTags { get; set; } = [];
     public string AttributionPriority { get; set; } = "creator";
@@ -441,6 +442,7 @@ internal sealed class LocalStore : ISankakuSessionStore
             using var fileLock = AcquireFileLock(contentPreferencesLockFile);
             var preferences = new ContentPreferences
             {
+                Language = update.Language is "en" or "ru" or "de" ? update.Language : "en",
                 AiMode = update.AiMode,
                 AttributionPriority = update.AttributionPriority,
                 HideViewedAndSaved = update.HideViewedAndSaved,

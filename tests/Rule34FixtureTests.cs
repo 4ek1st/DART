@@ -395,7 +395,12 @@ try
         "Refreshing a saved Rule34 post must repair old generic character metadata without losing pages");
     var groupedBookmark = JsonSerializer.Deserialize<CatalogItem>("""
         {"key":"rule34:18529241","source":"rule34","id":"18529241",
-         "memberKeys":["rule34:18529241","sankaku:AbC123","gelbooru:123"]}
+         "memberKeys":["rule34:18529241","sankaku:AbC123","gelbooru:123"],
+         "visualHash":"f7ba6fc954f4d66e","allTags":["ai-created"],
+         "visualSamples":[{"hash":"f7ba6fc954f4d66e","owner":"sankaku:creator:anteiru",
+           "source":"sankaku","tags":["original","anteiru","fujisaki honami"],
+           "characters":["fujisaki honami"],"uploader":"ragnarok",
+           "published":"2026-08-31T19:02:01+02:00"}]}
         """, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     var toggleBookmark = storeType.GetMethod("ToggleBookmark")!;
     Expect((bool)toggleBookmark.Invoke(metadataStore, [groupedBookmark])!, "Grouped bookmark must be saved");
@@ -403,11 +408,34 @@ try
     var savedGroup = reopened.First(item => item.Key == groupedBookmark.Key);
     Expect(savedGroup.MemberKeys.SequenceEqual(["rule34:18529241", "sankaku:AbC123", "gelbooru:123"]),
         "Reading bookmarks after restart must retain every confirmed source, including Sankaku");
+    Expect(savedGroup.VisualHash == "f7ba6fc954f4d66e" && savedGroup.VisualSamples.Count == 1 &&
+        savedGroup.VisualSamples[0].Source == "sankaku" &&
+        savedGroup.VisualSamples[0].Uploader == "ragnarok" &&
+        savedGroup.VisualSamples[0].Characters.SequenceEqual(["fujisaki honami"]) &&
+        savedGroup.AllTags.SequenceEqual(["ai-created"]),
+        "Restart must retain Sankaku visual evidence and an AI marker from any grouped variant");
     refresh.Invoke(metadataStore, [new CatalogItem { Key = groupedBookmark.Key, Source = groupedBookmark.Source,
         Id = groupedBookmark.Id, CreatorTag = "lmsk", CreatorName = "lmsk" }]);
     reopened = (List<CatalogItem>)storeType.GetMethod("GetBookmarks")!.Invoke(metadataStore, null)!;
     Expect(reopened.First(item => item.Key == groupedBookmark.Key).MemberKeys.SequenceEqual(savedGroup.MemberKeys),
         "A partial detail refresh must not erase the bookmarked source records");
+    Expect(reopened.First(item => item.Key == groupedBookmark.Key).VisualSamples.Count == 1 &&
+        reopened.First(item => item.Key == groupedBookmark.Key).AllTags.SequenceEqual(["ai-created"]),
+        "A partial detail refresh must not erase visual grouping or grouped AI tags");
+    var getPreferences = storeType.GetMethod("GetContentPreferences")!;
+    var updatePreferences = storeType.GetMethod("UpdateContentPreferences")!;
+    Expect(((ContentPreferences)getPreferences.Invoke(metadataStore, null)!).Language == "en",
+        "An existing profile without a saved interface language must default to English");
+    foreach (var language in new[] { "en", "ru", "de" })
+    {
+        updatePreferences.Invoke(metadataStore, [new ContentPreferences { Language = language,
+            AiMode = "generated-and-assisted", ExcludedTags = ["blocked_tag"],
+            AttributionPriority = "creator", HideViewedAndSaved = true }]);
+        var storedPreferences = (ContentPreferences)getPreferences.Invoke(metadataStore, null)!;
+        Expect(storedPreferences.Language == language && storedPreferences.AiMode == "generated-and-assisted" &&
+            storedPreferences.ExcludedTags.SequenceEqual(["blocked_tag"]) && storedPreferences.HideViewedAndSaved,
+            "Language preferences must survive a file round-trip without changing content filters");
+    }
 }
 finally
 {

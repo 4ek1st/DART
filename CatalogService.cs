@@ -31,6 +31,8 @@ public sealed class CatalogItem
     public string GroupKey { get; set; } = "";
     public string PixivGroupKey { get; set; } = "";
     public string ContentHash { get; set; } = "";
+    public string VisualHash { get; set; } = "";
+    public List<CatalogVisualSample> VisualSamples { get; set; } = [];
     [JsonIgnore] public string OriginalImageFileUrl { get; set; } = "";
     [JsonIgnore] public bool Rule34TagInfoKnown { get; set; }
     public string Thumbnail { get; set; } = "";
@@ -40,6 +42,7 @@ public sealed class CatalogItem
     public string Rating { get; set; } = "";
     public List<string> Images { get; set; } = [];
     public List<string> Tags { get; set; } = [];
+    public List<string> AllTags { get; set; } = [];
     public List<string> CharacterTags { get; set; } = [];
     public bool RequiresAuthentication { get; set; }
     public string AccessMessage { get; set; } = "";
@@ -82,6 +85,18 @@ public sealed class ProfileResponse
     public bool HasMore { get; set; }
     public int Page { get; set; }
     public Dictionary<string, string> Notices { get; set; } = [];
+}
+
+public sealed class CatalogVisualSample
+{
+    public string Hash { get; set; } = "";
+    public string Owner { get; set; } = "";
+    public List<string> Tags { get; set; } = [];
+    public string Source { get; set; } = "";
+    public List<string> Characters { get; set; } = [];
+    public string Uploader { get; set; } = "";
+    public string Published { get; set; } = "";
+    public string Publication { get; set; } = "";
 }
 
 internal sealed partial class CatalogService(LocalStore store)

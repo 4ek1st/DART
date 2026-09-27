@@ -58,7 +58,7 @@ let savedKeys = new Set();
 let follows = [];
 let followedKeys = new Set();
 let settings = { userId: '', hasApiKey: false, rule34UserId: '', hasRule34ApiKey: false };
-let contentPreferences = { aiMode: 'all', excludedTags: [], attributionPriority: 'creator',
+let contentPreferences = { language: globalThis.DartI18n?.language || 'en', aiMode: 'all', excludedTags: [], attributionPriority: 'creator',
   hideViewedAndSaved: false };
 let contentPreferencesSaving = false;
 let sankakuSigningIn = false;
@@ -122,16 +122,35 @@ async function request(path, options = {}) {
   }
   const result = await response.json();
   if (Array.isArray(result?.items)) result.items = CatalogLogic.filterCatalogItems(result.items);
-  if (!fetchOptions.signal?.aborted && !skipVisualHashes &&
+  if (!fetchOptions.signal?.aborted &&
       (path.startsWith('/api/search?') || path.startsWith('/api/profile?')))
-    await addRule34VisualHashes(result.items || []);
+    await addCatalogVisualHashes(result.items || [], !skipVisualHashes, fetchOptions.signal);
   return result;
 }
 
-async function rule34ThumbnailHash(url) {
+const visualHashJobs = [];
+let activeVisualHashJobs = 0;
+function runVisualHashJob(job) {
+  return new Promise(resolve => {
+    visualHashJobs.push({ job, resolve });
+    const drain = () => {
+      while (activeVisualHashJobs < 4 && visualHashJobs.length) {
+        const entry = visualHashJobs.shift();
+        activeVisualHashJobs++;
+        Promise.resolve().then(entry.job).catch(() => '').then(entry.resolve).finally(() => {
+          activeVisualHashJobs--; drain();
+        });
+      }
+    };
+    drain();
+  });
+}
+
+async function catalogThumbnailHash(url) {
   if (!visualHashCache.has(url)) {
-    const pending = (async () => {
-      const response = await fetch(`/api/image?url=${encodeURIComponent(url)}`);
+    const pending = runVisualHashJob(async () => {
+      const response = await fetch(`/api/image?url=${encodeURIComponent(url)}`,
+        { signal: AbortSignal.timeout(5000) });
       if (!response.ok) throw new Error('Thumbnail unavailable');
       const bitmap = await createImageBitmap(await response.blob());
       try {
@@ -155,19 +174,24 @@ async function rule34ThumbnailHash(url) {
           }
         return hash;
       } finally { bitmap.close(); }
-    })().catch(() => { visualHashCache.delete(url); return ''; });
+    }).then(hash => { if (!hash) visualHashCache.delete(url); return hash; });
     visualHashCache.set(url, pending);
   }
   return visualHashCache.get(url);
 }
 
-async function addRule34VisualHashes(items) {
-  await Promise.all(items.filter(item => item.source === 'rule34' && item.thumbnail)
-    .map(async item => { item.visualHash = await rule34ThumbnailHash(item.thumbnail); }));
+async function addCatalogVisualHashes(items, includeRule34 = true, signal) {
+  await Promise.all(items.filter(item => item.thumbnail &&
+      !/^[a-f0-9]{16}$/i.test(item.visualHash || '') && !item.visualSamples?.length &&
+      (includeRule34 && item.source === 'rule34' ||
+       item.source === 'sankaku' && item.creatorTag && (item.tags || []).length >= 12))
+    .map(async item => {
+      if (!signal?.aborted) item.visualHash = await catalogThumbnailHash(item.thumbnail);
+    }));
 }
 
 function toast(message) {
-  toastNode.textContent = message;
+  toastNode.textContent = globalThis.DartI18n?.translate(message) || message;
   toastNode.classList.add('visible');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastNode.classList.remove('visible'), 3000);
@@ -307,7 +331,7 @@ function restoreSession() {
       feed: 'illustrations',
       item: saved.item?.key ? rememberItem(saved.item) : saved.item,
       profileRef: saved.profileRef,
-      settingsSection: ['content', 'authors', 'sources', 'tabs'].includes(saved.settingsSection)
+      settingsSection: ['content', 'authors', 'sources', 'tabs', 'language'].includes(saved.settingsSection)
         ? saved.settingsSection : 'content',
       items: [], errors: {}, page: 0,
       loading: false, started: false,
@@ -511,16 +535,17 @@ function renderTabList() {
   const labels = { home: 'Главная', search: 'Поиск', detail: 'Работа', profile: 'Автор',
     bookmarks: 'Закладки', follows: 'Подписки', recommendations: 'Рекомендации',
     recent: 'История', settings: 'Настройки' };
-  const matching = tabs.filter(tab => `${tab.title} ${tab.query || ''}`.toLocaleLowerCase().includes(query));
+  const matching = tabs.filter(tab => `${tabHasCatalogTitle(tab) ? tab.title :
+    globalThis.DartI18n?.translate(tab.title) || tab.title} ${tab.query || ''}`.toLocaleLowerCase().includes(query));
   const markup = matching.map(tab => {
     const thumbnail = tab.kind === 'detail' && tab.item.thumbnail;
     const subtitle = [tab.pinned ? 'Закреплена' : tab.preview ? 'Временный просмотр' : labels[tab.kind],
       tab.item ? names[tab.item.source] : ''].filter(Boolean).join(' · ');
     return `<div class="tab-list-row ${tab.id === activeId ? 'active' : ''}">
-      <button type="button" class="tab-list-select" data-tab-select="${tab.id}" aria-label="Перейти: ${escapeHtml(tab.title)}">
+      <button type="button" class="tab-list-select" data-tab-select="${tab.id}" ${tabHasCatalogTitle(tab) ? `data-i18n-keep="${escapeHtml(JSON.stringify([tab.title]))}"` : ''} aria-label="Перейти: ${escapeHtml(tab.title)}">
         ${thumbnail ? `<img src="/api/image?url=${encodeURIComponent(thumbnail)}" loading="lazy" alt="">` : `<span class="tab-list-placeholder">${svg(tab.kind === 'settings' ? 'settings' : tab.kind === 'detail' ? 'grid' : 'file')}</span>`}
-        <span class="tab-list-description"><strong>${escapeHtml(tab.title)}</strong><small>${escapeHtml(subtitle)}</small></span></button>
-      <button class="tab-close" type="button" data-tab-list-close="${tab.id}" aria-label="Закрыть ${escapeHtml(tab.title)}">×</button></div>`;
+        <span class="tab-list-description"><strong${tabHasCatalogTitle(tab) ? ' data-no-i18n' : ''}>${escapeHtml(tab.title)}</strong><small>${escapeHtml(subtitle)}</small></span></button>
+      <button class="tab-close" type="button" data-tab-list-close="${tab.id}" ${tabHasCatalogTitle(tab) ? `data-i18n-keep="${escapeHtml(JSON.stringify([tab.title]))}"` : ''} aria-label="Закрыть ${escapeHtml(tab.title)}">×</button></div>`;
   }).join('') || '<p class="tab-list-empty">Вкладки не найдены</p>';
   if (list.innerHTML === markup) return;
   const scrollTop = list.scrollTop;
@@ -1258,6 +1283,7 @@ async function loadContentPreferences() {
   try {
     const saved = await request('/api/content-preferences');
     contentPreferences = {
+      language: ['en', 'ru', 'de'].includes(saved.language) ? saved.language : 'en',
       aiMode: ['all', 'generated', 'generated-and-assisted'].includes(saved.aiMode)
         ? saved.aiMode : 'all',
       excludedTags: CatalogLogic.normalizeExcludedTags(saved.excludedTags),
@@ -1265,6 +1291,7 @@ async function loadContentPreferences() {
         ? saved.attributionPriority : 'creator',
       hideViewedAndSaved: saved.hideViewedAndSaved === true
     };
+    globalThis.DartI18n?.setLanguage(contentPreferences.language);
   } catch { toast('Фильтры содержимого не удалось прочитать'); }
   if (currentTab()?.kind === 'settings') render();
 }
@@ -1278,11 +1305,12 @@ async function saveContentPreferences(next) {
       next.hideViewedAndSaved !== contentPreferences.hideViewedAndSaved;
     contentPreferences = await request('/api/content-preferences', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ aiMode: next.aiMode,
+      body: JSON.stringify({ language: next.language || globalThis.DartI18n?.language || 'en', aiMode: next.aiMode,
         excludedTags: CatalogLogic.normalizeExcludedTags(next.excludedTags),
         attributionPriority: next.attributionPriority,
         hideViewedAndSaved: next.hideViewedAndSaved })
     });
+    globalThis.DartI18n?.setLanguage(contentPreferences.language);
     for (const tab of contentChanged ? tabs.filter(entry => entry.kind === 'recommendations') : []) {
       tab.recommendationController?.abort();
       tab.started = false;
@@ -1743,9 +1771,14 @@ function normalizeFollowTag(value) {
   return String(value || '').trim().replace(/\s+/g, '_');
 }
 
+function tabHasCatalogTitle(tab) {
+  return tab.kind === 'profile' || tab.kind === 'search' && !!tab.query ||
+    tab.kind === 'detail' && !/^(Работа|Artwork|Werk) #/.test(tab.title);
+}
+
 function renderChrome() {
-  const markup = tabs.map(tab => `<div class="tab ${tab.id === activeId ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.pinned ? 'pinned' : ''}" data-kind="${tab.kind}" role="tab" aria-selected="${tab.id === activeId}" tabindex="${tab.id === activeId ? 0 : -1}" data-tab="${tab.id}" title="${escapeHtml(tab.title)}${tab.preview ? ' · Временный просмотр. Двойной клик — закрепить' : ''}">
-    <span class="tab-mark"></span><span class="tab-title">${escapeHtml(tab.title)}</span>
+  const markup = tabs.map(tab => `<div class="tab ${tab.id === activeId ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.pinned ? 'pinned' : ''}" data-kind="${tab.kind}" role="tab" aria-selected="${tab.id === activeId}" tabindex="${tab.id === activeId ? 0 : -1}" data-tab="${tab.id}" ${tabHasCatalogTitle(tab) ? `data-i18n-keep="${escapeHtml(JSON.stringify([tab.title]))}"` : ''} title="${escapeHtml(tab.title)}${tab.preview ? ' · Временный просмотр. Двойной клик — закрепить' : ''}">
+    <span class="tab-mark"></span><span class="tab-title"${tabHasCatalogTitle(tab) ? ' data-no-i18n' : ''}>${escapeHtml(tab.title)}</span>
     ${tab.preview || tab.pinned ? `<button class="tab-pin ${tab.pinned ? 'active' : ''}" type="button" data-pin="${tab.id}" title="${tab.pinned ? 'Открепить' : 'Закрепить'} вкладку" aria-label="${tab.pinned ? 'Открепить' : 'Закрепить'} вкладку">${svg('pin')}</button>` : ''}
     <button class="tab-close" type="button" data-close="${tab.id}" title="Закрыть вкладку" aria-label="Закрыть вкладку">×</button></div>`).join('');
   if (markup !== renderedTabsMarkup) {
@@ -1804,11 +1837,13 @@ function render() {
   if (sameTab) {
     const next = document.createElement('template');
     next.innerHTML = markup;
+    globalThis.DartI18n?.translateTree(next.content);
     reconcileChildren(main, next.content);
     imageLoader.refresh(main);
   } else {
     pauseDetailVideos();
     main.innerHTML = markup;
+    globalThis.DartI18n?.translateTree(main);
     imageLoader.mount(main);
   }
   main.dataset.tabId = String(tab.id);
@@ -1918,7 +1953,7 @@ function renderSearch(tab) {
   const title = tab.rating === 'explicit' ? 'NSFW иллюстрации' :
     tab.rating === 'all' ? 'Все изображения' : 'Иллюстрации';
   return `<div class="content">
-    <div class="search-heading"><h1>${title}${tab.query ? ` · ${escapeHtml(tab.query)}` : ''}</h1>${favoriteTag ? `<button class="favorite-tag-button ${isFavorite ? 'active' : ''}" data-action="favorite-tag" data-tag="${escapeHtml(favoriteTag)}" aria-label="${isFavorite ? 'Убрать тег из избранного' : 'Добавить тег в избранное'}" title="${isFavorite ? 'Убрать из избранных тегов' : 'Добавить в избранные теги'}" aria-pressed="${!!isFavorite}">${isFavorite ? '★' : '☆'}</button>` : ''}</div>
+    <div class="search-heading"><h1>${title}${tab.query ? ` · <span data-no-i18n>${escapeHtml(tab.query)}</span>` : ''}</h1>${favoriteTag ? `<button class="favorite-tag-button ${isFavorite ? 'active' : ''}" data-action="favorite-tag" data-tag="${escapeHtml(favoriteTag)}" aria-label="${isFavorite ? 'Убрать тег из избранного' : 'Добавить тег в избранное'}" title="${isFavorite ? 'Убрать из избранных тегов' : 'Добавить в избранные теги'}" aria-pressed="${!!isFavorite}">${isFavorite ? '★' : '☆'}</button>` : ''}</div>
     <p class="section-sub">Ищите по тегам, выбирайте источники и рейтинг.</p>
     <div class="search-tools">
       <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="category" data-category="${rating}">${label}</button>`).join('')}</div>
@@ -1966,7 +2001,7 @@ function renderRecommendationTagChips(tags) {
       mode === 'disabled' ? 'Выключен для рекомендаций' :
         common ? 'Общий тег: включите жёлтый приоритет, чтобы он влиял на подбор' :
           'Правая кнопка — настроить рекомендации';
-    return `<button class="filter-button recommendation-tag recommendation-tag-${mode}${common ? ' recommendation-tag-common' : ''}" data-action="query" data-recommendation-tag="${escapeHtml(tag)}" data-query="${escapeHtml(tag.replaceAll(' ', '_'))}" title="${hint}">#${escapeHtml(tag)} <small>×${count}</small></button>`;
+    return `<button class="filter-button recommendation-tag recommendation-tag-${mode}${common ? ' recommendation-tag-common' : ''}" data-action="query" data-recommendation-tag="${escapeHtml(tag)}" data-query="${escapeHtml(tag.replaceAll(' ', '_'))}" title="${hint}"><span data-no-i18n>#${escapeHtml(tag)}</span> <small>×${count}</small></button>`;
   }).join('');
 }
 
@@ -1983,7 +2018,7 @@ function openRecommendationTagMenu(chip, x, y) {
   const current = recommendationTagPreferences[tag] || 'normal';
   recommendationTagMenu.tag = tag;
   recommendationTagMenu.trigger = chip;
-  recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title">#${escapeHtml(tag)}</div>
+  recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title" data-no-i18n>#${escapeHtml(tag)}</div>
     <button type="button" role="menuitemradio" aria-checked="${current === 'priority'}" data-tag-mode="priority"><span class="recommendation-menu-dot priority-dot"></span>Показывать чаще</button>
     <button type="button" role="menuitemradio" aria-checked="${current === 'disabled'}" data-tag-mode="disabled"><span class="recommendation-menu-dot disabled-dot"></span>Выключить тег</button>
     <div class="recommendation-tag-menu-separator"></div>
@@ -2057,7 +2092,7 @@ function renderFollowArtist(follow, tab) {
     ? `${CatalogLogic.participantRoleLabel(CatalogLogic.participantRole(follow.artistId))} · Danbooru · Gelbooru ${settings.hasApiKey ? `#${gelbooruTag}` : 'требует ключ'} · Rule34 ${settings.hasRule34ApiKey ? `#${follow.artistId}` : 'требует ключ'}`
     : `${names[follow.source] || follow.source}${['gelbooru', 'rule34', 'sankaku'].includes(follow.source) ? ' · загрузчик' : ''}`;
   const editing = tab.editingFollowKey === follow.key;
-  return `<div class="followed-artist"><div><strong>${escapeHtml(follow.name)}</strong><span>${escapeHtml(sourceLabel)}</span></div>
+  return `<div class="followed-artist"><div><strong data-no-i18n>${escapeHtml(follow.name)}</strong><span>${escapeHtml(sourceLabel)}</span></div>
     ${editing ? `<form class="follow-tag-form" data-follow-key="${escapeHtml(follow.key)}">
       <label>Тег художника на Gelbooru<input name="gelbooruTag" maxlength="100" value="${escapeHtml(tab.editingFollowTag ?? gelbooruTag)}" placeholder="${escapeHtml(follow.artistId)}"></label>
       <small>Если имя тега отличается, укажите его здесь. Пустое поле вернёт тег Danbooru.</small>
@@ -2273,8 +2308,8 @@ function renderCard(item, isNew = false) {
   const sourceTitle = provenance.extra
     ? `Объединено ${provenance.total} записей · ${sourceDetails}` : sourceName;
   return `<article class="card" data-work-key="${escapeHtml(item.key)}"><div class="card-art ${isNew ? 'new-item' : ''}">
-    <button class="card-art" data-action="open" data-key="${escapeHtml(item.key)}" aria-label="Открыть ${escapeHtml(item.title)} · ${escapeHtml(sourceTitle)}">
-      ${item.thumbnail ? `<img data-image-url="${escapeHtml(item.thumbnail)}" alt="" decoding="async">` : `<span class="text-preview">${escapeHtml(item.title.slice(0, 180))}</span>`}
+    <button class="card-art" data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" aria-label="Открыть ${escapeHtml(item.title)} · ${escapeHtml(sourceTitle)}">
+      ${item.thumbnail ? `<img data-image-url="${escapeHtml(item.thumbnail)}" alt="" decoding="async">` : `<span class="text-preview"${/^(Работа|Artwork|Werk) #/.test(item.title) ? '' : ' data-no-i18n'}>${escapeHtml(item.title.slice(0, 180))}</span>`}
       <span class="image-fail">Изображение недоступно</span>
       <span class="source-badge" title="${escapeHtml(sourceTitle)}">${escapeHtml(sourceBadge)}</span>
       ${isNew ? '<span class="new-badge">Новое</span>' : ''}
@@ -2283,8 +2318,8 @@ function renderCard(item, isNew = false) {
       ${item.images?.some(url => CatalogLogic.videoMimeType(url)) ? '<span class="video-badge" role="img" aria-label="Видео" title="Видео">▶</span>' : ''}
     </button>
     <button class="heart-button ${savedKeys.has(item.key) ? 'saved' : ''}" data-action="bookmark" data-key="${escapeHtml(item.key)}" title="Закладка" aria-label="Закладка" aria-pressed="${savedKeys.has(item.key)}">${svg('heart')}</button>
-  </div><button class="card-title" data-action="open" data-key="${escapeHtml(item.key)}" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</button>
-  <button class="card-artist" data-action="${taggedArtist && primary.role === 'unknown' ? 'follow-tag-search' : 'attribution-primary'}" data-key="${escapeHtml(item.key)}" ${['creator', 'contributor'].includes(primary.role) ? creatorActionData(item) : ''} title="${escapeHtml(roleLabel)}: ${escapeHtml(artistLabel)}"><span class="artist-avatar">${escapeHtml((taggedArtist && primary.role === 'unknown' ? artistLabel.slice(1) : artistLabel)[0].toUpperCase())}</span><span><small>${escapeHtml(roleLabel)}</small>${escapeHtml(artistLabel)}</span></button>${currentTab()?.sort === 'popular' && Number.isInteger(item.popularityCount) ? `<div class="card-popularity">Голоса: ${item.popularityCount}</div>` : ''}</article>`;
+  </div><button class="card-title" data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</button>
+  <button class="card-artist" data-action="${taggedArtist && primary.role === 'unknown' ? 'follow-tag-search' : 'attribution-primary'}" data-key="${escapeHtml(item.key)}" ${['creator', 'contributor'].includes(primary.role) ? creatorActionData(item) : ''} data-i18n-keep="${escapeHtml(JSON.stringify(primary.role === 'unknown' && !taggedArtist ? [] : [artistLabel]))}" title="${escapeHtml(roleLabel)}: ${escapeHtml(artistLabel)}"><span class="artist-avatar">${escapeHtml((taggedArtist && primary.role === 'unknown' ? artistLabel.slice(1) : artistLabel)[0].toUpperCase())}</span><span><small>${escapeHtml(roleLabel)}</small>${escapeHtml(artistLabel)}</span></button>${currentTab()?.sort === 'popular' && Number.isInteger(item.popularityCount) ? `<div class="card-popularity">Голоса: ${item.popularityCount}</div>` : ''}</article>`;
 }
 
 function skeletons(count) {
@@ -2314,9 +2349,9 @@ function renderDetail(tab) {
         ${tags.length ? renderArtworkTags(tab, tags, visibleTags) : ''}
       </div>
     </div>
-    <aside class="creator-panel"><div class="creator-heading"><span class="artist-avatar">${escapeHtml((primary.name || '?')[0].toUpperCase())}</span><div><div class="muted">${escapeHtml(primaryRole)}</div><div class="creator-name">${escapeHtml(primary.name)}</div></div></div>
+    <aside class="creator-panel"><div class="creator-heading"><span class="artist-avatar">${escapeHtml((primary.name || '?')[0].toUpperCase())}</span><div><div class="muted">${escapeHtml(primaryRole)}</div><div class="creator-name"${primary.role !== 'unknown' ? ' data-no-i18n' : ''}>${escapeHtml(primary.name)}</div></div></div>
       ${renderParticipantProfiles(item, attribution)}
-      ${attribution.original ? `<div class="attribution-entry"><strong>Исходная ссылка</strong><button class="attribution-link" data-action="original" data-key="${escapeHtml(item.key)}" title="${escapeHtml(attribution.original.url)}">${escapeHtml(attribution.original.name)} ↗</button></div>` : ''}
+      ${attribution.original ? `<div class="attribution-entry"><strong>Исходная ссылка</strong><button class="attribution-link" data-action="original" data-key="${escapeHtml(item.key)}" data-no-i18n title="${escapeHtml(attribution.original.url)}">${escapeHtml(attribution.original.name)} ↗</button></div>` : ''}
       <dl><dt>${sourceLabel.includes(' · ') ? 'Каталоги' : 'Каталог'}</dt><dd class="work-sources">${renderWorkSources(item)}</dd><dt>ID работы · ${escapeHtml(names[item.source] || item.source)}</dt><dd>${escapeHtml(item.id)}</dd></dl></aside>
   </div>
     ${images.length && attribution.creator ? `<section class="section creator-works-section"><div class="section-head"><h2>Ещё работы автора</h2><button class="text-button" data-action="creator-profile" data-key="${escapeHtml(item.key)}" ${creatorActionData(item)}>Все работы автора</button></div>
@@ -2348,7 +2383,7 @@ function renderParticipantProfiles(item, attribution) {
       : person.participantRole === 'voice_actor' ? 'Профиль актёра озвучки' : 'Профиль участника';
     const headingVisible = index > 0 || !['creator', 'contributor'].includes(attribution.primary.role);
     return `<div class="participant-profile" data-participant-tag="${escapeHtml(person.tag)}">
-      ${headingVisible ? `<div class="creator-heading"><span class="artist-avatar">${escapeHtml(person.name[0].toUpperCase())}</span><div><div class="muted">${escapeHtml(person.roleLabel)}</div><div class="creator-name">${escapeHtml(person.name)}</div></div></div>` : ''}
+      ${headingVisible ? `<div class="creator-heading"><span class="artist-avatar">${escapeHtml(person.name[0].toUpperCase())}</span><div><div class="muted">${escapeHtml(person.roleLabel)}</div><div class="creator-name" data-no-i18n>${escapeHtml(person.name)}</div></div></div>` : ''}
       <button class="${index === 0 ? 'primary-button' : 'secondary-button'} profile-button" data-action="creator-profile" data-key="${escapeHtml(item.key)}" ${creatorActionData(item, person)}>${label}</button>
       ${followButton(person.follow)}</div>`;
   }).join('');
@@ -2422,11 +2457,11 @@ function ratingFilterFor(item) {
 function formatDate(value) {
   if (!value) return 'Дата не указана';
   const date = new Date(value);
-  return isNaN(date.valueOf()) ? 'Дата не указана' : new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+  return isNaN(date.valueOf()) ? 'Дата не указана' : new Intl.DateTimeFormat(globalThis.DartI18n?.locale || 'en-US', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
 }
 
 function renderSettings() {
-  const section = ['content', 'authors', 'sources', 'tabs'].includes(currentTab()?.settingsSection)
+  const section = ['content', 'authors', 'sources', 'tabs', 'language'].includes(currentTab()?.settingsSection)
     ? currentTab().settingsSection : 'content';
   const hideGenerated = contentPreferences.aiMode !== 'all';
   const hideAssisted = contentPreferences.aiMode === 'generated-and-assisted';
@@ -2438,20 +2473,27 @@ function renderSettings() {
         <button type="button" id="settings-tab-authors" role="tab" aria-selected="${section === 'authors'}" aria-controls="settings-panel" class="settings-section ${section === 'authors' ? 'active' : ''}" data-action="settings-section" data-section="authors">Авторы<span>Автор, источник и загрузчик</span></button>
         <button type="button" id="settings-tab-sources" role="tab" aria-selected="${section === 'sources'}" aria-controls="settings-panel" class="settings-section ${section === 'sources' ? 'active' : ''}" data-action="settings-section" data-section="sources">Источники<span>Подключения и ключи</span></button>
         <button type="button" id="settings-tab-tabs" role="tab" aria-selected="${section === 'tabs'}" aria-controls="settings-panel" class="settings-section ${section === 'tabs' ? 'active' : ''}" data-action="settings-section" data-section="tabs">Вкладки<span>Просмотр и закрепление</span></button>
+        <button type="button" id="settings-tab-language" role="tab" aria-selected="${section === 'language'}" aria-controls="settings-panel" class="settings-section settings-language-section ${section === 'language' ? 'active' : ''}" data-action="settings-section" data-section="language">Язык<span data-no-i18n>English · Русский · Deutsch</span></button>
       </nav>
       <div class="settings-view" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${section}">
+        ${section === 'language' ? `<div class="settings-card"><h2>Язык интерфейса</h2><p>Выберите язык интерфейса. Названия работ, имена авторов и поисковые теги остаются на языке источника.</p>
+          <label class="language-picker">Язык<select name="interfaceLanguage" aria-label="Язык интерфейса">
+            <option value="en" ${contentPreferences.language === 'en' ? 'selected' : ''}>English</option>
+            <option value="ru" ${contentPreferences.language === 'ru' ? 'selected' : ''}>Русский</option>
+            <option value="de" ${contentPreferences.language === 'de' ? 'selected' : ''}>Deutsch</option>
+          </select></label><p class="settings-hint">Выбор сохраняется в этом профиле и применяется сразу.</p><p class="settings-hint">Английский — язык по умолчанию.</p></div>` : ''}
         ${section === 'content' ? `
         <div class="settings-card"><h2>AI изображения</h2><p>Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах и закладках. Сохранённые работы остаются на месте.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideGenerated" ${hideGenerated ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать AI-generated</strong><small>Работы с метками AI генерации и известных генераторов.</small></span></label>
           <label class="settings-toggle settings-toggle-child"><input type="checkbox" name="hideAssisted" ${hideAssisted ? 'checked' : ''} ${!hideGenerated || contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать также AI-assisted</strong><small>Если выключено, работы с участием AI остаются видимыми.</small></span></label>
-          <p class="settings-hint">Учитываются метки вроде #ai_generated, #ai_art, #stable_diffusion, #novelai и #ai_assisted. Работа без такой метки не определяется автоматически как AI.</p>
+          <p class="settings-hint">Учитываются метки вроде #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai и #ai-assisted. Работа без такой метки не определяется автоматически как AI.</p>
         </div>
         <div class="settings-card"><h2>Уже просмотренное</h2><p>По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Закладки и история просмотра останутся доступны в своих вкладках.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideViewedAndSaved" ${contentPreferences.hideViewedAndSaved ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать просмотренные и сохранённые работы</strong><small>Учитываются также объединённые копии одной работы из разных источников. Изначально выключено.</small></span></label>
         </div>
         <div class="settings-card"><h2>Исключённые теги</h2><p>Работы с указанными тегами не появятся в каталоге. Совпадение точное: #latex не скрывает #latex_gloves.</p>
           <form id="excluded-tags-form" class="excluded-tags-form"><input name="tags" type="text" maxlength="1000" autocomplete="off" placeholder="Например, 3d, ai_generated_background" aria-label="Добавить исключённые теги" ${contentPreferencesSaving ? 'disabled' : ''}><button class="primary-button" type="submit" ${contentPreferencesSaving ? 'disabled' : ''}>Добавить</button></form>
-          ${excluded.length ? `<div class="excluded-tags-list">${excluded.map(tag => `<button type="button" class="excluded-tag" data-action="remove-excluded-tag" data-tag="${escapeHtml(tag)}" aria-label="Убрать тег ${escapeHtml(tag)}">#${escapeHtml(tag.replaceAll(' ', '_'))} <span aria-hidden="true">×</span></button>`).join('')}</div>` : '<p class="settings-hint">Список пуст. Можно ввести несколько тегов через запятую.</p>'}
+          ${excluded.length ? `<div class="excluded-tags-list">${excluded.map(tag => `<button type="button" class="excluded-tag" data-action="remove-excluded-tag" data-tag="${escapeHtml(tag)}" data-i18n-keep="${escapeHtml(JSON.stringify([tag]))}" aria-label="Убрать тег ${escapeHtml(tag)}"><span data-no-i18n>#${escapeHtml(tag.replaceAll(' ', '_'))}</span> <span aria-hidden="true">×</span></button>`).join('')}</div>` : '<p class="settings-hint">Список пуст. Можно ввести несколько тегов через запятую.</p>'}
           <p class="settings-hint">Фильтр проверяет все теги объединённой работы из Danbooru, Gelbooru, Rule34 и Sankaku.</p>
         </div>` : section === 'authors' ? `
         <div class="settings-card"><h2>Кого показывать первым</h2><p>На карточке и в шапке работы можно первым показать художника, сайт оригинальной публикации или загрузчика. На странице работы все известные данные остаются видимыми отдельно.</p>
@@ -2465,7 +2507,7 @@ function renderSettings() {
         <div class="settings-card"><h2>Как открывать работы</h2>
           <label class="settings-toggle"><input type="radio" name="artworkTabs" value="preview" ${tabPreferences.artworkTabs === 'preview' ? 'checked' : ''}><span><strong>Одна временная вкладка просмотра</strong><small>Следующий арт заменяет временную вкладку. «Назад» возвращает предыдущую работу и место в выдаче.</small></span></label>
           <label class="settings-toggle"><input type="radio" name="artworkTabs" value="new" ${tabPreferences.artworkTabs === 'new' ? 'checked' : ''}><span><strong>Каждая работа в отдельной вкладке</strong><small>Открытые работы остаются в верхней строке до закрытия.</small></span></label>
-        </div><div class="settings-card"><h2>Управление вкладками</h2><p>Ctrl + клик или средняя кнопка мыши открывает работу в отдельной фоновой вкладке. Ctrl + Shift + клик сразу переключает на неё.</p><p>Двойной клик по временной вкладке или значок закрепления оставляет её открытой. Закреплённые вкладки защищены от команд «Закрыть остальные» и «Закрыть справа».</p><p>Кнопка списка рядом с «+» показывает все вкладки с полными названиями и поиском. Меню по правому клику помогает закрывать несколько вкладок.</p></div>` : `
+        </div><div class="settings-card"><h2>Управление вкладками</h2><p>Ctrl + клик или средняя кнопка мыши открывает работу в отдельной фоновой вкладке. Ctrl + Shift + клик сразу переключает на неё.</p><p>Двойной клик по временной вкладке или значок закрепления оставляет её открытой. Закреплённые вкладки защищены от команд «Закрыть остальные» и «Закрыть справа».</p><p>Кнопка списка рядом с «+» показывает все вкладки с полными названиями и поиском. Меню по правому клику помогает закрывать несколько вкладок.</p></div>` : section === 'sources' ? `
         <div class="settings-card"><h2>Источники</h2><p>Danbooru доступен без ключа. Gelbooru и Rule34 требуют ваши user ID и API key.</p>
           <div class="source-filters"><span class="filter-button active">Danbooru</span><span class="filter-button ${settings.hasApiKey ? 'active' : ''}">Gelbooru ${settings.hasApiKey ? 'подключён' : 'требует ключ'}</span><span class="filter-button ${settings.hasRule34ApiKey ? 'active' : ''}">Rule34 ${settings.hasRule34ApiKey ? 'подключён' : 'требует ключ'}</span><span class="filter-button ${settings.hasSankakuSession ? 'active' : ''}">Sankaku ${settings.hasSankakuSession ? 'вход выполнен' : 'гостевой доступ'}</span></div>
         </div>
@@ -2485,7 +2527,7 @@ function renderSettings() {
           <label class="field">User ID<input name="rule34UserId" value="${escapeHtml(settings.rule34UserId)}" inputmode="numeric" autocomplete="off"><small>Ваш числовой ID на Rule34.</small></label>
           <label class="field">API key<input name="rule34ApiKey" type="password" value="" autocomplete="off" placeholder="${settings.hasRule34ApiKey ? 'Ключ уже сохранён' : 'Введите API key'}"><small>Пустое поле сохраняет прежний ключ. Чтобы удалить его, очистите User ID и сохраните.</small></label>
           <button class="primary-button" type="submit">Сохранить</button>
-        </form>`}
+        </form>` : ''}
       </div>
     </div>
   </div>`;
@@ -2913,9 +2955,9 @@ function activeTagTerm() {
 function renderPopover() {
   const typed = CatalogLogic.normalizeSearch(searchInput.value);
   const history = getSearchHistory().filter(entry => !typed || entry.toLowerCase().includes(typed)).slice(0, 6);
-  popover.innerHTML = `${history.length ? '<div class="popover-title">Недавние запросы</div>' + history.map(entry => `<button type="button" class="popover-row" data-query="${escapeHtml(entry)}">${escapeHtml(entry)}</button>`).join('') : ''}
-    ${tagSuggestions.length ? `<div class="popover-title">Теги Danbooru · Gelbooru · Rule34</div>${tagSuggestions.map(tag => `<button type="button" class="popover-row tag-suggestion" data-tag="${escapeHtml(tag.name)}"><span>#${escapeHtml(tag.name.replaceAll('_', ' '))}</span><span class="popover-muted">${tag.sources.map(source => escapeHtml(names[source] || source)).join(' · ')} · ${Number(tag.count).toLocaleString('ru')}</span></button>`).join('')}` : ''}
-    ${favoriteTags.length ? `<div class="popover-title" style="margin-top:12px">Избранные теги</div>${favoriteTags.filter(tag => !typed || tag.includes(typed)).slice(0, 5).map(tag => `<button type="button" class="popover-row" data-query="${escapeHtml(tag)}">#${escapeHtml(tag)} <span class="popover-muted">избранное</span></button>`).join('')}` : ''}`;
+  popover.innerHTML = `${history.length ? '<div class="popover-title">Недавние запросы</div>' + history.map(entry => `<button type="button" class="popover-row" data-query="${escapeHtml(entry)}" data-no-i18n>${escapeHtml(entry)}</button>`).join('') : ''}
+    ${tagSuggestions.length ? `<div class="popover-title">Теги Danbooru · Gelbooru · Rule34</div>${tagSuggestions.map(tag => `<button type="button" class="popover-row tag-suggestion" data-tag="${escapeHtml(tag.name)}"><span data-no-i18n>#${escapeHtml(tag.name.replaceAll('_', ' '))}</span><span class="popover-muted">${tag.sources.map(source => escapeHtml(names[source] || source)).join(' · ')} · ${Number(tag.count).toLocaleString(globalThis.DartI18n?.locale || 'en-US')}</span></button>`).join('')}` : ''}
+    ${favoriteTags.length ? `<div class="popover-title" style="margin-top:12px">Избранные теги</div>${favoriteTags.filter(tag => !typed || tag.includes(typed)).slice(0, 5).map(tag => `<button type="button" class="popover-row" data-query="${escapeHtml(tag)}"><span data-no-i18n>#${escapeHtml(tag)}</span> <span class="popover-muted">избранное</span></button>`).join('')}` : ''}`;
   popover.hidden = !popover.children.length;
 }
 function showPopover() {
@@ -3026,6 +3068,10 @@ main.addEventListener('input', event => {
 main.addEventListener('change', event => {
   if (currentTab()?.kind !== 'settings' || contentPreferencesSaving) return;
   const name = event.target.name;
+  if (name === 'interfaceLanguage') {
+    saveContentPreferences({ ...contentPreferences, language: event.target.value });
+    return;
+  }
   if (name === 'artworkTabs') {
     tabPreferences.artworkTabs = event.target.value === 'new' ? 'new' : 'preview';
     try { localStorage.setItem('artcatalog-tab-preferences', JSON.stringify(tabPreferences)); }
@@ -3144,7 +3190,7 @@ main.addEventListener('click', event => {
   const action = control.dataset.action;
   const item = itemForControl(control);
   if (action === 'settings-section' && tab?.kind === 'settings') {
-    tab.settingsSection = ['content', 'authors', 'sources', 'tabs'].includes(control.dataset.section)
+    tab.settingsSection = ['content', 'authors', 'sources', 'tabs', 'language'].includes(control.dataset.section)
       ? control.dataset.section : 'content';
     saveSession(); render();
   }

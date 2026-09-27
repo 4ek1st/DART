@@ -169,30 +169,38 @@ test('content preferences save separately from API credentials and survive a res
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    assert.deepEqual(await get(), { aiMode: 'all', excludedTags: [],
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', excludedTags: [],
       attributionPriority: 'creator', hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] }, 'https://other.example')).status, 403);
     assert.equal((await post({ aiMode: 'invalid', excludedTags: [] })).status, 400);
     assert.equal((await post({ aiMode: 'generated', excludedTags: ['a'.repeat(101)] })).status, 400);
-    assert.deepEqual(await get(), { aiMode: 'all', excludedTags: [],
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', excludedTags: [],
       attributionPriority: 'creator', hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] })).status, 200);
-    assert.deepEqual(await get(), { aiMode: 'generated-and-assisted',
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: false });
     assert.ok(fs.existsSync(path.join(dataDirectory, 'content-preferences.json')));
     assert.equal(fs.existsSync(path.join(dataDirectory, 'settings.bin')), false);
     await stopServer(server);
     server = await startServer(dataDirectory);
-    assert.deepEqual(await get(), { aiMode: 'generated-and-assisted',
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: true })).status, 200);
     assert.equal((await get()).hideViewedAndSaved, true);
+    for (const language of ['de', 'ru', 'en']) {
+      const previous = await get();
+      assert.equal((await post({ ...previous, language })).status, 200);
+      assert.deepEqual(await get(), { ...previous, language });
+      await stopServer(server);
+      server = await startServer(dataDirectory);
+      assert.deepEqual(await get(), { ...previous, language });
+    }
     const viewedUrl = server.origin + '/api/viewed-identities';
     const saveViewed = (origin, tokens) => fetch(viewedUrl, {
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },

@@ -186,9 +186,23 @@
   }
 
   function itemVisualSamples(item) {
-    if (Array.isArray(item.visualSamples)) return item.visualSamples;
-    if (item.source !== 'rule34' || !/^[a-f0-9]{16}$/i.test(item.visualHash || ''))
+    const saved = (item.visualSamples || []).filter(sample =>
+      /^[a-f0-9]{16}$/i.test(sample?.hash || '') && sample.owner && Array.isArray(sample.tags));
+    if (saved.length) return saved;
+    if (!['rule34', 'sankaku'].includes(item.source) ||
+        !/^[a-f0-9]{16}$/i.test(item.visualHash || ''))
       return [];
+    if (item.source === 'sankaku') {
+      // Sankaku IDs are opaque, and variants frequently lack a parent/source URL.
+      // Use a confirmed creator, never the account that uploaded the file.
+      const creator = String(item.creatorTag || '').trim().toLowerCase();
+      const tags = [...new Set((item.tags || []).map(normalizeFilterTag))].filter(Boolean).sort();
+      return creator && tags.length >= 12 ? [{ hash: item.visualHash.toLowerCase(),
+        owner: `sankaku:creator:${creator}`, source: 'sankaku', tags,
+        characters: [...new Set((item.characterTags || []).map(normalizeFilterTag))].sort(),
+        uploader: String(item.uploaderId || '').trim().toLowerCase(),
+        published: item.published || '', publication: originalPostIdentity(item.originalUrl) }] : [];
+    }
     const owner = String(item.artistId || '').trim().toLowerCase();
     const tags = [...new Set((item.tags || []).map(tag => String(tag).toLowerCase()))].sort();
     return owner && tags.length >= 3
@@ -211,6 +225,27 @@
     let overlap = 0;
     for (const tag of firstTags) if (secondTags.has(tag)) overlap++;
     return overlap >= 3 && overlap / (firstTags.size + secondTags.size - overlap) >= 0.65;
+  }
+
+  function compatibleVisualSamples(first, second, distance) {
+    if (!similarVisualTags(first.tags, second.tags)) return false;
+    if (first.source !== 'sankaku' && second.source !== 'sankaku') return true;
+    if (first.source !== second.source) return false;
+    if (first.publication && second.publication && first.publication !== second.publication)
+      return false;
+    const characters = first.characters || [];
+    const otherCharacters = second.characters || [];
+    if (characters.length && otherCharacters.length &&
+        !characters.some(tag => otherCharacters.includes(tag))) return false;
+    // Near-identical copies can be uploaded again later. Larger changes (text,
+    // clothing, translations) need evidence of the same compact upload batch.
+    if (distance <= 2) return true;
+    const time = Date.parse(first.published || '');
+    const otherTime = Date.parse(second.published || '');
+    return first.tags.length >= 12 && second.tags.length >= 12 &&
+      first.uploader && first.uploader === second.uploader &&
+      Number.isFinite(time) && Number.isFinite(otherTime) &&
+      Math.abs(time - otherTime) <= 20 * 60 * 1000;
   }
 
   const groupedCache = new WeakMap();
@@ -281,7 +316,7 @@
       const distance = visualDistance(sample.hash, node.hash);
       if (distance <= 8)
         for (const previous of node.entries)
-          if (similarVisualTags(sample.tags, previous.sample.tags))
+          if (compatibleVisualSamples(sample, previous.sample, distance))
             roots[find(index)] = find(previous.index);
       for (const [edge, child] of node.children)
         if (edge >= distance - 8 && edge <= distance + 8)
@@ -292,7 +327,7 @@
       while (node) {
         const distance = visualDistance(sample.hash, node.hash);
         if (distance === 0) {
-          if (!node.entries.some(entry =>
+          if (!node.entries.some(entry => entry.index === index &&
               entry.sample.tags.join(' ') === sample.tags.join(' ')))
             node.entries.push({ sample, index });
           return;
@@ -338,7 +373,7 @@
           if (key) keys.add(key);
         for (const identity of itemIdentities(item)) identities.add(identity);
         for (const sample of itemVisualSamples(item)) {
-          const signature = `${sample.owner}:${sample.hash}:${sample.tags.join(' ')}`;
+          const signature = JSON.stringify(sample);
           if (!seenVisualSamples.has(signature) && visualSamples.length < 100) {
             visualSamples.push(sample);
             seenVisualSamples.add(signature);
@@ -387,6 +422,11 @@
     const merged = { ...previous, ...incoming };
     merged.memberKeys = [...new Set([previous.key, ...(previous.memberKeys || []),
       ...(incoming.memberKeys || [])].filter(Boolean))];
+    merged.visualHash = incoming.visualHash || previous.visualHash || '';
+    merged.visualSamples = [...new Map([...itemVisualSamples(previous), ...itemVisualSamples(incoming)]
+      .map(sample => [JSON.stringify(sample), sample])).values()].slice(0, 100);
+    if (merged.memberKeys.length > 1) merged.allTags = [...new Set([
+      ...(previous.allTags || previous.tags || []), ...(incoming.allTags || []), ...(incoming.tags || [])])];
     if (incoming.source === 'sankaku') Object.assign(merged,
       refreshSankakuMedia(previous, incoming, incoming.images || []));
     // Post listings contain flat tags and may omit categories learned from a detail response.
@@ -491,7 +531,7 @@
   }
 
   const generatedTags = new Set([
-    'ai generated', 'ai art', 'ai artwork', 'ai image', 'ai illustration',
+    'ai generated', 'ai created', 'ai art', 'ai artwork', 'ai image', 'ai illustration',
     'stable diffusion', 'nai diffusion', 'novelai', 'midjourney',
     'dall e', 'dall e 2', 'dall e 3', 'comfyui', 'automatic1111',
     'thisanimedoesnotexist', 'generated with ai', 'made with ai'

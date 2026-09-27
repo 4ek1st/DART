@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,59 +7,61 @@
   <title>DART — Discover Art</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/catalog-logic.js" defer></script>
+  <script src="/locales.js" defer></script>
+  <script src="/i18n.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/desktop-shell.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
-    <div class="tabs-bar" aria-label="Открытые вкладки">
-      <button id="install-update-button" class="install-update-button" type="button" title="Установить обновление" aria-label="Установить обновление" hidden>↑</button>
+    <div class="tabs-bar" aria-label="Open tabs">
+      <button id="install-update-button" class="install-update-button" type="button" title="Install update" aria-label="Install update" hidden>↑</button>
       <div class="nav-arrows">
-        <button id="back-button" class="icon-button" title="Назад" aria-label="Назад"></button>
-        <button id="forward-button" class="icon-button" title="Вперёд" aria-label="Вперёд"></button>
+        <button id="back-button" class="icon-button" title="Back" aria-label="Back"></button>
+        <button id="forward-button" class="icon-button" title="Forward" aria-label="Forward"></button>
       </div>
       <div id="tabs" class="tabs" role="tablist"></div>
-      <button id="tab-list-button" class="tab-list-button" title="Все вкладки" aria-label="Все вкладки" aria-expanded="false" aria-controls="tab-list-panel"></button>
-      <button id="new-tab-button" class="new-tab" title="Новая вкладка" aria-label="Новая вкладка">+</button>
+      <button id="tab-list-button" class="tab-list-button" title="All tabs" aria-label="All tabs" aria-expanded="false" aria-controls="tab-list-panel"></button>
+      <button id="new-tab-button" class="new-tab" title="New tab" aria-label="New tab">+</button>
       <div class="window-drag-space" aria-hidden="true"></div>
-      <div id="window-controls" class="window-controls" aria-label="Управление окном" hidden>
-        <button type="button" data-window-command="minimize" aria-label="Свернуть" title="Свернуть"><svg viewBox="0 0 16 16"><path d="M3 8h10"/></svg></button>
-        <button type="button" data-window-command="maximize" aria-label="Развернуть" title="Развернуть"><svg viewBox="0 0 16 16"><path id="maximize-glyph" d="M3.5 3.5h9v9h-9z"/></svg></button>
-        <button type="button" class="window-close" data-window-command="close" aria-label="Закрыть окно" title="Закрыть окно"><svg viewBox="0 0 16 16"><path d="m3.5 3.5 9 9m0-9-9 9"/></svg></button>
+      <div id="window-controls" class="window-controls" aria-label="Window controls" hidden>
+        <button type="button" data-window-command="minimize" aria-label="Minimize" title="Minimize"><svg viewBox="0 0 16 16"><path d="M3 8h10"/></svg></button>
+        <button type="button" data-window-command="maximize" aria-label="Maximize" title="Maximize"><svg viewBox="0 0 16 16"><path id="maximize-glyph" d="M3.5 3.5h9v9h-9z"/></svg></button>
+        <button type="button" class="window-close" data-window-command="close" aria-label="Close window" title="Close window"><svg viewBox="0 0 16 16"><path d="m3.5 3.5 9 9m0-9-9 9"/></svg></button>
       </div>
     </div>
 
     <header class="topbar">
-      <button id="menu-button" class="icon-button menu-button" title="Меню" aria-label="Меню"></button>
-      <button id="brand-button" class="brand" title="DART — Discover Art · Главная" aria-label="DART — Discover Art · Главная">D<span>ART</span></button>
+      <button id="menu-button" class="icon-button menu-button" title="Menu" aria-label="Menu"></button>
+      <button id="brand-button" class="brand" title="DART — Discover Art · Home" aria-label="DART — Discover Art · Home">D<span>ART</span></button>
       <form id="search-form" class="search-form" autocomplete="off">
         <span class="search-glyph" aria-hidden="true"></span>
-        <input id="search-input" name="q" type="search" placeholder="Поиск изображений и публикаций · Ctrl+K" aria-label="Поиск изображений и публикаций" aria-keyshortcuts="Control+K" maxlength="200">
-        <button class="search-submit" type="submit">Найти</button>
+        <input id="search-input" name="q" type="search" placeholder="Search images and posts · Ctrl+K" aria-label="Search images and posts" aria-keyshortcuts="Control+K" maxlength="200">
+        <button class="search-submit" type="submit">Find</button>
         <div id="search-popover" class="search-popover" hidden></div>
       </form>
       <div class="header-actions">
-        <button id="bookmarks-button" class="icon-button" title="Закладки" aria-label="Закладки"></button>
-        <button id="settings-button" class="icon-button" title="Настройки" aria-label="Настройки"></button>
+        <button id="bookmarks-button" class="icon-button" title="Bookmarks" aria-label="Bookmarks"></button>
+        <button id="settings-button" class="icon-button" title="Settings" aria-label="Settings"></button>
       </div>
     </header>
 
     <div class="workspace">
-      <aside id="sidebar" class="sidebar" aria-label="Навигация">
+      <aside id="sidebar" class="sidebar" aria-label="Navigation">
         <nav class="side-nav">
           <div class="nav-group">
-            <button data-nav="home" class="side-link active"><span data-icon="home"></span><span>Главная</span></button>
-            <button data-nav="search" class="side-link"><span data-icon="grid"></span><span>Иллюстрации</span></button>
-            <button data-nav="adult" class="side-link"><span data-icon="heart"></span><span>NSFW иллюстрации</span></button>
+            <button data-nav="home" class="side-link active"><span data-icon="home"></span><span>Home</span></button>
+            <button data-nav="search" class="side-link"><span data-icon="grid"></span><span>Illustrations</span></button>
+            <button data-nav="adult" class="side-link"><span data-icon="heart"></span><span>NSFW illustrations</span></button>
           </div>
           <div class="nav-group separated">
-            <button data-nav="recommendations" class="side-link"><span data-icon="spark"></span><span>Рекомендации</span></button>
-            <button data-nav="follows" class="side-link"><span data-icon="users"></span><span>Подписки</span></button>
-            <button data-nav="bookmarks" class="side-link"><span data-icon="heart"></span><span>Закладки</span></button>
-            <button data-nav="recent" class="side-link"><span data-icon="clock"></span><span>Недавно открытое</span></button>
+            <button data-nav="recommendations" class="side-link"><span data-icon="spark"></span><span>Recommendations</span></button>
+            <button data-nav="follows" class="side-link"><span data-icon="users"></span><span>Following</span></button>
+            <button data-nav="bookmarks" class="side-link"><span data-icon="heart"></span><span>Bookmarks</span></button>
+            <button data-nav="recent" class="side-link"><span data-icon="clock"></span><span>Recently opened</span></button>
           </div>
           <div class="nav-group separated">
-            <button data-nav="settings" class="side-link"><span data-icon="settings"></span><span>Источники и настройки</span></button>
+            <button data-nav="settings" class="side-link"><span data-icon="settings"></span><span>Sources and settings</span></button>
           </div>
         </nav>
         <div class="sidebar-footer">
