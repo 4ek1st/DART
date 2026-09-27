@@ -2,7 +2,7 @@
 
 <img src="docs/assets/dart-banner.svg" alt="DART — Discover Art" width="900">
 
-Discover new art. Save your favorites. Follow the artists you love.
+Browse **Danbooru**, **Gelbooru**, **Rule34 (R34)**, and **Sankaku** in one Windows app.
 
 <a href="https://github.com/4ek1st/DART/releases/latest/download/DART.Windows.exe">
   <img src="docs/assets/download-windows.svg" alt="Download for Windows" width="244" height="48">
@@ -20,8 +20,6 @@ Discover new art. Save your favorites. Follow the artists you love.
 - **Recommendations** — find art based on your likes, with favorite and excluded tags.
 - **Following** — see new work from the artists you follow.
 - **Your collection** — keep bookmarks, history, tabs, images, and videos together.
-
-**Sources:** Danbooru · Gelbooru · Rule34 · Sankaku.
 
 ## Get started
 
