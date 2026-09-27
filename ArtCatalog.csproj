@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Version>0.2.0</Version>
+    <AssemblyName>DART</AssemblyName>
+    <Product>DART — Discover Art</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="wwwroot\**\*" LogicalName="ArtCatalogFrontend/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="Updates\Launcher\**\*.cs" />
+    <Compile Remove="Updates\ReleaseTool\**\*.cs" />
+  </ItemGroup>
+</Project>
