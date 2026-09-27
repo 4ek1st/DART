@@ -185,6 +185,21 @@
     return '';
   }
 
+  function mediaCacheKey(value) {
+    if (typeof value !== 'string' || !value.includes('sankakucomplex.com')) return value;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' ||
+          !/(^|\.)sankakucomplex\.com$/i.test(url.hostname)) return value;
+      const signed = [['e', 'm'], ['expires', 'token']].filter(([expiry, signature]) =>
+        url.searchParams.has(expiry) && url.searchParams.has(signature));
+      if (!signed.length) return value;
+      // Sankaku renews both signing pairs for the same CDN file.
+      for (const pair of signed) for (const name of pair) url.searchParams.delete(name);
+      return url.href;
+    } catch { return value; }
+  }
+
   function itemVisualSamples(item) {
     const saved = (item.visualSamples || []).filter(sample =>
       /^[a-f0-9]{16}$/i.test(sample?.hash || '') && sample.owner && Array.isArray(sample.tags));
@@ -996,6 +1011,7 @@
     artworkTags, artworkTagKind,
     normalizeExcludedTags, isWorkHidden, filterWorks,
     sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, videoMimeType,
+    mediaCacheKey,
     supportedSources, filterCatalogItems, cleanClientState,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,

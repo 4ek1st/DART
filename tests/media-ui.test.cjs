@@ -14,7 +14,7 @@ function getFunction(name, next, context = {}) {
 test('MP4 and WebM autoplay muted and loop while GIF remains an image', () => {
   const render = getFunction('renderDetailImage', 'ratingLabel', {
     CatalogLogic, escapeHtml: value => String(value).replaceAll('"', '&quot;'),
-    imageLoader: { cache: new Map() }
+    imageLoader: { cached: () => undefined }
   });
   const item = { title: 'animation', thumbnail: 'https://cdn.donmai.us/preview/a.jpg' };
   for (const extension of ['mp4', 'webm']) {

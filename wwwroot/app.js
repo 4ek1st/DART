@@ -147,7 +147,8 @@ function runVisualHashJob(job) {
 }
 
 async function catalogThumbnailHash(url) {
-  if (!visualHashCache.has(url)) {
+  const key = CatalogLogic.mediaCacheKey(url);
+  if (!visualHashCache.has(key)) {
     const pending = runVisualHashJob(async () => {
       const response = await fetch(`/api/image?url=${encodeURIComponent(url)}`,
         { signal: AbortSignal.timeout(5000) });
@@ -174,10 +175,10 @@ async function catalogThumbnailHash(url) {
           }
         return hash;
       } finally { bitmap.close(); }
-    }).then(hash => { if (!hash) visualHashCache.delete(url); return hash; });
-    visualHashCache.set(url, pending);
+    }).then(hash => { if (!hash) visualHashCache.delete(key); return hash; });
+    visualHashCache.set(key, pending);
   }
-  return visualHashCache.get(url);
+  return visualHashCache.get(key);
 }
 
 async function addCatalogVisualHashes(items, includeRule34 = true, signal) {
@@ -1893,8 +1894,12 @@ function canReconcileNode(current, next) {
   if (current.nodeType !== next.nodeType) return false;
   if (current.nodeType !== Node.ELEMENT_NODE) return true;
   if (current.tagName !== next.tagName) return false;
-  if (current.tagName === 'IMG')
-    return current.dataset.imageUrl === next.dataset.imageUrl;
+  if (current.tagName === 'IMG') {
+    if (CatalogLogic.mediaCacheKey(current.dataset.imageUrl) ===
+        CatalogLogic.mediaCacheKey(next.dataset.imageUrl)) return true;
+    const oldWork = current.closest?.('article[data-work-key]')?.dataset.workKey;
+    return !!oldWork && oldWork === next.closest?.('article[data-work-key]')?.dataset.workKey;
+  }
   if (current.tagName === 'VIDEO')
     return current.dataset.videoUrl === next.dataset.videoUrl;
   return true;
@@ -2437,14 +2442,14 @@ function renderDetailImage(item, url, index) {
     return `<div class="detail-video"><video data-video-url="${escapeHtml(url)}" src="/api/video?url=${encodeURIComponent(url)}"${poster ? ` poster="${escapeHtml(poster)}"` : ''} controls autoplay muted loop playsinline preload="metadata" aria-label="${escapeHtml(item.title)}"></video><span class="video-fail" role="status">Видео не удалось воспроизвести. Попробуйте ещё раз или откройте запись на сайте.</span></div>`;
   }
   const previewUrl = index === 0 ? item.thumbnail : '';
-  const preview = imageLoader.cache.get(url)?.blobUrl ||
-    (previewUrl ? imageLoader.cache.get(previewUrl)?.blobUrl : '');
+  const preview = imageLoader.cached(url)?.blobUrl ||
+    (previewUrl ? imageLoader.cached(previewUrl)?.blobUrl : '');
   const size = longDetailImageSize(url, previewUrl);
   return `<div class="detail-image${size ? ' long-image' : ''}"${size ? ` style="aspect-ratio: ${size.width} / ${size.height}"` : ''}><img data-image-url="${escapeHtml(url)}"${previewUrl ? ` data-preview-url="${escapeHtml(previewUrl)}"` : ''}${preview ? ` src="${escapeHtml(preview)}"` : ''} alt="${escapeHtml(item.title)}" decoding="async"><span class="image-fail">Изображение недоступно</span></div>`;
 }
 
 function longDetailImageSize(url, previewUrl) {
-  const size = [imageLoader.cache.get(url), imageLoader.cache.get(previewUrl)]
+  const size = [imageLoader.cached(url), imageLoader.cached(previewUrl)]
     .find(entry => entry?.width > 0 && entry?.height > 0);
   return size && size.height >= size.width * 2.5 ? size : null;
 }
@@ -2452,7 +2457,7 @@ function longDetailImageSize(url, previewUrl) {
 function rememberImageDimensions(img) {
   if (!img.matches?.('img[data-image-url]') || !img.naturalWidth || !img.naturalHeight) return;
   for (const url of [img.dataset.imageUrl, img.dataset.previewUrl]) {
-    const entry = imageLoader.cache.get(url);
+    const entry = imageLoader.cached(url);
     if (entry && entry.blobUrl === img.getAttribute('src')) {
       entry.width = img.naturalWidth;
       entry.height = img.naturalHeight;
@@ -2565,6 +2570,8 @@ function renderSettings() {
 const imageLoader = {
   queue: [], active: 0, controllers: new Set(), cache: new Map(), bytes: 0,
   current: new Set(), visible: new Set(), activeJobs: new Map(), generation: 0,
+  key(url) { return CatalogLogic.mediaCacheKey(url); },
+  cached(url) { return this.cache.get(this.key(url)); },
   observer: new IntersectionObserver(entries => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
@@ -2580,7 +2587,8 @@ const imageLoader = {
   }, { root: main, rootMargin: `${Math.max(450, main.clientHeight || 900)}px` }),
   updateCurrent(root) {
     this.current = new Set([...root.querySelectorAll('img[data-image-url][src]')]
-      .flatMap(img => [img.dataset.imageUrl, img.dataset.previewUrl].filter(Boolean)));
+      .flatMap(img => [img.dataset.imageUrl, img.dataset.previewUrl].filter(Boolean))
+      .map(url => this.key(url)));
   },
   mount(root) {
     this.generation++;
@@ -2592,7 +2600,7 @@ const imageLoader = {
     root.querySelectorAll('img[data-image-url]').forEach(img => {
       const url = img.dataset.imageUrl;
       if (!url) return;
-      if (this.cache.has(url)) this.enqueue(img, false);
+      if (this.cached(url)) this.enqueue(img, false);
       this.observer.observe(img);
     });
     this.updateCurrent(root);
@@ -2601,12 +2609,13 @@ const imageLoader = {
   refresh(root) {
     this.observer.disconnect();
     this.queue = this.queue.filter(job => {
-      job.images = new Set([...job.images].filter(img => img.isConnected));
+      job.images = new Set([...job.images].filter(img => img.isConnected &&
+        this.key(img.dataset.imageUrl) === (job.key || this.key(job.url))));
       return job.generation === this.generation && job.images.size;
     });
     this.visible = new Set([...this.visible].filter(img => img.isConnected));
     root.querySelectorAll('img[data-image-url]').forEach(img => {
-      if (this.cache.has(img.dataset.imageUrl)) this.enqueue(img, false);
+      if (this.cached(img.dataset.imageUrl)) this.enqueue(img, false);
       this.observer.observe(img);
     });
     this.updateCurrent(root);
@@ -2614,18 +2623,20 @@ const imageLoader = {
   },
   enqueue(img, drain = true) {
     const url = img.dataset.imageUrl;
-    if (this.cache.has(url)) {
-      const entry = this.cache.get(url);
-      this.cache.delete(url);
-      this.cache.set(url, entry);
+    const key = this.key(url);
+    if (this.cache.has(key)) {
+      const entry = this.cache.get(key);
+      this.cache.delete(key);
+      this.cache.set(key, entry);
       if (img.getAttribute('src') !== entry.blobUrl) img.src = entry.blobUrl;
       img.closest('.card-art, .detail-image')?.classList.remove('failed');
       return;
     }
-    const pending = this.activeJobs.get(url) ||
-      this.queue.find(job => job.url === url && job.generation === this.generation);
-    if (pending) { pending.images.add(img); return; }
-    this.queue.push({ images: new Set([img]), url, generation: this.generation });
+    const pending = this.activeJobs.get(key) ||
+      this.queue.find(job => (job.key || this.key(job.url)) === key &&
+        job.generation === this.generation);
+    if (pending) { pending.images.add(img); pending.url = url; return; }
+    this.queue.push({ images: new Set([img]), url, key, generation: this.generation });
     if (drain) this.drain();
   },
   async drain() {
@@ -2641,38 +2652,58 @@ const imageLoader = {
     while (this.active < 4 && this.queue.length) {
       const job = this.queue.shift();
       if (job.generation !== this.generation ||
-          ![...job.images].some(img => img.isConnected && this.visible.has(img))) continue;
+          ![...job.images].some(img => img.isConnected && this.visible.has(img) &&
+            this.key(img.dataset.imageUrl) === (job.key || this.key(job.url)))) continue;
       this.active++;
-      this.activeJobs.set(job.url, job);
+      const key = job.key || this.key(job.url);
+      this.activeJobs.set(key, job);
       const controller = new AbortController();
       this.controllers.add(controller);
       (async () => {
+        const requestedUrl = job.url;
         try {
-          const response = await fetch(`/api/image?url=${encodeURIComponent(job.url)}`, { signal: controller.signal });
+          const response = await fetch(`/api/image?url=${encodeURIComponent(requestedUrl)}`, { signal: controller.signal });
           if (!response.ok) throw new Error('Image unavailable');
           const blob = await response.blob();
           if (job.generation !== this.generation) return;
           const blobUrl = URL.createObjectURL(blob);
-          const old = this.cache.get(job.url);
+          const matches = [...job.images].filter(img => img.isConnected && this.visible.has(img) &&
+            this.key(img.dataset.imageUrl) === key);
+          if (!matches.length) { URL.revokeObjectURL(blobUrl); return; }
+          if (matches.some(img => img.getAttribute('src')) && typeof Image === 'function') {
+            const decoded = new Image();
+            decoded.src = blobUrl;
+            try { await decoded.decode(); }
+            catch { URL.revokeObjectURL(blobUrl); throw new Error('Image decode failed'); }
+          }
+          if (job.generation !== this.generation) { URL.revokeObjectURL(blobUrl); return; }
+          const activeMatches = matches.filter(img => img.isConnected && this.visible.has(img) &&
+            this.key(img.dataset.imageUrl) === key);
+          if (!activeMatches.length) { URL.revokeObjectURL(blobUrl); return; }
+          const old = this.cache.get(key);
           if (old) { URL.revokeObjectURL(old.blobUrl); this.bytes -= old.size; }
-          this.cache.delete(job.url);
-          this.cache.set(job.url, { blobUrl, size: blob.size });
+          this.cache.delete(key);
+          this.cache.set(key, { blobUrl, size: blob.size });
           this.bytes += blob.size;
-          for (const img of job.images) {
-            if (!img.isConnected || !this.visible.has(img)) continue;
+          for (const img of activeMatches) {
             img.src = blobUrl;
             img.closest('.card-art, .detail-image')?.classList.remove('failed');
           }
           this.updateCurrent(main);
           this.evict();
         } catch (error) {
-          if (error.name !== 'AbortError')
+          if (error.name !== 'AbortError' && job.url !== requestedUrl &&
+              !job.retried && job.generation === this.generation) {
+            job.retried = true;
+            this.queue.push(job);
+          } else if (error.name !== 'AbortError')
             for (const img of job.images)
-              if (img.isConnected)
+              if (img.isConnected && this.key(img.dataset.imageUrl) === key &&
+                  !img.getAttribute('src'))
                 img.closest('.card-art, .detail-image')?.classList.add('failed');
         } finally {
           this.controllers.delete(controller);
-          if (this.activeJobs.get(job.url) === job) this.activeJobs.delete(job.url);
+          if (this.activeJobs.get(key) === job) this.activeJobs.delete(key);
           this.active--;
           this.drain();
         }

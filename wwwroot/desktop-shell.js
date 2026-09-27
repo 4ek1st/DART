@@ -31,7 +31,7 @@
     });
 
     const install = document.getElementById('install-update-button');
-    let status = {}, dialog;
+    let status = {}, dialog, checkedAt = 0;
     const api = async (path, options) => {
       const response = await window.fetch('/api/updates' + path, options);
       const value = await response.json();
@@ -41,10 +41,13 @@
     function showStatus(value) {
       status = value;
       install.hidden = !canInstall(status);
-      install.title = `Установить DART ${status.version || ''}`;
+      const label = `Version available · DART ${status.version || ''}`;
+      install.title = label;
+      install.setAttribute('aria-label', label);
       if (dialog?.open) renderPanel();
     }
     async function check(force = false) {
+      checkedAt = Date.now();
       try { showStatus(await api(force ? '/check' : '', force ? { method: 'POST' } : undefined)); }
       catch (error) { showStatus({ ...status, available: false, error: error.message }); }
     }
@@ -101,7 +104,11 @@
       button.innerHTML = 'Обновления<span>Версия и установка</span>'; button.onclick = openPanel;
       sections.appendChild(button);
     }).observe(main, { childList: true, subtree: true });
-    check(); window.setInterval(() => check(true), 30 * 60 * 1000);
+    check(true);
+    window.setInterval(() => check(true), 30 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && Date.now() - checkedAt >= 10 * 60 * 1000) check(true);
+    });
   }
   return { canInstall, windowCommand, mount };
 });

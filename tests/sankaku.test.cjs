@@ -35,6 +35,23 @@ test('signed URL refresh replaces the expired version and preserves other groupe
   assert.equal(merged.imageRecords[0].url, fresh);
 });
 
+test('only Sankaku signing parameters share a thumbnail cache identity', () => {
+  const old = 'https://s.sankakucomplex.com/a.jpg?width=300&e=1&m=old&expires=1&token=old';
+  const fresh = 'https://s.sankakucomplex.com/a.jpg?width=300&e=2&m=new&expires=2&token=new';
+  assert.equal(logic.mediaCacheKey(old), logic.mediaCacheKey(fresh));
+  assert.notEqual(logic.mediaCacheKey(old), logic.mediaCacheKey(
+    'https://s.sankakucomplex.com/a.jpg?width=600&e=2&m=new'));
+  assert.equal(logic.mediaCacheKey('https://s.sankakucomplex.com/a.jpg?expires=1&token=old'),
+    logic.mediaCacheKey('https://s.sankakucomplex.com/a.jpg?expires=2&token=new'));
+  assert.notEqual(logic.mediaCacheKey('https://s.sankakucomplex.com/a.jpg?width=300&token=one'),
+    logic.mediaCacheKey('https://s.sankakucomplex.com/a.jpg?width=300&token=two'));
+  assert.notEqual(logic.mediaCacheKey(old), logic.mediaCacheKey(
+    'https://s.sankakucomplex.com.evil.test/a.jpg?width=300&e=2&m=new'));
+  for (const host of ['cdn.donmai.us', 'gelbooru.com', 'rule34.xxx'])
+    assert.notEqual(logic.mediaCacheKey(`https://${host}/a.jpg?e=1&m=old`),
+      logic.mediaCacheKey(`https://${host}/a.jpg?e=2&m=new`));
+});
+
 test('Sankaku joins the same artist follow without a duplicate subscription', () => {
   const requests = logic.followFeedRequests({ source: 'danbooru', artistId: 'real_artist' },
     'all', true, true, 3, true);

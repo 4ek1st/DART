@@ -13,7 +13,7 @@ test('cached thumbnails are attached before the first paint when mounting a tab'
   const start = source.indexOf('const imageLoader = {');
   const end = source.indexOf('\nconst autoFeed = {', start);
   const loader = vm.runInNewContext(source.slice(start, end) + '\nimageLoader', {
-    IntersectionObserver, main: root, URL, AbortController
+    IntersectionObserver, main: root, URL, AbortController, CatalogLogic
   });
   loader.cache.set('preview', { blobUrl: 'blob:cached', size: 20 });
   loader.mount(root);
@@ -27,7 +27,7 @@ test('a visible thumbnail loads ahead of queued offscreen previews', async () =>
   const start = source.indexOf('const imageLoader = {');
   const end = source.indexOf('\nconst autoFeed = {', start);
   const loader = vm.runInNewContext(source.slice(start, end) + '\nimageLoader', {
-    IntersectionObserver, main: root, URL, AbortController,
+    IntersectionObserver, main: root, URL, AbortController, CatalogLogic,
     fetch: url => { started.push(new URL(url, 'http://local').searchParams.get('url')); return new Promise(() => {}); }
   });
   const image = (url, top) => ({ dataset: { imageUrl: url }, isConnected: true,
@@ -39,6 +39,55 @@ test('a visible thumbnail loads ahead of queued offscreen previews', async () =>
   loader.active = 3;
   await loader.drain();
   assert.deepEqual(started, ['visible']);
+});
+
+test('renewing a Sankaku signature reuses decoded pixels without a second request', () => {
+  const old = 'https://s.sankakucomplex.com/a.jpg?e=1&m=old';
+  const fresh = 'https://s.sankakucomplex.com/a.jpg?e=2&m=new';
+  const img = { dataset: { imageUrl: old }, isConnected: true, src: '',
+    getAttribute(name) { return name === 'src' ? this.src : null; },
+    closest: () => ({ classList: { remove() {} } }) };
+  const root = { querySelectorAll: () => [img] };
+  class IntersectionObserver { observe() {} disconnect() {} }
+  const start = source.indexOf('const imageLoader = {');
+  const end = source.indexOf('\nconst autoFeed = {', start);
+  const loader = vm.runInNewContext(source.slice(start, end) + '\nimageLoader', {
+    IntersectionObserver, main: root, URL, AbortController, CatalogLogic,
+    fetch: () => { throw new Error('Cached artwork must not be fetched again'); }
+  });
+  loader.cache.set(CatalogLogic.mediaCacheKey(old), { blobUrl: 'blob:cached', size: 20 });
+  loader.mount(root);
+  assert.equal(img.src, 'blob:cached');
+  img.dataset.imageUrl = fresh;
+  loader.refresh(root);
+  assert.equal(img.src, 'blob:cached');
+  assert.equal(loader.queue.length, 0);
+});
+
+test('rerender retains the existing image node for a renewed signature', () => {
+  const start = source.indexOf('function canReconcileNode(');
+  const end = source.indexOf('\nfunction reconcileChildren(', start);
+  const canReconcileNode = vm.runInNewContext(source.slice(start, end) + '\ncanReconcileNode', {
+    Node: { ELEMENT_NODE: 1 }, CatalogLogic
+  });
+  const image = url => ({ nodeType: 1, tagName: 'IMG', dataset: { imageUrl: url } });
+  const old = 'https://s.sankakucomplex.com/a.jpg?e=1&m=old';
+  const fresh = 'https://s.sankakucomplex.com/a.jpg?e=2&m=new';
+  assert.equal(canReconcileNode(image(old), image(fresh)), true);
+  assert.equal(canReconcileNode(image(old), image('https://s.sankakucomplex.com/b.jpg?e=2&m=new')), false);
+  for (const host of ['cdn.donmai.us', 'gelbooru.com', 'rule34.xxx']) {
+    const url = `https://${host}/a.jpg`;
+    assert.equal(canReconcileNode(image(url), image(url)), true);
+    assert.equal(canReconcileNode(image(url), image(`${url}?different=1`)), false);
+  }
+  const cardImage = (url, workKey) => ({ ...image(url),
+    closest: () => ({ dataset: { workKey } }) });
+  for (const host of ['cdn.donmai.us', 'gelbooru.com', 'rule34.xxx', 's.sankakucomplex.com']) {
+    assert.equal(canReconcileNode(cardImage(`https://${host}/old.jpg`, 'work:1'),
+      cardImage(`https://${host}/new.jpg`, 'work:1')), true);
+    assert.equal(canReconcileNode(cardImage(`https://${host}/old.jpg`, 'work:1'),
+      cardImage(`https://${host}/new.jpg`, 'work:2')), false);
+  }
 });
 
 test('viewed identities rejected by a temporary failure can be saved on the next attempt', async () => {

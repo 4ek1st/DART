@@ -138,3 +138,19 @@ test('parallel Sankaku feed requests share a bounded thumbnail queue and cache',
   assert.ok(probe.maximum() > 1);
   assert.ok([...search.items, ...profile.items].every(item => /^[a-f0-9]{16}$/.test(item.visualHash)));
 });
+
+test('renewed Sankaku thumbnail signatures do not repeat visual fingerprint downloads', async () => {
+  const first = series()[0];
+  const second = { ...first, key: 'sankaku:second', id: 'second',
+    thumbnail: first.thumbnail.replace(/([?&])e=[^&]+/, '$1e=renewed')
+      .replace(/([?&])m=[^&]+/, '$1m=renewed') };
+  if (second.thumbnail === first.thumbnail) {
+    first.thumbnail = 'https://s.sankakucomplex.com/a.jpg?e=1&m=old';
+    second.thumbnail = 'https://s.sankakucomplex.com/a.jpg?e=2&m=new';
+  }
+  delete first.visualHash; delete second.visualHash;
+  const probe = requestFixture([first, second], true);
+  const result = await probe.context.request('/api/search?q=anteiru');
+  assert.equal(probe.imageRequests.length, 1);
+  assert.equal(result.items[0].visualHash, result.items[1].visualHash);
+});
