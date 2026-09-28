@@ -74,6 +74,7 @@ test('public Sankaku follow works without login and keeps the restricted access 
     findTab: () => tab, refreshFollows: async () => true, rememberItems() {}, render() {},
     request: async path => {
       if (path === '/api/follows/seen') return [follow];
+      if (path.startsWith('/api/follows/cache?')) return { groups: [] };
       const url = new URL(path, 'http://fixture');
       const provider = url.searchParams.get('sources') || url.searchParams.get('source');
       requested.push(provider);

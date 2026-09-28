@@ -1211,12 +1211,34 @@
         const entry = { item, published,
           isNew: published > lastSeen && !seenKeys.has(item.key) };
         if (!byKey.has(item.key)) byKey.set(item.key, entry);
+        else if (entry.isNew) byKey.get(item.key).isNew = true;
       }
     }
-    const ordered = [...byKey.values()].sort((a, b) => b.published - a.published)
+    const ordered = [...byKey.values()].sort((a, b) =>
+      Number(b.isNew) - Number(a.isNew) || b.published - a.published)
       .slice(0, limit);
     return { items: ordered.map(entry => entry.item),
       newKeys: new Set(ordered.filter(entry => entry.isNew).map(entry => entry.item.key)) };
+  }
+
+  function stableFeedItems(previous, incoming, newKeys = new Set()) {
+    if (!previous?.length) return [...incoming];
+    const positions = new Map();
+    previous.forEach((item, index) => {
+      for (const key of [item.key, ...(item.memberKeys || [])])
+        if (!positions.has(key)) positions.set(key, index);
+    });
+    const placed = incoming.map((item, index) => {
+      const keys = [item.key, ...(item.memberKeys || [])];
+      const position = Math.min(...keys.map(key => positions.get(key) ?? Infinity));
+      return { item, index, position, isNew: keys.some(key => newKeys.has(key)) };
+    });
+    placed.sort((a, b) => Number(b.isNew) - Number(a.isNew) ||
+      (Number.isFinite(a.position) && Number.isFinite(b.position)
+        ? a.position - b.position :
+        Number.isFinite(a.position) ? -1 : Number.isFinite(b.position) ? 1 :
+          a.index - b.index));
+    return placed.map(entry => entry.item);
   }
 
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
@@ -1232,7 +1254,7 @@
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,
     recommendationQueryGroups, rankRecommendations, mergeRecommendations,
-    followKey, followFeedRequests, buildFollowFeed };
+    followKey, followFeedRequests, buildFollowFeed, stableFeedItems };
   root.CatalogLogic = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

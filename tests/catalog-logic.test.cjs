@@ -685,11 +685,23 @@ test('follow feed sorts newest works and marks only unseen work in the active ra
     ] }
   ];
   const general = buildFollowFeed(groups, 'general');
-  assert.deepEqual(general.items.map(item => item.key), ['d:new', 'd:old', 'k:general']);
+  assert.deepEqual(general.items.map(item => item.key), ['d:new', 'k:general', 'd:old']);
   assert.deepEqual([...general.newKeys], ['d:new', 'k:general']);
   const all = buildFollowFeed(groups, 'all');
   assert.deepEqual(all.items.map(item => item.key),
     ['k:unrated', 'd:adult', 'd:new', 'd:old', 'k:general']);
+});
+
+test('incremental feed preserves displayed order and keeps newly found works first', () => {
+  const old = [{ key: 'danbooru:old', memberKeys: ['danbooru:old'] },
+    { key: 'sankaku:copy', memberKeys: ['sankaku:copy'] }];
+  const next = [{ key: 'danbooru:new', memberKeys: ['danbooru:new'] },
+    { key: 'danbooru:copy', memberKeys: ['danbooru:copy', 'sankaku:copy'] },
+    old[0]];
+  const result = require('../wwwroot/catalog-logic.js').stableFeedItems(old, next,
+    new Set(['danbooru:new']));
+  assert.deepEqual(result.map(item => item.key),
+    ['danbooru:new', 'danbooru:old', 'danbooru:copy']);
 });
 
 test('viewed work keys do not hide older unseen works or another rating', () => {

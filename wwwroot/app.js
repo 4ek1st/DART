@@ -768,44 +768,63 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   const requestedPages = Object.fromEntries(sources.map(source =>
     [source, tab.sourcePages[source]]));
   if (activeId === tab.id) render();
-  const page = Math.min(...Object.values(requestedPages));
   const query = tab.query || '';
-  const params = new URLSearchParams({ q: query, page: String(page),
-    pages: sources.map(source => `${source}:${requestedPages[source]}`).join(','),
-    sources: sources.join(','), rating: tab.rating || 'general',
-    sort: tab.sort || 'recent', kind: tab.feed || 'illustrations' });
-  try {
-    const response = await request(`/api/search?${params}`, { signal: controller.signal });
-    if (!findTab(tab.id) || version !== tab.requestVersion) return;
-    const merged = append ? [...tab.items, ...response.items] : response.items;
+  const progressiveProfile = tab.kind === 'profile' && tab.profileRef?.source === 'artist' &&
+    sources.length > 1;
+  let published = append;
+  const receive = (response, batch) => {
+    if (!findTab(tab.id) || version !== tab.requestVersion || controller.signal.aborted) return;
+    const merged = published ? [...tab.items, ...(response.items || [])] : response.items || [];
+    published = true;
     tab.items = [...new Map(merged.map(item => [item.key, item])).values()];
     const errors = { ...tab.errors };
     delete errors.network;
-    for (const source of sources) {
-      if (response.errors?.[source] || response.notices?.[source]) errors[source] = response.errors?.[source] || response.notices[source];
+    for (const source of batch) {
+      if (response.errors?.[source] || response.notices?.[source])
+        errors[source] = response.errors?.[source] || response.notices[source];
       else delete errors[source];
     }
     tab.errors = errors;
-    if (sources.includes('rule34')) tab.rule34RetryAt = response.retryAt?.rule34 || 0;
+    if (batch.includes('rule34')) tab.rule34RetryAt = response.retryAt?.rule34 || 0;
+    const pages = Object.fromEntries(batch.map(source => [source, requestedPages[source]]));
     tab.searchPageStats = CatalogLogic.rememberSearchPageStats(tab.searchPageStats,
-      response.sourceStats, requestedPages, response.errors);
+      response.sourceStats, pages, response.errors);
     const progress = CatalogLogic.advanceSearchSources(tab.sourcePages,
-      tab.pausedSources, sources, response);
+      tab.pausedSources, batch, response);
     tab.sourcePages = progress.pages;
     tab.pausedSources = progress.paused;
-    tab.page = Math.max(tab.page, ...Object.values(requestedPages));
-    tab.hasMore = Object.keys(tab.sourcePages).some(source =>
-      !tab.pausedSources[source]);
+    tab.page = Math.max(tab.page, ...Object.values(pages));
+    tab.hasMore = Object.keys(tab.sourcePages).some(source => !tab.pausedSources[source]);
     tab.loadError = false;
-    rememberItems(response.items);
-  } catch (error) {
-    if (error.name !== 'AbortError' && version === tab.requestVersion) {
-      tab.loadError = append;
-      if (!append) {
-        tab.hasMore = false;
-        tab.errors = { network: 'Локальный сервер не ответил. Повторите запрос.' };
+    rememberItems(response.items || []);
+    if (progressiveProfile && activeId === tab.id) render();
+  };
+  const fetchBatch = async batch => {
+    const page = Math.min(...batch.map(source => requestedPages[source]));
+    const params = new URLSearchParams({ q: query, page: String(page),
+      pages: batch.map(source => `${source}:${requestedPages[source]}`).join(','),
+      sources: batch.join(','), rating: tab.rating || 'general',
+      sort: tab.sort || 'recent', kind: tab.feed || 'illustrations' });
+    try {
+      receive(await request(`/api/search?${params}`, { signal: controller.signal }), batch);
+    } catch (error) {
+      if (error.name === 'AbortError' || version !== tab.requestVersion ||
+          controller.signal.aborted) return;
+      if (progressiveProfile) receive({ items: [],
+        errors: Object.fromEntries(batch.map(source =>
+          [source, 'Источник сейчас недоступен. Повторите запрос позже.'])) }, batch);
+      else {
+        tab.loadError = append;
+        if (!append) {
+          tab.hasMore = false;
+          tab.errors = { network: 'Локальный сервер не ответил. Повторите запрос.' };
+        }
       }
     }
+  };
+  try {
+    if (progressiveProfile) await Promise.all(sources.map(source => fetchBatch([source])));
+    else await fetchBatch(sources);
   } finally {
     if (version === tab.requestVersion) {
       tab.loading = false;
@@ -1131,11 +1150,13 @@ async function requestFollowSource(entry, signal) {
   let release;
   state.tail = new Promise(resolve => { release = resolve; });
   await previous;
+  let requestedAt = 0;
   try {
     if (signal.aborted) throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
     if (state.retryAt > Date.now())
       throw Object.assign(new Error(state.message), { retryAt: state.retryAt, cooledDown: true });
     if (state.nextAt > Date.now()) await waitFollowRequest(state.nextAt - Date.now(), signal);
+    requestedAt = Date.now();
     const response = await request(entry.path, { signal });
     if (response.errors?.rule34) throw Object.assign(new Error(response.errors.rule34),
       { retryAt: response.retryAt?.rule34 });
@@ -1154,7 +1175,7 @@ async function requestFollowSource(entry, signal) {
     error.retryAt = state.retryAt;
     throw error;
   } finally {
-    state.nextAt = Date.now() + 1000;
+    if (requestedAt) state.nextAt = requestedAt + 1000;
     release();
   }
 }
@@ -1193,7 +1214,9 @@ function updateFollowFeed(tab) {
   const visible = CatalogLogic.filterWorks(CatalogLogic.groupWorks(feed.items),
     contentPreferences);
   const visibleKeys = new Set(visible.flatMap(item => item.memberKeys || [item.key]));
-  tab.items = visible;
+  tab.items = CatalogLogic.stableFeedItems(tab.followStableRating === tab.rating
+    ? tab.items : [], visible, feed.newKeys);
+  tab.followStableRating = tab.rating;
   tab.newKeys = new Set([...feed.newKeys].filter(key => visibleKeys.has(key)));
   tab.followSourceErrors = Object.fromEntries(tab.followStreams.filter(stream => stream.error)
     .map(stream => [stream.source, stream.error]));
@@ -1210,6 +1233,10 @@ function flushFollowUpdate(tab) {
 }
 
 function queueFollowUpdate(tab, version) {
+  if (!tab.followCacheTimer) tab.followCacheTimer = setTimeout(() => {
+    tab.followCacheTimer = null;
+    saveFollowPreview(tab, version);
+  }, 5000);
   if (!tab.followPublished) { flushFollowUpdate(tab); return; }
   if (tab.followUpdateTimer) return;
   tab.followUpdateTimer = setTimeout(() => {
@@ -1217,6 +1244,22 @@ function queueFollowUpdate(tab, version) {
     if (findTab(tab.id) && version === tab.followVersion && !tab.followController.signal.aborted)
       flushFollowUpdate(tab);
   }, 150);
+}
+
+function saveFollowPreview(tab, version) {
+  if (!findTab(tab.id) || version !== tab.followVersion || !tab.followGroups?.length) return;
+  const isNew = item => [item.key, ...(item.memberKeys || [])]
+    .some(key => tab.newKeys?.has(key));
+  const groups = tab.followGroups.map(({ follow, items }) => ({ key: follow.key,
+    items: [...items].sort((a, b) => Number(isNew(b)) - Number(isNew(a)) ||
+      (Date.parse(b.published || '') || 0) - (Date.parse(a.published || '') || 0))
+      .slice(0, 12) })).filter(group => group.items.length);
+  if (!groups.length) return;
+  const body = JSON.stringify({ groups });
+  const rating = tab.rating;
+  tab.followCacheSaveTail = (tab.followCacheSaveTail || Promise.resolve()).catch(() => {})
+    .then(() => request(`/api/follows/cache?rating=${rating}`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body })).catch(() => {});
 }
 
 async function markFollowItemsSeen(tab, groups, version) {
@@ -1248,6 +1291,8 @@ async function loadFollowFeed(tab) {
   tab.followController?.abort();
   if (tab.followUpdateTimer) clearTimeout(tab.followUpdateTimer);
   tab.followUpdateTimer = null;
+  if (tab.followCacheTimer) clearTimeout(tab.followCacheTimer);
+  tab.followCacheTimer = null;
   tab.followPublished = !!tab.items?.length;
   if (tab.followRetryTimer) clearTimeout(tab.followRetryTimer);
   const controller = new AbortController();
@@ -1262,17 +1307,29 @@ async function loadFollowFeed(tab) {
     requestFollowSource.rule34.retryAt = 0;
   if (activeId === tab.id) render();
   try {
-    const available = await refreshFollows();
+    const [available, cache] = await Promise.all([refreshFollows(),
+      request(`/api/follows/cache?rating=${tab.rating}`).catch(() => null)]);
     if (!findTab(tab.id) || version !== tab.followVersion || controller.signal.aborted) return;
     if (!available) {
       tab.followErrors.push('Не удалось загрузить список подписок.');
       return;
     }
+    const cacheAge = Date.now() - Date.parse(cache?.savedAt || '');
+    const cached = cacheAge >= 0 && cacheAge < 48 * 60 * 60 * 1000 &&
+      Array.isArray(cache?.groups) ? new Map(cache.groups.filter(group => group &&
+        typeof group.key === 'string' && Array.isArray(group.items))
+        .map(group => [group.key, CatalogLogic.filterCatalogItems(group.items)])) : new Map();
     tab.followGroups = follows.map(follow => ({ follow,
-      items: [...(previousGroups.get(follow.key)?.items || [])] }));
+      items: [...(previousGroups.get(follow.key)?.items?.length
+        ? previousGroups.get(follow.key).items : cached.get(follow.key) || [])] }));
     const jobs = tab.followGroups.flatMap(group =>
       CatalogLogic.followFeedRequests(group.follow, tab.rating,
         settings.hasApiKey, settings.hasRule34ApiKey, 0, settings.sankakuAvailable).map(entry => ({ group, entry })));
+    for (const group of tab.followGroups) {
+      const allowed = new Set(jobs.filter(job => job.group === group).map(job => job.entry.source));
+      group.items = group.items.filter(item => allowed.has(item.source));
+    }
+    if (tab.followGroups.some(group => group.items.length)) flushFollowUpdate(tab);
     const regularJobs = jobs.filter(job => job.entry.source !== 'rule34');
     const rule34Jobs = jobs.filter(job => job.entry.source === 'rule34');
     const valid = () => findTab(tab.id) && version === tab.followVersion && !controller.signal.aborted;
@@ -1302,15 +1359,18 @@ async function loadFollowFeed(tab) {
       }
     };
     const regular = Promise.all([worker(regularJobs), worker(regularJobs), worker(regularJobs)])
-      .then(() => { if (valid()) flushFollowUpdate(tab); });
+      .then(() => { if (valid()) { flushFollowUpdate(tab); saveFollowPreview(tab, version); } });
     await Promise.all([regular, worker(rule34Jobs)]);
     if (!valid()) return;
     flushFollowUpdate(tab);
+    saveFollowPreview(tab, version);
     await markFollowItemsSeen(tab, tab.followGroups, version);
   } finally {
     if (version === tab.followVersion) {
       if (tab.followUpdateTimer) clearTimeout(tab.followUpdateTimer);
       tab.followUpdateTimer = null;
+      if (tab.followCacheTimer) clearTimeout(tab.followCacheTimer);
+      tab.followCacheTimer = null;
       tab.loading = false;
       if (!controller.signal.aborted) tab.lastLoadedAt = Date.now();
       if (findTab(tab.id) && activeId === tab.id) render();
@@ -1375,6 +1435,7 @@ async function loadMoreFollows(tab) {
     }
     updateFollowFeed(tab);
     if (activeId === tab.id) render();
+    saveFollowPreview(tab, version);
     await markFollowItemsSeen(tab, seenGroups, version);
   } finally {
     if (version === tab.followVersion) {
@@ -2156,6 +2217,8 @@ function render() {
   const sameTab = tab && main.dataset.tabId === String(tab.id);
   const scrollTop = sameTab
     ? main.scrollTop : tab?.scrollTop || 0;
+  const anchor = sameTab && scrollTop > 40 &&
+    ['follows', 'profile'].includes(tab.kind) ? captureGridAnchor() : null;
   if (sameTab) {
     tab.gridTops ||= {};
     const mainTop = main.getBoundingClientRect().top;
@@ -2191,10 +2254,44 @@ function render() {
   }
   main.dataset.tabId = String(tab.id);
   main.scrollTop = scrollTop;
+  restoreGridAnchor(anchor);
   measureVirtualGrids(tab);
   if (tab.kind === 'profile') scheduleProfileBanner(tab);
   autoFeed.mount();
   if (typeof scheduleRule34Recovery === 'function') scheduleRule34Recovery(tab);
+}
+
+function workMemberKeys(node) {
+  if (!node?.matches?.('article.card[data-work-key]')) return [];
+  try {
+    const keys = JSON.parse(node.dataset.workMembers || '[]');
+    if (Array.isArray(keys) && keys.length) return keys;
+  } catch { /* A card still has its own key. */ }
+  return [node.dataset.workKey];
+}
+
+function sharesWorkMember(first, second) {
+  const keys = new Set(workMemberKeys(first));
+  return keys.size > 0 && workMemberKeys(second).some(key => keys.has(key));
+}
+
+function captureGridAnchor() {
+  const bounds = main.getBoundingClientRect();
+  const card = [...main.querySelectorAll('.grid > article.card[data-work-key]')]
+    .find(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.bottom > bounds.top + 20 && rect.top < bounds.bottom;
+    });
+  return card ? { key: card.dataset.workKey, members: workMemberKeys(card),
+    top: card.getBoundingClientRect().top } : null;
+}
+
+function restoreGridAnchor(anchor) {
+  if (!anchor) return;
+  const cards = [...main.querySelectorAll('.grid > article.card[data-work-key]')];
+  const card = cards.find(node => node.dataset.workKey === anchor.key) ||
+    cards.find(node => workMemberKeys(node).some(key => anchor.members.includes(key)));
+  if (card) main.scrollTop += card.getBoundingClientRect().top - anchor.top;
 }
 
 function renderNodeKey(node) {
@@ -2211,8 +2308,8 @@ function canReconcileNode(current, next) {
   if (current.tagName === 'IMG') {
     if (CatalogLogic.mediaCacheKey(current.dataset.imageUrl) ===
         CatalogLogic.mediaCacheKey(next.dataset.imageUrl)) return true;
-    const oldWork = current.closest?.('article[data-work-key]')?.dataset.workKey;
-    return !!oldWork && oldWork === next.closest?.('article[data-work-key]')?.dataset.workKey;
+    return sharesWorkMember(current.closest?.('article[data-work-key]'),
+      next.closest?.('article[data-work-key]'));
   }
   if (current.tagName === 'VIDEO')
     return current.dataset.videoUrl === next.dataset.videoUrl;
@@ -2221,19 +2318,28 @@ function canReconcileNode(current, next) {
 
 function reconcileChildren(parent, desired) {
   const keyed = new Map();
+  const members = new Map();
   for (const child of parent.childNodes) {
     const key = renderNodeKey(child);
     if (key) keyed.set(key, child);
+    for (const member of workMemberKeys(child))
+      if (!members.has(member)) members.set(member, child);
   }
+  const used = new Set();
   let cursor = parent.firstChild;
   for (const next of [...desired.childNodes]) {
     const key = renderNodeKey(next);
-    const match = key ? keyed.get(key) :
+    let match = key ? keyed.get(key) :
       cursor && !renderNodeKey(cursor) && canReconcileNode(cursor, next) ? cursor : null;
+    if ((!match || used.has(match)) && key)
+      match = workMemberKeys(next).map(member => members.get(member))
+        .find(candidate => candidate && !used.has(candidate)) || null;
+    if (used.has(match)) match = null;
     if (!match || !canReconcileNode(match, next)) {
       parent.insertBefore(next, cursor);
       continue;
     }
+    used.add(match);
     if (match !== cursor) parent.insertBefore(match, cursor);
     reconcileNode(match, next);
     cursor = match.nextSibling;
@@ -2757,7 +2863,13 @@ function emptyFeedMessage(tab, gridKey = '') {
 function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false) {
   if (!items.length) return '<div class="empty">Здесь пока нет изображений. Измените запрос или выберите другой источник.</div>';
   const tab = currentTab();
-  const works = filterFeedWorks(items, tab, alreadyGrouped, key);
+  let works = filterFeedWorks(items, tab, alreadyGrouped, key);
+  if (tab?.kind === 'profile' && key === 'profile') {
+    works = CatalogLogic.stableFeedItems(tab.profileGridRating === tab.rating
+      ? tab.profileGridItems : [], works);
+    tab.profileGridItems = works;
+    tab.profileGridRating = tab.rating;
+  }
   if (!works.length) return emptyFeedMessage(tab, key);
   const attribute = key ? ` data-grid-key="${escapeHtml(key)}"` : '';
   if (!key || works.length <= 160 || !tab)
@@ -2843,7 +2955,7 @@ function renderCard(item, isNew = false) {
     .map(([source, count]) => `${names[source] || source}: ${count}`).join(' · ');
   const sourceTitle = provenance.extra
     ? `Объединено ${provenance.total} записей · ${sourceDetails}` : sourceName;
-  return `<article class="card" data-work-key="${escapeHtml(item.key)}"><div class="card-art ${isNew ? 'new-item' : ''}">
+  return `<article class="card" data-work-key="${escapeHtml(item.key)}" data-work-members="${escapeHtml(JSON.stringify([item.key, ...(item.memberKeys || [])]))}"><div class="card-art ${isNew ? 'new-item' : ''}">
     <button class="card-art" data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" aria-label="Открыть ${escapeHtml(item.title)} · ${escapeHtml(sourceTitle)}">
       ${item.thumbnail ? `<img data-image-url="${escapeHtml(item.thumbnail)}" alt="" decoding="async">` : `<span class="text-preview"${/^(Работа|Artwork|Werk) #/.test(item.title) ? '' : ' data-no-i18n'}>${escapeHtml(item.title.slice(0, 180))}</span>`}
       <span class="image-fail">Изображение недоступно</span>

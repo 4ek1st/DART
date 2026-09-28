@@ -65,7 +65,7 @@ test('renewing a Sankaku signature reuses decoded pixels without a second reques
 });
 
 test('rerender retains the existing image node for a renewed signature', () => {
-  const start = source.indexOf('function canReconcileNode(');
+  const start = source.indexOf('function workMemberKeys(');
   const end = source.indexOf('\nfunction reconcileChildren(', start);
   const canReconcileNode = vm.runInNewContext(source.slice(start, end) + '\ncanReconcileNode', {
     Node: { ELEMENT_NODE: 1 }, CatalogLogic
@@ -80,14 +80,18 @@ test('rerender retains the existing image node for a renewed signature', () => {
     assert.equal(canReconcileNode(image(url), image(url)), true);
     assert.equal(canReconcileNode(image(url), image(`${url}?different=1`)), false);
   }
-  const cardImage = (url, workKey) => ({ ...image(url),
-    closest: () => ({ dataset: { workKey } }) });
+  const cardImage = (url, workKey, memberKeys = [workKey]) => ({ ...image(url),
+    closest: () => ({ matches: () => true,
+      dataset: { workKey, workMembers: JSON.stringify(memberKeys) } }) });
   for (const host of ['cdn.donmai.us', 'gelbooru.com', 'rule34.xxx', 's.sankakucomplex.com']) {
     assert.equal(canReconcileNode(cardImage(`https://${host}/old.jpg`, 'work:1'),
       cardImage(`https://${host}/new.jpg`, 'work:1')), true);
     assert.equal(canReconcileNode(cardImage(`https://${host}/old.jpg`, 'work:1'),
       cardImage(`https://${host}/new.jpg`, 'work:2')), false);
   }
+  assert.equal(canReconcileNode(cardImage('https://a.example/old.jpg', 'sankaku:1',
+    ['sankaku:1']), cardImage('https://b.example/new.jpg', 'danbooru:2',
+    ['danbooru:2', 'sankaku:1'])), true);
 });
 
 test('viewed identities rejected by a temporary failure can be saved on the next attempt', async () => {
@@ -122,6 +126,7 @@ test('a burst of subscription responses publishes all works without rebuilding t
     follows, followedKeys: new Set(), contentPreferences: {}, settings: {}, activeId: 1,
     findTab: () => tab, refreshFollows: async () => true, rememberItems() {}, render() {},
     request: async url => { if (url === '/api/follows/seen') return follows;
+      if (url.startsWith('/api/follows/cache?')) return { groups: [] };
       const artist = new URL(url, 'http://local').searchParams.get('artist');
       return { items: [{ key: `gelbooru:${artist}:1`, source: 'gelbooru', rating: 'e',
         images: [`https://example.org/${artist}.jpg`] }], hasMore: false }; }

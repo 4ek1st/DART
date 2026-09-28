@@ -24,6 +24,8 @@ test('follow feed loads every page and keeps works beyond 120', async () => {
     refreshFollows: async () => true,
     rememberItems: () => {}, render: () => {},
     request: async (url, options) => {
+      if (url.startsWith('/api/follows/cache?') && options?.method === 'POST') return {};
+      if (url.startsWith('/api/follows/cache?')) return { groups: [] };
       if (url === '/api/follows/seen') {
         seen.push(JSON.parse(options.body));
         return [follow];
@@ -49,6 +51,39 @@ test('follow feed loads every page and keeps works beyond 120', async () => {
   assert.deepEqual(pages, [0, 1, 2]);
   assert.equal(seen.reduce((sum, batch) => sum +
     batch.workKeys[follow.key].length, 0), 150);
+});
+
+test('following shows the saved preview before a slow source responds, then replaces its stale entries', async () => {
+  const start = source.indexOf('function decorateFollowItems(');
+  const end = source.indexOf('\nasync function loadBookmarks(', start);
+  const follow = { key: 'danbooru::artist', source: 'danbooru',
+    artistId: 'artist', name: 'Artist', followedAt: '2024-01-01T00:00:00Z' };
+  const cached = { key: 'danbooru:1', id: '1', source: 'danbooru', rating: 'g',
+    published: '2025-01-01T00:00:00Z' };
+  const fresh = { ...cached, key: 'danbooru:2', id: '2' };
+  let releaseSource;
+  const sourceReady = new Promise(resolve => { releaseSource = resolve; });
+  const tab = { id: 1, kind: 'follows', rating: 'general', items: [] };
+  const context = { CatalogLogic, AbortController, URLSearchParams, setTimeout, clearTimeout,
+    contentPreferences: { aiMode: 'all', excludedTags: [] }, follows: [follow],
+    followedKeys: new Set(), activeId: 1, settings: { hasApiKey: false,
+      hasRule34ApiKey: false, sankakuAvailable: false },
+    findTab: id => id === 1 ? tab : undefined, refreshFollows: async () => true,
+    rememberItems: () => {}, render: () => {}, request: async (url, options = {}) => {
+      if (url.startsWith('/api/follows/cache?') && options.method === 'POST') return {};
+      if (url.startsWith('/api/follows/cache?')) return { savedAt: new Date().toISOString(),
+        groups: [{ key: follow.key, items: [cached] }] };
+      if (url === '/api/follows/seen') return [follow];
+      return sourceReady;
+    } };
+  const { loadFollowFeed } = vm.runInNewContext(source.slice(start, end) +
+    '\n({ loadFollowFeed })', context);
+  const loading = loadFollowFeed(tab);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(tab.items.map(item => item.key), [cached.key]);
+  releaseSource({ items: [fresh], hasMore: false });
+  await loading;
+  assert.deepEqual(tab.items.map(item => item.key), [fresh.key]);
 });
 
 test('followed author cards start collapsed and can be opened', () => {

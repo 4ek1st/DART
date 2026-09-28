@@ -35,6 +35,22 @@ await client.GetStringAsync(Base + "shared", "application/json", CancellationTok
 Expect(starts.Count == 5, "A successful recent Rule34 page was fetched again");
 Console.WriteLine("PASS shared pacing, coalescing and successful page cache");
 
+// A slow response already covers the minimum interval between request starts.
+// Waiting another full interval after it finishes makes large Following lists take minutes.
+var logicalClock = new DateTimeOffset(2026, 9, 28, 12, 0, 0, TimeSpan.Zero);
+var slowCalls = 0;
+using var slowHttp = new HttpClient(new FakeHandler((_, _) => {
+    slowCalls++;
+    if (slowCalls == 1) logicalClock = logicalClock.AddSeconds(2);
+    return Task.FromResult(Reply());
+}));
+var slowClient = new Rule34RequestClient(slowHttp, TimeSpan.FromSeconds(1), now: () => logicalClock);
+await slowClient.GetStringAsync(Base + "slow-one", "application/json", CancellationToken.None);
+using (var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(400)))
+    await slowClient.GetStringAsync(Base + "slow-two", "application/json", deadline.Token);
+Expect(slowCalls == 2, "Rule34 added a redundant interval after a slow response");
+Console.WriteLine("PASS slow response counts toward Rule34 pacing");
+
 // One aborted tab must not cancel another tab's shared GET.
 var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

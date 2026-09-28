@@ -121,7 +121,7 @@ internal sealed class Rule34RequestClient
                     cache[key] = (now() + TimeSpan.FromSeconds(45), body);
                 }
             }
-            finally { nextRequest = now() + interval; gate.Release(); }
+            finally { gate.Release(); }
             work.Completion.TrySetResult(body);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)

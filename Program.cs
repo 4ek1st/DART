@@ -215,6 +215,22 @@ internal static class Program
             return Results.Ok(new { saved = store.ToggleLike(item) });
         });
 
+        app.MapGet("/api/follows/cache", (string? rating, LocalStore store) =>
+            rating is "general" or "explicit" or "all"
+                ? Results.Content(store.GetFollowFeedCacheJson(rating), "application/json")
+                : Results.BadRequest());
+        app.MapPost("/api/follows/cache", async (string? rating, HttpContext context, LocalStore store) =>
+        {
+            if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
+            if (rating is not ("general" or "explicit" or "all")) return Results.BadRequest();
+            if (context.Request.ContentLength is > 4_000_000) return Results.StatusCode(413);
+            using var reader = new StreamReader(context.Request.Body);
+            var raw = await reader.ReadToEndAsync(context.RequestAborted);
+            if (raw.Length > 4_000_000) return Results.StatusCode(413);
+            try { return store.UpdateFollowFeedCacheJson(rating, raw)
+                ? Results.Ok(new { saved = true }) : Results.BadRequest(); }
+            catch (System.Text.Json.JsonException) { return Results.BadRequest(); }
+        });
         app.MapGet("/api/follows", (LocalStore store) => Results.Ok(store.GetFollows()));
         app.MapPost("/api/follows", async (HttpContext context, LocalStore store) =>
         {

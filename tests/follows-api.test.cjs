@@ -203,6 +203,43 @@ test('following an artist persists and viewing a rating records only shown works
   }
 });
 
+test('following preview cache survives a restart without changing follows or other ratings', async () => {
+  const build = spawnSync('dotnet', ['build', 'ArtCatalog.csproj', '-c', 'Debug', '-v:q'],
+    { cwd: project, encoding: 'utf8', windowsHide: true });
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const dataDirectory = fs.mkdtempSync(path.join(project, 'test-data-follow-cache-'));
+  let server;
+  try {
+    server = await startServer(dataDirectory);
+    const post = (rating, groups, origin = server.origin) => fetch(server.origin +
+      `/api/follows/cache?rating=${rating}`, { method: 'POST', headers: {
+        Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ groups }) });
+    const follow = { source: 'danbooru', artistId: 'cache_artist', name: 'Cache Artist' };
+    assert.equal((await fetch(server.origin + '/api/follows', { method: 'POST', headers: {
+      Origin: server.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(follow) })).status, 200);
+    const saved = (await (await fetch(server.origin + '/api/follows')).json())[0];
+    const work = { key: 'danbooru:7', id: '7', source: 'danbooru', title: 'Preview',
+      thumbnail: 'https://cdn.donmai.us/preview/7.jpg' };
+    const groups = [{ key: saved.key, items: [work, { ...work, source: 'retired' }] }];
+    assert.equal((await post('general', groups, 'https://elsewhere.test')).status, 403);
+    assert.equal((await post('unknown', groups)).status, 400);
+    assert.equal((await post('general', groups)).status, 200);
+    const get = rating => fetch(server.origin + `/api/follows/cache?rating=${rating}`)
+      .then(response => response.json());
+    assert.deepEqual((await get('general')).groups[0].items.map(item => item.key), [work.key]);
+    assert.deepEqual((await get('explicit')).groups, []);
+    await stopServer(server);
+    server = await startServer(dataDirectory);
+    assert.deepEqual((await get('general')).groups[0].items.map(item => item.key), [work.key]);
+    assert.equal((await (await fetch(server.origin + '/api/follows')).json()).length, 1);
+  } finally {
+    await stopServer(server);
+    const resolved = fs.realpathSync(dataDirectory);
+    assert.ok(resolved.startsWith(project + path.sep));
+    fs.rmSync(resolved, { recursive: true, force: true });
+  }
+});
+
 test('content preferences save separately from API credentials and survive a restart', async () => {
   const build = spawnSync('dotnet', ['build', 'ArtCatalog.csproj', '-c', 'Debug', '-v:q'],
     { cwd: project, encoding: 'utf8', windowsHide: true });

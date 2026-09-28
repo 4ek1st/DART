@@ -26,6 +26,7 @@ function fixture(respond, count = 3) {
     rememberItems() {}, render() {},
     request: async (url, options) => {
       if (url === '/api/follows/seen') return follows;
+      if (url.startsWith('/api/follows/cache?')) return { groups: [] };
       const parsed = new URL(url, 'http://fixture');
       const entry = { source: parsed.searchParams.get('sources') || parsed.searchParams.get('source'),
         page: Number(parsed.searchParams.get('page')),
@@ -137,6 +138,18 @@ test('Rule34 subscription requests run one at a time with a pause between author
   assert.equal(calls.length, 4);
   for (let index = 1; index < calls.length; index++)
     assert(calls[index].at - calls[index - 1].at >= 1000);
+});
+
+test('slow Rule34 responses count toward the request interval', async () => {
+  let advance;
+  const f = fixture(async entry => {
+    if (entry.source === 'rule34') advance(1500);
+    return reply(entry);
+  }, 3);
+  advance = f.advance;
+  await f.load();
+  const times = f.requests.filter(entry => entry.source === 'rule34').map(entry => entry.at);
+  assert.deepEqual(times, [100000, 101500, 103000]);
 });
 
 test('repeated temporary failures increase the pause and keep one background timer', async () => {

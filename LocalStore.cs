@@ -349,6 +349,62 @@ internal sealed class LocalStore : ISankakuSessionStore
         }
     }
 
+    public string GetFollowFeedCacheJson(string rating)
+    {
+        if (rating is not ("general" or "explicit" or "all")) return "{\"groups\":[]}";
+        lock (sync)
+        {
+            var path = Path.Combine(directory, $"follow-feed-cache-v1-{rating}.json");
+            if (!File.Exists(path)) return "{\"groups\":[]}";
+            try
+            {
+                var raw = File.ReadAllText(path);
+                return JsonNode.Parse(raw) is JsonObject ? raw : "{\"groups\":[]}";
+            }
+            catch (Exception error) when (error is JsonException or IOException)
+            { return "{\"groups\":[]}"; }
+        }
+    }
+
+    public bool UpdateFollowFeedCacheJson(string rating, string raw)
+    {
+        if (rating is not ("general" or "explicit" or "all") ||
+            JsonNode.Parse(raw) is not JsonObject input || input["groups"] is not JsonArray original)
+            return false;
+        static string Text(JsonNode? node) => node is JsonValue value &&
+            value.TryGetValue<string>(out var text) ? text : "";
+        lock (sync)
+        {
+            var followed = GetFollows().Select(follow => follow.Key).ToHashSet(StringComparer.Ordinal);
+            var groups = new JsonArray();
+            var count = 0;
+            foreach (var group in original.OfType<JsonObject>().Take(300))
+            {
+                var key = Text(group["key"]);
+                if (!followed.Contains(key) || group["items"] is not JsonArray originalItems) continue;
+                var items = new JsonArray();
+                foreach (var item in originalItems.OfType<JsonObject>())
+                {
+                    var source = Text(item["source"]);
+                    var itemKey = Text(item["key"]);
+                    if (!CatalogState.IsSupported(source) || itemKey.Length is < 3 or > 250 ||
+                        !itemKey.StartsWith(source + ":", StringComparison.OrdinalIgnoreCase)) continue;
+                    items.Add(item.DeepClone());
+                    if (++count >= 800 || items.Count >= 12) break;
+                }
+                if (items.Count > 0) groups.Add(new JsonObject { ["key"] = key, ["items"] = items });
+                if (count >= 800) break;
+            }
+            var path = Path.Combine(directory, $"follow-feed-cache-v1-{rating}.json");
+            using var fileLock = AcquireFileLock(path + ".lock");
+            WriteAtomic(path, JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                savedAt = DateTimeOffset.UtcNow, groups
+            }, Json));
+            return true;
+        }
+    }
+
     public ContentPreferences GetContentPreferences()
     {
         lock (sync)
