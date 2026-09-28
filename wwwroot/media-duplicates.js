@@ -56,7 +56,45 @@
         pixels: context.getImageData(0, 0, 128, 128).data };
     } finally { bitmap.close(); }
   }
-  const api = { isStaticRaster, sameImagePixels, fingerprint };
+  function createDuplicateIndex(saved = []) {
+    const parents = new Map();
+    let revision = 0;
+    const valid = key => typeof key === 'string' && key.length <= 1000 && /^https?:\/\//i.test(key);
+    const resolve = key => {
+      for (let steps = 0; parents.has(key) && steps < 512; steps++) key = parents.get(key);
+      return key;
+    };
+    const add = (left, right) => {
+      if (!valid(left) || !valid(right)) return false;
+      left = resolve(left); right = resolve(right);
+      if (left === right) return false;
+      // A stable ordering keeps restored relationships acyclic even if mirrors arrive in another order.
+      parents.set(left > right ? left : right, left > right ? right : left);
+      while (parents.size > 512) parents.delete(parents.keys().next().value);
+      revision++;
+      return true;
+    };
+    const restore = entries => {
+      if (Array.isArray(entries)) for (const pair of entries.slice(-512))
+        if (Array.isArray(pair) && pair.length === 2) add(pair[0], pair[1]);
+    };
+    restore(saved);
+    return { resolve, add, restore, entries: () => [...parents], get revision() { return revision; } };
+  }
+
+  function uniqueImages(urls, index, keyForUrl, signatureForUrl) {
+    const seen = [];
+    return urls.filter(url => {
+      const key = keyForUrl(url), signature = signatureForUrl(key);
+      const duplicate = seen.find(previous => index.resolve(previous.key) === index.resolve(key) ||
+        signature && sameImagePixels(previous.signature, signature));
+      if (duplicate) { index.add(key, duplicate.key); return false; }
+      seen.push({ key, signature });
+      return true;
+    });
+  }
+
+  const api = { isStaticRaster, sameImagePixels, fingerprint, createDuplicateIndex, uniqueImages };
   root.DartMediaDuplicates = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

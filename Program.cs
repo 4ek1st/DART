@@ -298,6 +298,24 @@ internal static class Program
             store.AddViewedTokens(tokens);
             return Results.Ok(new { saved = tokens.Count });
         });
+        app.MapPost("/api/hidden-authors", async (HttpContext context, LocalStore store) =>
+        {
+            if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
+            if (context.Request.ContentLength is > 5_000) return Results.StatusCode(413);
+            HiddenAuthorUpdate? update;
+            try { update = await context.Request.ReadFromJsonAsync<HiddenAuthorUpdate>(context.RequestAborted); }
+            catch (System.Text.Json.JsonException) { return Results.BadRequest(); }
+            var author = update?.Author;
+            if (update?.Hidden is null || author?.Source is not ("artist" or "danbooru" or "gelbooru" or "rule34" or "sankaku") ||
+                author.ArtistId is not { Length: > 0 and <= 100 } || author.ArtistId.Any(char.IsControl) ||
+                author.Name is null || author.Name.Length > 200 || author.Name.Any(char.IsControl)) return Results.BadRequest();
+            author.ArtistId = System.Text.RegularExpressions.Regex.Replace(
+                author.ArtistId.Normalize(System.Text.NormalizationForm.FormKC).Trim().ToLowerInvariant(), @"\s+", "_");
+            if (author.ArtistId.Length is < 1 or > 100 || author.ArtistId.StartsWith('-')) return Results.BadRequest();
+            if (string.IsNullOrWhiteSpace(author.Name)) author.Name = author.ArtistId.Replace('_', ' ');
+            var preferences = store.SetHiddenAuthor(author, update.Hidden.Value);
+            return preferences is null ? Results.Conflict() : Results.Ok(preferences);
+        });
         app.MapPost("/api/content-preferences", async (HttpContext context, LocalStore store) =>
         {
             if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);

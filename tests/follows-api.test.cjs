@@ -112,6 +112,19 @@ test('an explicit profile directory wins over an inherited test profile', async 
     assert.deepEqual(cleanedState.recent, [supported]);
     assert.deepEqual(cleanedState.session.tabs[0].item, supported);
     assert.equal(cleanedState.session.tabs[0].scrollTop, 123);
+    const pairs = [['https://cdn.donmai.us/a.png', 'https://img4.gelbooru.com/a.png']];
+    const saveClient = body => fetch(server.origin + '/api/client-state', { method: 'POST',
+      headers: { Origin: server.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal((await saveClient({ ...cleanedState, mediaDuplicatePairs: pairs })).status, 200);
+    assert.equal((await saveClient(cleanedState)).status, 200);
+    assert.deepEqual((await (await fetch(server.origin + '/api/client-state')).json()).mediaDuplicatePairs, pairs,
+      'a session save from an older window must retain verified duplicate evidence');
+    const nextPairs = [['https://cdn.donmai.us/b.png', 'https://s.sankakucomplex.com/b.png']];
+    assert.equal((await saveClient({ ...cleanedState, mediaDuplicatePairs: [...nextPairs, ['invalid', 'bad']] })).status, 200);
+    assert.deepEqual((await (await fetch(server.origin + '/api/client-state')).json()).mediaDuplicatePairs, [...pairs, ...nextPairs]);
+    await stopServer(server);
+    server = await startServer(first);
+    assert.deepEqual((await (await fetch(server.origin + '/api/client-state')).json()).mediaDuplicatePairs, [...pairs, ...nextPairs]);
   } finally {
     await stopServer(server);
     for (const directory of [first, inherited]) {
@@ -207,24 +220,24 @@ test('content preferences save separately from API credentials and survive a res
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', excludedTags: [],
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', excludedTags: [], hiddenAuthors: [],
       attributionPriority: 'creator', hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] }, 'https://other.example')).status, 403);
     assert.equal((await post({ aiMode: 'invalid', excludedTags: [] })).status, 400);
     assert.equal((await post({ aiMode: 'generated', excludedTags: ['a'.repeat(101)] })).status, 400);
-    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', excludedTags: [],
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', excludedTags: [], hiddenAuthors: [],
       attributionPriority: 'creator', hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] })).status, 200);
-    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted',
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hiddenAuthors: [],
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: false });
     assert.ok(fs.existsSync(path.join(dataDirectory, 'content-preferences.json')));
     assert.equal(fs.existsSync(path.join(dataDirectory, 'settings.bin')), false);
     await stopServer(server);
     server = await startServer(dataDirectory);
-    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted',
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hiddenAuthors: [],
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
@@ -239,6 +252,34 @@ test('content preferences save separately from API credentials and survive a res
       server = await startServer(dataDirectory);
       assert.deepEqual(await get(), { ...previous, language });
     }
+    const savedPreferences = await get();
+    const hiddenPost = (body, origin = server.origin) => fetch(server.origin + '/api/hidden-authors', {
+      method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const artist = { source: 'artist', artistId: 'Sample Artist', name: 'Sample artist' };
+    const uploader = { source: 'sankaku', artistId: '42', name: 'Uploader' };
+    assert.equal((await hiddenPost({ author: artist, hidden: true }, 'https://other.example')).status, 403);
+    for (const body of [null, {}, { author: artist }, { author: { ...artist, source: 'retired' }, hidden: true },
+      { author: { ...artist, artistId: ' ' }, hidden: true },
+      { author: { ...artist, artistId: 'a'.repeat(101) }, hidden: true },
+      { author: { ...artist, name: '\u0000' }, hidden: true }])
+      assert.equal((await hiddenPost(body)).status, 400);
+    const hiddenResponses = await Promise.all([artist, uploader].map(author => hiddenPost({ author, hidden: true })));
+    assert(hiddenResponses.every(response => response.status === 200));
+    assert.equal((await hiddenPost({ author: { ...artist, artistId: 'SAMPLE_ARTIST' }, hidden: true })).status, 200);
+    const hidden = (await get()).hiddenAuthors.sort((a, b) => a.source.localeCompare(b.source));
+    assert.deepEqual(hidden, [{ ...artist, artistId: 'sample_artist' }, uploader]);
+    assert.equal((await post({ ...savedPreferences, language: 'de' })).status, 200);
+    assert.deepEqual((await get()).hiddenAuthors.sort((a, b) => a.source.localeCompare(b.source)), hidden,
+      'an older preferences form must not reset the hidden author list');
+    await stopServer(server);
+    server = await startServer(dataDirectory);
+    assert.deepEqual((await get()).hiddenAuthors.sort((a, b) => a.source.localeCompare(b.source)), hidden);
+    assert.equal((await hiddenPost({ author: artist, hidden: false })).status, 200);
+    assert.deepEqual(await get(), { ...savedPreferences, language: 'de', hiddenAuthors: [uploader] });
+    assert.equal((await hiddenPost({ author: uploader, hidden: false })).status, 200);
+    assert.deepEqual((await get()).hiddenAuthors, []);
     const viewedUrl = server.origin + '/api/viewed-identities';
     const saveViewed = (origin, tokens) => fetch(viewedUrl, {
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },

@@ -82,7 +82,7 @@ test('popular cards expose the source vote count', () => {
   const context = { itemIndex: new Map(), currentTab: () => ({ sort }),
     CatalogLogic, names: { danbooru: 'Danbooru', gelbooru: 'Gelbooru' },
     contentPreferences: { attributionPriority: 'creator' },
-    savedWorkButton: () => '', escapeHtml: value => String(value),
+    savedWorkButton: () => '', galleryImages: item => item.images || [], escapeHtml: value => String(value),
     isAdultRating: () => false, svg: () => '' };
   const helpersStart = source.indexOf('function rememberItem(');
   const helpersEnd = source.indexOf('\nfunction saveSession(', helpersStart);

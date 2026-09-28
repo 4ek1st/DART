@@ -15,6 +15,8 @@ const icons = {
 icons.pin = '<path d="m8 3 8 0-1 6 3 4H6l3-4-1-6ZM12 13v8"/>';
 icons.list = '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>';
 icons.bookmark = '<path d="M6 3h12v18l-6-4-6 4V3Z"/>';
+icons.hide = '<path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.8 5.2A10 10 0 0 1 12 5c6 0 10 7 10 7a18 18 0 0 1-3 3.8M6.2 6.2A20 20 0 0 0 2 12s4 7 10 7a11 11 0 0 0 5-1.3"/>';
+icons.star = '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>';
 const svg = name => `<svg viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${icons[name]}</svg>`;
 const names = { danbooru: 'Danbooru', gelbooru: 'Gelbooru', rule34: 'Rule34', sankaku: 'Sankaku' };
 let favoriteTags = [];
@@ -62,8 +64,9 @@ let follows = [];
 let followedKeys = new Set();
 let settings = { userId: '', hasApiKey: false, rule34UserId: '', hasRule34ApiKey: false };
 let contentPreferences = { language: globalThis.DartI18n?.language || 'en', aiMode: 'all', excludedTags: [], attributionPriority: 'creator',
-  hideViewedAndSaved: false };
+  hideViewedAndSaved: false, hiddenAuthors: [] };
 let contentPreferencesSaving = false;
+let contentPreferencesRevision = 0;
 let sankakuSigningIn = false;
 let sankakuLoginError = '';
 const sourceKeyHint = source =>
@@ -215,7 +218,26 @@ function creatorActionData(item, participant) {
   const attribution = CatalogLogic.workAttribution(item);
   const creator = participant || attribution.creator || attribution.participants[0];
   if (!creator) return '';
-  return `data-creator-id="${escapeHtml(creator.follow.artistId)}" data-creator-name="${escapeHtml(creator.name)}" data-creator-role="${escapeHtml(creator.participantRole)}" data-creator-source="${escapeHtml(item.source)}" data-creator-rating="${escapeHtml(item.rating || '')}"`;
+  return `${authorContextData({ source: 'artist', artistId: creator.follow.artistId, name: creator.name })} data-creator-id="${escapeHtml(creator.follow.artistId)}" data-creator-name="${escapeHtml(creator.name)}" data-creator-role="${escapeHtml(creator.participantRole)}" data-creator-source="${escapeHtml(item.source)}" data-creator-rating="${escapeHtml(item.rating || '')}"`;
+}
+
+function authorContextData(author) {
+  if (!CatalogLogic.hiddenAuthorKey(author)) return '';
+  return `data-context-author-source="${escapeHtml(author.source)}" data-context-author-id="${escapeHtml(author.artistId)}" data-context-author-name="${escapeHtml(author.name || author.artistId)}"`;
+}
+
+function workAuthorContextData(item, primary) {
+  const attribution = CatalogLogic.workAttribution(item);
+  if (['creator', 'contributor'].includes(primary.role)) {
+    const person = attribution.creator || attribution.participants[0];
+    return authorContextData({ source: 'artist', artistId: person?.tag, name: person?.name });
+  }
+  if (primary.role === 'uploader') return authorContextData({ source: item.source,
+    artistId: item.uploaderId || (item.source !== 'danbooru' ? item.artistId : ''), name: primary.name });
+  if (primary.role === 'unknown' && item.followedArtistTag)
+    return authorContextData({ source: 'artist', artistId: item.followedArtistTag,
+      name: item.followedArtistName || item.followedArtistTag });
+  return '';
 }
 
 function itemForControl(control) {
@@ -250,7 +272,8 @@ function saveSession() {
   catch { /* Browser storage may be unavailable. */ }
   fetch('/api/client-state', { method: 'POST', keepalive: true,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session, recent, searchHistory: getSearchHistory() })
+    body: JSON.stringify({ session, recent, searchHistory: getSearchHistory(),
+      mediaDuplicatePairs: detailImageDeduper.duplicates.entries() })
   }).catch(() => {});
 }
 
@@ -285,6 +308,7 @@ async function loadRecommendationTagPreferences() {
 async function loadClientState() {
   try {
     const state = CatalogLogic.cleanClientState(await request('/api/client-state'));
+    detailImageDeduper.duplicates.restore(state.mediaDuplicatePairs);
     if (state.session?.tabs?.length)
       localStorage.setItem('artcatalog-session', JSON.stringify(state.session));
     if (Array.isArray(state.recent)) {
@@ -740,12 +764,12 @@ async function loadFavoriteTags() {
   } catch { toast('Избранные теги не удалось прочитать'); }
 }
 
-async function toggleFavoriteTag(query) {
+async function toggleFavoriteTag(query, requestedFavorite) {
   const tag = CatalogLogic.favoriteTagFromQuery(query);
   if (!tag || favoriteTagPending.has(tag)) return;
   favoriteTagPending.add(tag);
   try {
-    const favorite = !favoriteTags.includes(tag);
+    const favorite = requestedFavorite ?? !favoriteTags.includes(tag);
     favoriteTags = await request('/api/favorite-tags', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tag, favorite }) });
@@ -1307,13 +1331,18 @@ async function loadSettings() {
 }
 
 async function loadContentPreferences() {
+  if (contentPreferencesSaving) return;
+  const revision = ++contentPreferencesRevision;
   try {
     const saved = await request('/api/content-preferences');
+    if (revision !== contentPreferencesRevision) return;
     contentPreferences = {
       language: ['en', 'ru', 'de'].includes(saved.language) ? saved.language : 'en',
       aiMode: ['all', 'generated', 'generated-and-assisted'].includes(saved.aiMode)
         ? saved.aiMode : 'all',
       excludedTags: CatalogLogic.normalizeExcludedTags(saved.excludedTags),
+      hiddenAuthors: (Array.isArray(saved.hiddenAuthors) ? saved.hiddenAuthors : [])
+        .filter(author => CatalogLogic.hiddenAuthorKey(author)),
       attributionPriority: ['creator', 'original', 'uploader'].includes(saved.attributionPriority)
         ? saved.attributionPriority : 'creator',
       hideViewedAndSaved: saved.hideViewedAndSaved === true
@@ -1323,30 +1352,54 @@ async function loadContentPreferences() {
   if (currentTab()?.kind === 'settings') render();
 }
 
+function applyContentPreferences(saved) {
+  const before = contentPreferences;
+  contentPreferences = { ...saved, hiddenAuthors: saved.hiddenAuthors || [] };
+  globalThis.DartI18n?.setLanguage(contentPreferences.language);
+  const contentChanged = ['aiMode', 'excludedTags', 'hideViewedAndSaved', 'hiddenAuthors']
+    .some(key => JSON.stringify(before[key]) !== JSON.stringify(contentPreferences[key]));
+  if (!contentChanged) return;
+  for (const tab of tabs) {
+    tab.retainedFeedWorks = new Map();
+    tab.profileBanner = '';
+    if (tab.kind === 'follows' && tab.followGroups && tab.followStreams) updateFollowFeed(tab);
+    if (tab.kind !== 'recommendations') continue;
+    tab.recommendationController?.abort();
+    tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
+    tab.started = false;
+    tab.items = [];
+    tab.recommendationTags = [];
+    tab.recommendationTagGroups = { names: [], other: [] };
+  }
+}
+
+async function setAuthorHidden(author, hidden) {
+  if (contentPreferencesSaving || !CatalogLogic.hiddenAuthorKey(author)) return;
+  contentPreferencesSaving = true;
+  ++contentPreferencesRevision;
+  try {
+    applyContentPreferences(await request('/api/hidden-authors', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author, hidden })
+    }));
+    toast(hidden ? 'Author hidden' : 'Author visible again');
+  } catch { toast('Failed to change hidden authors'); }
+  finally { contentPreferencesSaving = false; render(); }
+}
+
 async function saveContentPreferences(next) {
   if (contentPreferencesSaving) return;
   contentPreferencesSaving = true;
+  ++contentPreferencesRevision;
   try {
-    const contentChanged = next.aiMode !== contentPreferences.aiMode ||
-      JSON.stringify(next.excludedTags) !== JSON.stringify(contentPreferences.excludedTags) ||
-      next.hideViewedAndSaved !== contentPreferences.hideViewedAndSaved;
-    contentPreferences = await request('/api/content-preferences', {
+    const saved = await request('/api/content-preferences', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ language: next.language || globalThis.DartI18n?.language || 'en', aiMode: next.aiMode,
         excludedTags: CatalogLogic.normalizeExcludedTags(next.excludedTags),
         attributionPriority: next.attributionPriority,
         hideViewedAndSaved: next.hideViewedAndSaved })
     });
-    globalThis.DartI18n?.setLanguage(contentPreferences.language);
-    for (const tab of contentChanged ? tabs.filter(entry => entry.kind === 'recommendations') : []) {
-      tab.recommendationController?.abort();
-      tab.started = false;
-      tab.items = [];
-      tab.recommendationTags = [];
-      tab.recommendationTagGroups = { names: [], other: [] };
-    }
-    if (contentChanged)
-      for (const tab of tabs) tab.retainedFeedWorks = new Map();
+    applyContentPreferences(saved);
     toast('Настройки сохранены');
   } catch { toast('Не удалось сохранить фильтры'); }
   finally {
@@ -2095,27 +2148,65 @@ function renderRecommendationTagChips(tags) {
 function closeRecommendationTagMenu(returnFocus = false) {
   if (recommendationTagMenu.hidden) return;
   recommendationTagMenu.hidden = true;
-  if (returnFocus) recommendationTagMenu.trigger?.focus({ preventScroll: true });
+  if (returnFocus) {
+    let trigger = recommendationTagMenu.trigger;
+    const context = recommendationTagMenu.context;
+    if (!trigger?.isConnected && context) {
+      trigger = [...document.querySelectorAll(contentTagSelector + ', [data-context-author-id]')]
+        .find(element => {
+          const candidate = contentContextTarget(element);
+          return candidate?.kind === context.kind && (context.kind === 'tag'
+            ? candidate.tag === context.tag
+            : CatalogLogic.hiddenAuthorKey(candidate.author) === CatalogLogic.hiddenAuthorKey(context.author));
+        });
+    }
+    trigger?.focus({ preventScroll: true });
+  }
   recommendationTagMenu.trigger = null;
+  recommendationTagMenu.context = null;
 }
 
-function openRecommendationTagMenu(chip, x, y) {
+const contentTagSelector = '.tag-link[data-query], .tag-chip[data-query], [data-recommendation-tag], .tag-suggestion[data-tag], .favorite-tag-button[data-tag], .excluded-tag[data-tag], [data-context-tag]';
+function contentContextTarget(target) {
+  const chip = target.closest(contentTagSelector);
+  if (chip) {
+    const raw = chip.dataset.contextTag || chip.dataset.query || chip.dataset.tag;
+    const tag = CatalogLogic.favoriteTagFromQuery(String(raw || '').trim().replace(/\s+/g, '_'));
+    if (tag) return { trigger: chip, kind: 'tag', tag,
+      recommendationTag: chip.dataset.recommendationTag };
+  }
+  const author = target.closest('[data-context-author-id]');
+  if (!author) return null;
+  const identity = { source: author.dataset.contextAuthorSource,
+    artistId: author.dataset.contextAuthorId, name: author.dataset.contextAuthorName };
+  return CatalogLogic.hiddenAuthorKey(identity) ? { trigger: author, kind: 'author', author: identity } : null;
+}
+
+function openContentContextMenu(context, x, y) {
   closeRecommendationTagMenu();
-  const tag = chip.dataset.recommendationTag;
-  const current = recommendationTagPreferences[tag] || 'normal';
-  recommendationTagMenu.tag = tag;
-  recommendationTagMenu.trigger = chip;
-  recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title" data-no-i18n>#${escapeHtml(tag)}</div>
+  const tag = context.tag;
+  const hidden = context.kind === 'tag'
+    ? contentPreferences.excludedTags.includes(CatalogLogic.normalizeExcludedTags([tag])[0])
+    : contentPreferences.hiddenAuthors.some(author => CatalogLogic.hiddenAuthorKey(author) === CatalogLogic.hiddenAuthorKey(context.author));
+  const current = recommendationTagPreferences[context.recommendationTag] || 'normal';
+  recommendationTagMenu.context = { ...context, hidden, favorite: tag && favoriteTags.includes(tag) };
+  recommendationTagMenu.tag = context.recommendationTag;
+  recommendationTagMenu.trigger = context.trigger;
+  recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title" data-no-i18n>${escapeHtml(tag ? '#' + tag.replaceAll('_', ' ') : context.author.name)}</div>
+    <button type="button" role="menuitem" data-context-action="hide"${contentPreferencesSaving ? ' disabled' : ''}>${svg('hide')}<span>${hidden ? 'Unhide' : 'Hide'}</span></button>
+    ${tag ? `<button type="button" role="menuitem" data-context-action="favorite"${favoriteTagPending.has(tag) ? ' disabled' : ''}>${svg('star')}<span>${favoriteTags.includes(tag) ? 'Unfavorite' : 'Favorite'}</span></button>` : ''}
+    ${context.recommendationTag ? `<div class="recommendation-tag-menu-separator" role="separator"></div>
     <button type="button" role="menuitemradio" aria-checked="${current === 'priority'}" data-tag-mode="priority"><span class="recommendation-menu-dot priority-dot"></span>Показывать чаще</button>
     <button type="button" role="menuitemradio" aria-checked="${current === 'disabled'}" data-tag-mode="disabled"><span class="recommendation-menu-dot disabled-dot"></span>Выключить тег</button>
-    <div class="recommendation-tag-menu-separator"></div>
-    <button type="button" role="menuitemradio" aria-checked="${current === 'normal'}" data-tag-mode="normal">Обычный режим</button>`;
+    <button type="button" role="menuitemradio" aria-checked="${current === 'normal'}" data-tag-mode="normal">Обычный режим</button>` : ''}`;
+  globalThis.DartI18n?.translateTree(recommendationTagMenu);
   recommendationTagMenu.hidden = false;
+  if (!x && !y) { const rect = context.trigger.getBoundingClientRect(); x = rect.left; y = rect.bottom; }
   const width = recommendationTagMenu.offsetWidth;
   const height = recommendationTagMenu.offsetHeight;
   recommendationTagMenu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - width - 8))}px`;
   recommendationTagMenu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - height - 8))}px`;
-  recommendationTagMenu.querySelector('button')?.focus({ preventScroll: true });
+  recommendationTagMenu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
 }
 
 function filteredRecommendationOtherTags(tab) {
@@ -2170,7 +2261,7 @@ function followButton(ref, className = 'secondary-button') {
     colorist: 'Подписаться на колориста', editor: 'Подписаться на монтажёра',
     translator: 'Подписаться на переводчика', animator: 'Подписаться на аниматора' }[role];
   const displayLabel = !following && ref.source === 'danbooru' && roleLabel ? roleLabel : label;
-  return `<button class="${className}" data-action="follow" data-follow-source="${escapeHtml(ref.source)}" data-follow-artist="${escapeHtml(ref.artistId)}" data-follow-service="${escapeHtml(ref.service || '')}" data-follow-name="${escapeHtml(ref.name || ref.artistId)}" aria-pressed="${following}">${displayLabel}</button>`;
+  return `<button class="${className}" ${authorContextData({ ...ref, source: ref.source === 'danbooru' ? 'artist' : ref.source })} data-action="follow" data-follow-source="${escapeHtml(ref.source)}" data-follow-artist="${escapeHtml(ref.artistId)}" data-follow-service="${escapeHtml(ref.service || '')}" data-follow-name="${escapeHtml(ref.name || ref.artistId)}" aria-pressed="${following}">${displayLabel}</button>`;
 }
 
 function renderFollowArtist(follow, tab) {
@@ -2179,7 +2270,7 @@ function renderFollowArtist(follow, tab) {
     ? `${CatalogLogic.participantRoleLabel(CatalogLogic.participantRole(follow.artistId))} · Danbooru · Gelbooru ${settings.hasApiKey ? `#${gelbooruTag}` : 'требует ключ'} · Rule34 ${settings.hasRule34ApiKey ? `#${follow.artistId}` : 'требует ключ'}`
     : `${names[follow.source] || follow.source}${['gelbooru', 'rule34', 'sankaku'].includes(follow.source) ? ' · загрузчик' : ''}`;
   const editing = tab.editingFollowKey === follow.key;
-  return `<div class="followed-artist"><div><strong data-no-i18n>${escapeHtml(follow.name)}</strong><span>${escapeHtml(sourceLabel)}</span></div>
+  return `<div class="followed-artist" ${authorContextData({ ...follow, source: follow.source === 'danbooru' ? 'artist' : follow.source })}><div><strong data-no-i18n>${escapeHtml(follow.name)}</strong><span>${escapeHtml(sourceLabel)}</span></div>
     ${editing ? `<form class="follow-tag-form" data-follow-key="${escapeHtml(follow.key)}">
       <label>Тег художника на Gelbooru<input name="gelbooruTag" maxlength="100" value="${escapeHtml(tab.editingFollowTag ?? gelbooruTag)}" placeholder="${escapeHtml(follow.artistId)}"></label>
       <small>Если имя тега отличается, укажите его здесь. Пустое поле вернёт тег Danbooru.</small>
@@ -2278,8 +2369,8 @@ function renderProfile(tab) {
     .flatMap(CatalogLogic.workSources).map(record => names[record.source]))].join(' · ') :
     names[ref.source] || ref.source;
   return `<div class="content profile-page">
-    <div class="profile-banner">${tab.profileBanner ? `<img class="profile-banner-art" src="${escapeHtml(tab.profileBanner)}" alt="" aria-hidden="true">` : ''}<span class="profile-avatar">${escapeHtml((name || '?')[0].toUpperCase())}</span>
-      <div><h1>${escapeHtml(name)}</h1><p class="section-sub">${escapeHtml(profile?.role || (['gelbooru', 'rule34', 'sankaku'].includes(ref.source) ? 'Загрузчик' : 'Художник'))}${sourceLabel ? ` · ${escapeHtml(sourceLabel)}` : ''}</p></div>
+    <div class="profile-banner" ${authorContextData({ source: ['artist', 'danbooru'].includes(ref.source) ? 'artist' : ref.source, artistId: ref.artist, name })}>${tab.profileBanner ? `<img class="profile-banner-art" src="${escapeHtml(tab.profileBanner)}" alt="" aria-hidden="true">` : ''}<span class="profile-avatar">${escapeHtml((name || '?')[0].toUpperCase())}</span>
+      <div><h1 data-no-i18n>${escapeHtml(name)}</h1><p class="section-sub">${escapeHtml(profile?.role || (['gelbooru', 'rule34', 'sankaku'].includes(ref.source) ? 'Загрузчик' : 'Художник'))}${sourceLabel ? ` · ${escapeHtml(sourceLabel)}` : ''}</p></div>
       <div class="profile-actions">${followButton({ source: artistProfile ? 'danbooru' : ref.source, artistId: ref.artist,
         service: ref.service, name })}${profile?.url ? `<button class="secondary-button" data-action="profile-external">Открыть на сайте ↗</button>` : ''}</div></div>
     <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все']].map(([rating, label]) => `<button class="filter-button ${tab.rating === rating ? 'active' : ''}" data-action="profile-rating" data-rating="${rating}">${label}</button>`).join('')}</div>
@@ -2483,6 +2574,7 @@ function measureVirtualGrids(tab) {
 
 function renderCard(item, isNew = false) {
   item = rememberItem(item);
+  const imageCount = galleryImages(item).length;
   const taggedArtist = currentTab()?.kind === 'follows' && item.followedArtistTag;
   const attribution = CatalogLogic.workAttribution(item, contentPreferences.attributionPriority);
   const primary = attribution.primary;
@@ -2504,12 +2596,12 @@ function renderCard(item, isNew = false) {
       <span class="source-badge" title="${escapeHtml(sourceTitle)}">${escapeHtml(sourceBadge)}</span>
       ${isNew ? '<span class="new-badge">Новое</span>' : ''}
       ${isAdultRating(item.rating) ? `<span class="rating-badge" title="${ratingLabel(item.rating) === 'Q' ? 'Questionable — пограничный контент' : 'NSFW — откровенный контент'}">${ratingLabel(item.rating)}</span>` : ''}
-      ${item.images?.length > 1 ? `<span class="image-count">▣ ${item.images.length}</span>` : ''}
+      ${imageCount > 1 ? `<span class="image-count">▣ ${imageCount}</span>` : ''}
       ${item.images?.some(url => CatalogLogic.videoMimeType(url)) ? '<span class="video-badge" role="img" aria-label="Видео" title="Видео">▶</span>' : ''}
     </button>
     ${savedWorkButton(item, 'likes')}
   </div><button class="card-title" data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</button>
-  <button class="card-artist" data-action="${taggedArtist && primary.role === 'unknown' ? 'follow-tag-search' : 'attribution-primary'}" data-key="${escapeHtml(item.key)}" ${['creator', 'contributor'].includes(primary.role) ? creatorActionData(item) : ''} data-i18n-keep="${escapeHtml(JSON.stringify(primary.role === 'unknown' && !taggedArtist ? [] : [artistLabel]))}" title="${escapeHtml(roleLabel)}: ${escapeHtml(artistLabel)}"><span class="artist-avatar">${escapeHtml((taggedArtist && primary.role === 'unknown' ? artistLabel.slice(1) : artistLabel)[0].toUpperCase())}</span><span><small>${escapeHtml(roleLabel)}</small>${escapeHtml(artistLabel)}</span></button>${currentTab()?.sort === 'popular' && Number.isInteger(item.popularityCount) ? `<div class="card-popularity">Голоса: ${item.popularityCount}</div>` : ''}</article>`;
+  <button class="card-artist" data-action="${taggedArtist && primary.role === 'unknown' ? 'follow-tag-search' : 'attribution-primary'}" data-key="${escapeHtml(item.key)}" ${['creator', 'contributor'].includes(primary.role) ? creatorActionData(item) : workAuthorContextData(item, primary)} data-i18n-keep="${escapeHtml(JSON.stringify(primary.role === 'unknown' && !taggedArtist ? [] : [artistLabel]))}" title="${escapeHtml(roleLabel)}: ${escapeHtml(artistLabel)}"><span class="artist-avatar">${escapeHtml((taggedArtist && primary.role === 'unknown' ? artistLabel.slice(1) : artistLabel)[0].toUpperCase())}</span><span><small>${escapeHtml(roleLabel)}</small>${escapeHtml(artistLabel)}</span></button>${currentTab()?.sort === 'popular' && Number.isInteger(item.popularityCount) ? `<div class="card-popularity">Голоса: ${item.popularityCount}</div>` : ''}</article>`;
 }
 
 function skeletons(count) {
@@ -2520,8 +2612,7 @@ function renderDetail(tab) {
   const item = tab.item = rememberItem(tab.item);
   if (CatalogLogic.isWorkHidden(item, contentPreferences))
     return `<div class="content"><div class="empty feature-empty">Эта работа скрыта фильтрами содержимого. <button class="inline-retry" data-action="content-settings">Изменить фильтры</button></div></div>`;
-  const images = item.images?.length ? detailImageDeduper.unique(CatalogLogic.artworkMedia(item).images)
-    : item.thumbnail ? [item.thumbnail] : [];
+  const images = galleryImages(item);
   const tags = CatalogLogic.artworkTags(item, tab.searchQuery);
   const visibleTags = tab.showAllTags ? tags : tags.slice(0, 40);
   const visibleCreatorWorks = selectCreatorWorks(item, tab.creatorCandidates || tab.creatorWorks || []);
@@ -2540,7 +2631,7 @@ function renderDetail(tab) {
         ${tags.length ? renderArtworkTags(tab, tags, visibleTags) : ''}
       </div>
     </div>
-    <aside class="creator-panel"><div class="creator-heading"><span class="artist-avatar">${escapeHtml((primary.name || '?')[0].toUpperCase())}</span><div><div class="muted">${escapeHtml(primaryRole)}</div><div class="creator-name"${primary.role !== 'unknown' ? ' data-no-i18n' : ''}>${escapeHtml(primary.name)}</div></div></div>
+    <aside class="creator-panel"><div class="creator-heading" ${workAuthorContextData(item, primary)}><span class="artist-avatar">${escapeHtml((primary.name || '?')[0].toUpperCase())}</span><div><div class="muted">${escapeHtml(primaryRole)}</div><div class="creator-name"${primary.role !== 'unknown' ? ' data-no-i18n' : ''}>${escapeHtml(primary.name)}</div></div></div>
       ${renderParticipantProfiles(item, attribution)}
       ${attribution.original ? `<div class="attribution-entry"><strong>Исходная ссылка</strong><button class="attribution-link" data-action="original" data-key="${escapeHtml(item.key)}" data-no-i18n title="${escapeHtml(attribution.original.url)}">${escapeHtml(attribution.original.name)} ↗</button></div>` : ''}
       <dl><dt>${sourceLabel.includes(' · ') ? 'Каталоги' : 'Каталог'}</dt><dd class="work-sources">${renderWorkSources(item)}</dd><dt>ID работы · ${escapeHtml(names[item.source] || item.source)}</dt><dd>${escapeHtml(item.id)}</dd></dl></aside>
@@ -2573,7 +2664,7 @@ function renderParticipantProfiles(item, attribution) {
       : person.participantRole === 'animator' ? 'Профиль аниматора'
       : person.participantRole === 'voice_actor' ? 'Профиль актёра озвучки' : 'Профиль участника';
     const headingVisible = index > 0 || !['creator', 'contributor'].includes(attribution.primary.role);
-    return `<div class="participant-profile" data-participant-tag="${escapeHtml(person.tag)}">
+    return `<div class="participant-profile" data-participant-tag="${escapeHtml(person.tag)}" ${authorContextData({ source: 'artist', artistId: person.tag, name: person.name })}>
       ${headingVisible ? `<div class="creator-heading"><span class="artist-avatar">${escapeHtml(person.name[0].toUpperCase())}</span><div><div class="muted">${escapeHtml(person.roleLabel)}</div><div class="creator-name" data-no-i18n>${escapeHtml(person.name)}</div></div></div>` : ''}
       <button class="${index === 0 ? 'primary-button' : 'secondary-button'} profile-button" data-action="creator-profile" data-key="${escapeHtml(item.key)}" ${creatorActionData(item, person)}>${label}</button>
       ${followButton(person.follow)}</div>`;
@@ -2631,14 +2722,17 @@ function rememberImageDimensions(img) {
 
 const detailImageDeduper = {
   signatures: new Map(),
-  unique(urls) {
-    const seen = [];
-    return urls.filter(url => {
-      const signature = this.signatures.get(CatalogLogic.mediaCacheKey(url))?.value;
-      if (!signature) return true;
-      if (seen.some(previous => DartMediaDuplicates.sameImagePixels(previous, signature))) return false;
-      seen.push(signature); return true;
-    });
+  duplicates: DartMediaDuplicates.createDuplicateIndex(),
+  saveTimer: null,
+  unique(urls, comparePixels = false) {
+    const revision = this.duplicates.revision;
+    const images = DartMediaDuplicates.uniqueImages(urls, this.duplicates,
+      CatalogLogic.mediaCacheKey, key => comparePixels ? this.signatures.get(key)?.value : null);
+    if (this.duplicates.revision !== revision) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = setTimeout(() => { this.saveTimer = null; saveSession(); }, 250);
+    }
+    return images;
   },
   async inspect(img) {
     const stage = img.closest('.artwork-stage');
@@ -2659,16 +2753,35 @@ const detailImageDeduper = {
     }
     await record.pending;
     if (!img.isConnected || img.dataset.imageUrl !== url) return;
-    const seen = [];
+    const unique = new Set(this.unique([...stage.querySelectorAll('.detail-image img[data-image-url]')]
+      .map(image => image.dataset.imageUrl), true));
     for (const image of stage.querySelectorAll('.detail-image img[data-image-url]')) {
-      const signature = this.signatures.get(CatalogLogic.mediaCacheKey(image.dataset.imageUrl))?.value;
-      const duplicate = !!signature && seen.some(previous =>
-        DartMediaDuplicates.sameImagePixels(previous, signature));
-      image.closest('.detail-image').hidden = duplicate;
-      if (signature && !duplicate) seen.push(signature);
+      image.closest('.detail-image').hidden = !unique.has(image.dataset.imageUrl);
     }
+    syncGalleryImageCounts();
   }
 };
+
+function galleryImages(item) {
+  return item.images?.length ? detailImageDeduper.unique(CatalogLogic.artworkMedia(item).images)
+    : item.thumbnail ? [item.thumbnail] : [];
+}
+
+function syncGalleryImageCounts() {
+  for (const card of main.querySelectorAll('.card[data-work-key]')) {
+    const item = itemIndex.get(card.dataset.workKey);
+    if (!item) continue;
+    const count = galleryImages(item).length;
+    let badge = card.querySelector('.image-count');
+    if (count <= 1) { badge?.remove(); continue; }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'image-count';
+      card.querySelector('button.card-art')?.append(badge);
+    }
+    badge.textContent = `▣ ${count}`;
+  }
+}
 
 function ratingLabel(value) {
   if (['q', 'questionable'].includes(value)) return 'Q';
@@ -2699,6 +2812,7 @@ function renderSettings() {
   const hideGenerated = contentPreferences.aiMode !== 'all';
   const hideAssisted = contentPreferences.aiMode === 'generated-and-assisted';
   const excluded = contentPreferences.excludedTags || [];
+  const hiddenAuthors = contentPreferences.hiddenAuthors || [];
   return `<div class="content settings-panel"><h1>Настройки</h1><p class="section-sub">Фильтры и подключения хранятся на этом компьютере.</p>
     <div class="settings-layout">
       <nav class="settings-sections" aria-label="Разделы настроек" role="tablist">
@@ -2729,6 +2843,9 @@ function renderSettings() {
           ${excluded.length ? `<div class="excluded-tags-list">${excluded.map(tag => `<button type="button" class="excluded-tag" data-action="remove-excluded-tag" data-tag="${escapeHtml(tag)}" data-i18n-keep="${escapeHtml(JSON.stringify([tag]))}" aria-label="Убрать тег ${escapeHtml(tag)}"><span data-no-i18n>#${escapeHtml(tag.replaceAll(' ', '_'))}</span> <span aria-hidden="true">×</span></button>`).join('')}</div>` : '<p class="settings-hint">Список пуст. Можно ввести несколько тегов через запятую.</p>'}
           <p class="settings-hint">Фильтр проверяет все теги объединённой работы из Danbooru, Gelbooru, Rule34 и Sankaku.</p>
         </div>` : section === 'authors' ? `
+        <div class="settings-card"><h2>Hidden authors</h2><p>Right-click an author and choose Hide to hide their works in every section. You can unhide them here.</p>
+          ${hiddenAuthors.length ? `<ul class="hidden-authors-list">${hiddenAuthors.map(author => `<li ${authorContextData(author)}><span><strong data-no-i18n>${escapeHtml(author.name || author.artistId)}</strong><small>${author.source === 'artist' ? 'All catalogs' : `${escapeHtml(names[author.source] || author.source)} · <span>Uploader</span>`}</small></span><button type="button" class="secondary-button" data-action="unhide-author" data-author-key="${escapeHtml(CatalogLogic.hiddenAuthorKey(author))}"${contentPreferencesSaving ? ' disabled' : ''}>Unhide</button></li>`).join('')}</ul>` : '<p class="settings-hint">No hidden authors.</p>'}
+        </div>
         <div class="settings-card"><h2>Кого показывать первым</h2><p>На карточке и в шапке работы можно первым показать художника, сайт оригинальной публикации или загрузчика. На странице работы все известные данные остаются видимыми отдельно.</p>
           ${[
             ['creator', 'Художник / автор', 'По тегу категории artist. Если художник неизвестен, так и будет написано.'],
@@ -3242,7 +3359,7 @@ function renderPopover() {
   const history = getSearchHistory().filter(entry => !typed || entry.toLowerCase().includes(typed)).slice(0, 6);
   popover.innerHTML = `${history.length ? '<div class="popover-title">Недавние запросы</div>' + history.map(entry => `<button type="button" class="popover-row" data-query="${escapeHtml(entry)}" data-no-i18n>${escapeHtml(entry)}</button>`).join('') : ''}
     ${tagSuggestions.length ? `<div class="popover-title">Теги Danbooru · Gelbooru · Rule34</div>${tagSuggestions.map(tag => `<button type="button" class="popover-row tag-suggestion" data-tag="${escapeHtml(tag.name)}"><span data-no-i18n>#${escapeHtml(tag.name.replaceAll('_', ' '))}</span><span class="popover-muted">${tag.sources.map(source => escapeHtml(names[source] || source)).join(' · ')} · ${Number(tag.count).toLocaleString(globalThis.DartI18n?.locale || 'en-US')}</span></button>`).join('')}` : ''}
-    ${favoriteTags.length ? `<div class="popover-title" style="margin-top:12px">Избранные теги</div>${favoriteTags.filter(tag => !typed || tag.includes(typed)).slice(0, 5).map(tag => `<button type="button" class="popover-row" data-query="${escapeHtml(tag)}"><span data-no-i18n>#${escapeHtml(tag)}</span> <span class="popover-muted">избранное</span></button>`).join('')}` : ''}`;
+    ${favoriteTags.length ? `<div class="popover-title" style="margin-top:12px">Избранные теги</div>${favoriteTags.filter(tag => !typed || tag.includes(typed)).slice(0, 5).map(tag => `<button type="button" class="popover-row" data-context-tag="${escapeHtml(tag)}" data-query="${escapeHtml(tag)}"><span data-no-i18n>#${escapeHtml(tag)}</span> <span class="popover-muted">избранное</span></button>`).join('')}` : ''}`;
   popover.hidden = !popover.children.length;
 }
 function showPopover() {
@@ -3283,15 +3400,29 @@ popover.addEventListener('click', event => {
   if (query) openSearch(query, currentSearchOptions());
 });
 
-main.addEventListener('contextmenu', event => {
-  if (currentTab()?.kind !== 'recommendations') return;
-  const chip = event.target.closest('[data-recommendation-tag]');
-  if (!chip) return;
+document.addEventListener('contextmenu', event => {
+  const context = contentContextTarget(event.target);
+  if (!context) { closeRecommendationTagMenu(); return; }
   event.preventDefault();
-  openRecommendationTagMenu(chip, event.clientX, event.clientY);
+  openContentContextMenu(context, event.clientX, event.clientY);
 });
 
 recommendationTagMenu.addEventListener('click', async event => {
+  const action = event.target.closest('[data-context-action]')?.dataset.contextAction;
+  const context = recommendationTagMenu.context;
+  if (action && context) {
+    closeRecommendationTagMenu(true);
+    if (action === 'favorite') await toggleFavoriteTag(context.tag, !context.favorite);
+    else if (context.kind === 'author') await setAuthorHidden(context.author, !context.hidden);
+    else {
+      const tag = CatalogLogic.normalizeExcludedTags([context.tag])[0];
+      const excludedTags = context.hidden ? contentPreferences.excludedTags.filter(entry => entry !== tag)
+        : [...new Set([...contentPreferences.excludedTags, tag])];
+      if (excludedTags.length > 100) { toast('The hidden tag limit has been reached'); return; }
+      await saveContentPreferences({ ...contentPreferences, excludedTags });
+    }
+    return;
+  }
   const mode = event.target.closest('[data-tag-mode]')?.dataset.tagMode;
   const tag = recommendationTagMenu.tag;
   if (!mode || !tag) return;
@@ -3323,15 +3454,19 @@ document.addEventListener('pointerdown', event => {
 });
 document.addEventListener('keydown', event => {
   if (recommendationTagMenu.hidden) return;
-  if (event.key === 'Escape') { closeRecommendationTagMenu(true); return; }
-  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  if (event.key === 'Escape') { event.preventDefault(); closeRecommendationTagMenu(true); return; }
+  if (event.key === 'Tab') { closeRecommendationTagMenu(); return; }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
   event.preventDefault();
-  const buttons = [...recommendationTagMenu.querySelectorAll('button')];
+  const buttons = [...recommendationTagMenu.querySelectorAll('button:not(:disabled)')];
   const index = buttons.indexOf(document.activeElement);
-  buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]
+  buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 :
+    (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]
     ?.focus({ preventScroll: true });
 });
 main.addEventListener('scroll', () => closeRecommendationTagMenu());
+window.addEventListener('resize', () => closeRecommendationTagMenu());
+window.addEventListener('blur', () => closeRecommendationTagMenu());
 
 main.addEventListener('input', event => {
   const tab = currentTab();
@@ -3483,6 +3618,11 @@ main.addEventListener('click', event => {
   else if (action === 'remove-excluded-tag' && tab?.kind === 'settings')
     saveContentPreferences({ ...contentPreferences,
       excludedTags: contentPreferences.excludedTags.filter(tag => tag !== control.dataset.tag) });
+  else if (action === 'unhide-author' && tab?.kind === 'settings') {
+    const author = contentPreferences.hiddenAuthors.find(entry =>
+      CatalogLogic.hiddenAuthorKey(entry) === control.dataset.authorKey);
+    if (author) void setAuthorHidden(author, false);
+  }
   else if (action === 'open' && item) openDetail(item, {
     separate: event.ctrlKey || event.metaKey, background: (event.ctrlKey || event.metaKey) && !event.shiftKey });
   else if (action === 'attribution-primary' && item) {

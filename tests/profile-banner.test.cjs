@@ -66,7 +66,7 @@ test('profile banner makes a small image from the existing decoded thumbnail', (
 test('profile shows the prepared banner without a second image URL', () => {
   const renderProfile = extract('function renderProfile(', '\nfunction renderList(',
     'renderProfile', { names: { danbooru: 'Danbooru' },
-      escapeHtml: value => String(value), followButton: () => '',
+      escapeHtml: value => String(value), followButton: () => '', authorContextData: () => '',
       renderErrors: () => '', renderGrid: () => '', renderFeedTail: () => '',
       skeletons: () => '' });
   const tab = { kind: 'profile', title: 'artist',

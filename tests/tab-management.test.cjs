@@ -14,6 +14,7 @@ function fixture() {
     defaultSources: ['danbooru', 'gelbooru', 'rule34'],
     names: { danbooru: 'Danbooru', gelbooru: 'Gelbooru', rule34: 'Rule34' },
     tabPreferences: { artworkTabs: 'preview' }, recent: [],
+    detailImageDeduper: { duplicates: { entries: () => [] } },
     localStorage: { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value) },
     fetch: async (url, options) => { writes.push(JSON.parse(options.body)); return {}; },
     getSearchHistory: () => [], rememberItem: item => item, retainFeedWork() {},

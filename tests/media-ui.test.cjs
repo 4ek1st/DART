@@ -13,7 +13,8 @@ function getFunction(name, next, context = {}) {
 
 test('MP4 and WebM autoplay muted and loop while GIF remains an image', () => {
   const render = getFunction('renderDetailImage', 'ratingLabel', {
-    CatalogLogic, escapeHtml: value => String(value).replaceAll('"', '&quot;'),
+    CatalogLogic, DartMediaDuplicates: require('../wwwroot/media-duplicates.js'),
+    escapeHtml: value => String(value).replaceAll('"', '&quot;'),
     imageLoader: { cached: () => undefined }
   });
   const item = { title: 'animation', thumbnail: 'https://cdn.donmai.us/preview/a.jpg' };

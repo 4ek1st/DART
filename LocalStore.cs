@@ -32,6 +32,20 @@ public sealed class ContentPreferences
     public List<string> ExcludedTags { get; set; } = [];
     public string AttributionPriority { get; set; } = "creator";
     public bool HideViewedAndSaved { get; set; }
+    public List<HiddenAuthor> HiddenAuthors { get; set; } = [];
+}
+
+public sealed class HiddenAuthor
+{
+    public string Source { get; set; } = "artist";
+    public string ArtistId { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
+public sealed class HiddenAuthorUpdate
+{
+    public HiddenAuthor? Author { get; set; }
+    public bool? Hidden { get; set; }
 }
 
 public sealed class FavoriteTagUpdate
@@ -410,6 +424,8 @@ internal sealed class LocalStore : ISankakuSessionStore
                 AiMode = update.AiMode,
                 AttributionPriority = update.AttributionPriority,
                 HideViewedAndSaved = update.HideViewedAndSaved,
+                // Older windows do not send this field. Only the dedicated mutation changes it.
+                HiddenAuthors = ReadContentPreferencesFile(contentPreferencesFile).HiddenAuthors ?? [],
                 ExcludedTags = update.ExcludedTags.Select(tag => tag.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
             };
@@ -419,9 +435,46 @@ internal sealed class LocalStore : ISankakuSessionStore
         }
     }
 
+    public ContentPreferences? SetHiddenAuthor(HiddenAuthor author, bool hidden)
+    {
+        lock (sync)
+        {
+            using var fileLock = AcquireFileLock(contentPreferencesLockFile);
+            var preferences = ReadContentPreferencesFile(contentPreferencesFile);
+            preferences.HiddenAuthors ??= [];
+            var existing = preferences.HiddenAuthors.FindIndex(entry => entry.Source == author.Source &&
+                string.Equals(entry.ArtistId, author.ArtistId, StringComparison.OrdinalIgnoreCase));
+            if (hidden && existing < 0)
+            {
+                if (preferences.HiddenAuthors.Count >= 500) return null;
+                preferences.HiddenAuthors.Add(author);
+            }
+            else if (!hidden && existing >= 0) preferences.HiddenAuthors.RemoveAt(existing);
+            else return preferences;
+            WriteAtomic(contentPreferencesFile, JsonSerializer.SerializeToUtf8Bytes(preferences, Json));
+            return preferences;
+        }
+    }
+
     public void UpdateClientStateJson(string raw)
     {
-        lock (sync) WriteAtomic(clientStateFile, Encoding.UTF8.GetBytes(CatalogState.CleanClientState(raw)));
+        lock (sync)
+        {
+            var next = JsonNode.Parse(CatalogState.CleanClientState(raw))!.AsObject();
+            var previous = JsonNode.Parse(GetClientStateJson()) as JsonObject;
+            // Verified duplicate pairs are a cache shared by windows. An older session save
+            // may omit it, so retain and merge the evidence instead of resetting it.
+            var pairs = new[] { previous?["mediaDuplicatePairs"], next["mediaDuplicatePairs"] }
+                .OfType<JsonArray>().SelectMany(entries => entries)
+                .OfType<JsonArray>().Where(pair => pair.Count == 2 && pair.All(value =>
+                    value is JsonValue text && text.TryGetValue<string>(out var key) &&
+                    key.Length <= 1000 && Uri.TryCreate(key, UriKind.Absolute, out var uri) &&
+                    uri.Scheme is "http" or "https"))
+                .Select(pair => pair.ToJsonString()).Distinct().TakeLast(512).ToArray();
+            if (pairs.Length > 0 || next.ContainsKey("mediaDuplicatePairs"))
+                next["mediaDuplicatePairs"] = new JsonArray(pairs.Select(pair => JsonNode.Parse(pair)).ToArray());
+            WriteAtomic(clientStateFile, Encoding.UTF8.GetBytes(next.ToJsonString()));
+        }
     }
 
     public RecommendationTagPreferenceState GetRecommendationTagPreferences()

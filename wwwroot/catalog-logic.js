@@ -561,6 +561,23 @@
       .filter(tag => tag && tag.length <= 100))].slice(0, 100);
   }
 
+  function hiddenAuthorKey(author) {
+    const source = author?.source;
+    const id = String(author?.artistId || '').normalize('NFKC').toLowerCase().trim().replace(/\s+/g, '_');
+    return (source === 'artist' || supportedSources.includes(source)) && id && id.length <= 100
+      ? `${source}:${id}` : '';
+  }
+
+  function isAuthorHidden(item, preferences = {}) {
+    const hidden = preferences.hiddenAuthorSet || new Set((preferences.hiddenAuthors || []).map(hiddenAuthorKey).filter(Boolean));
+    if (!hidden.size) return false;
+    const artistTags = [...workParticipants(item).map(person => person.tag), item?.followedArtistTag,
+      ...(item?.tags || []), ...(item?.allTags || [])];
+    if (artistTags.some(artistId => hidden.has(hiddenAuthorKey({ source: 'artist', artistId })))) return true;
+    const artistId = item?.uploaderId || (item?.source !== 'danbooru' ? item?.artistId : '');
+    return !!artistId && hidden.has(hiddenAuthorKey({ source: item.source, artistId }));
+  }
+
   function artworkTagKind(item, tag) {
     const normalized = normalizeFilterTag(tag);
     if (normalized !== 'original character' && (item?.characterTags || []).some(character =>
@@ -608,6 +625,7 @@
       .some(prefix => tag.startsWith(prefix));
 
   function isWorkHidden(item, preferences = {}) {
+    if (isAuthorHidden(item, preferences)) return true;
     const aiMode = preferences.aiMode || 'all';
     const blocked = preferences.excludedTagSet ||
       new Set(normalizeExcludedTags(preferences.excludedTags));
@@ -622,10 +640,11 @@
   function filterWorks(items, preferences) {
     if (!items?.length) return items || [];
     if ((!preferences?.aiMode || preferences.aiMode === 'all') &&
-        !preferences?.excludedTags?.length) return items;
+        !preferences?.excludedTags?.length && !preferences?.hiddenAuthors?.length) return items;
     const compiled = { ...preferences,
-      excludedTagSet: new Set(normalizeExcludedTags(preferences?.excludedTags)) };
-    if (compiled.aiMode === 'all' && !compiled.excludedTagSet.size) return items;
+      excludedTagSet: new Set(normalizeExcludedTags(preferences?.excludedTags)),
+      hiddenAuthorSet: new Set((preferences?.hiddenAuthors || []).map(hiddenAuthorKey).filter(Boolean)) };
+    if (compiled.aiMode === 'all' && !compiled.excludedTagSet.size && !compiled.hiddenAuthorSet.size) return items;
     return items.filter(item => !isWorkHidden(item, compiled));
   }
 
@@ -1058,7 +1077,7 @@
     removeNavigationEntry, groupWorks,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind,
-    normalizeExcludedTags, isWorkHidden, filterWorks,
+    normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,
     sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType,
     mediaCacheKey,
     supportedSources, filterCatalogItems, cleanClientState,

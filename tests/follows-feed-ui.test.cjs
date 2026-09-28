@@ -59,7 +59,7 @@ test('followed author cards start collapsed and can be opened', () => {
     artistId: 'artist', name: 'Artist' };
   const context = { CatalogLogic, follows: [follow], settings: { hasApiKey: true },
     names: { danbooru: 'Danbooru' }, escapeHtml: value => String(value),
-    renderGrid: () => '<grid>', skeletons: () => '<skeletons>' };
+    renderGrid: () => '<grid>', skeletons: () => '<skeletons>', authorContextData: () => '' };
   const render = vm.runInNewContext(source.slice(start, end) + '\nrenderFollows', context);
   const tab = { id: 1, rating: 'all', items: [], loading: false };
   assert.match(render(tab), /Управление подписками · 1/);

@@ -14,7 +14,8 @@ const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('"
 function renderer(start, end, extra = {}) {
   return vm.runInNewContext(app.slice(app.indexOf(start), app.indexOf(end, app.indexOf(start))) +
     '\n' + start.match(/function (\w+)/)[1], { CatalogLogic: logic, names, escapeHtml,
-      followedKeys: new Set(), settings: { hasApiKey: true, hasRule34ApiKey: true }, ...extra });
+      followedKeys: new Set(), settings: { hasApiKey: true, hasRule34ApiKey: true },
+      authorContextData: () => '', ...extra });
 }
 
 test('confirmed grouped sources produce real post links including Sankaku', () => {

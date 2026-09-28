@@ -32,6 +32,18 @@ Sources and settings|Источники и настройки|Quellen und Einste
 Content|Контент|Inhalte
 AI and excluded tags|AI и исключённые теги|KI und ausgeschlossene Tags
 Creators|Авторы|Urheber
+Hide|Скрыть|Ausblenden
+Unhide|Показать|Einblenden
+Favorite|В избранное|Zu Favoriten hinzufügen
+Unfavorite|Убрать из избранного|Aus Favoriten entfernen
+Hidden authors|Скрытые авторы|Ausgeblendete Urheber
+Right-click an author and choose Hide to hide their works in every section. You can unhide them here.|Нажмите на автора правой кнопкой и выберите «Скрыть», чтобы скрыть его работы во всех разделах. Вернуть их можно здесь.|Klicken Sie mit der rechten Maustaste auf einen Urheber und wählen Sie „Ausblenden“, um seine Werke in allen Bereichen auszublenden. Hier können Sie sie wieder einblenden.
+No hidden authors.|Скрытых авторов нет.|Keine ausgeblendeten Urheber.
+All catalogs|Все каталоги|Alle Kataloge
+Author hidden|Автор скрыт|Urheber ausgeblendet
+Author visible again|Работы автора снова видны|Werke des Urhebers wieder sichtbar
+Failed to change hidden authors|Не удалось изменить список скрытых авторов|Die Liste der ausgeblendeten Urheber konnte nicht geändert werden
+The hidden tag limit has been reached|Достигнут лимит скрытых тегов|Das Limit für ausgeblendete Tags wurde erreicht
 Creator, source and uploader|Автор, источник и загрузчик|Urheber, Quelle und Uploader
 Sources|Источники|Quellen
 Connections and keys|Подключения и ключи|Verbindungen und Schlüssel
