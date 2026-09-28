@@ -32,7 +32,10 @@ internal static class Program
         var dataDirectory = dataArgument >= 0 && dataArgument + 1 < args.Length
             ? Path.GetFullPath(args[dataArgument + 1])
             : testDataDirectory;
-        builder.Services.AddSingleton(new LocalStore(dataDirectory));
+        var store = new LocalStore(dataDirectory);
+        var captureProtection = new ScreenCaptureProtection(store);
+        builder.Services.AddSingleton(store);
+        builder.Services.AddSingleton(captureProtection);
         builder.Services.AddSingleton<CatalogService>();
         var installationArgument = Array.IndexOf(args, "--installation-root");
         var installationRoot = installationArgument >= 0 && installationArgument + 1 < args.Length
@@ -295,6 +298,20 @@ internal static class Program
         });
         app.MapGet("/api/content-preferences", (LocalStore store) =>
             Results.Ok(store.GetContentPreferences()));
+        app.MapGet("/api/privacy", (ScreenCaptureProtection protection) =>
+            Results.Ok(protection.Status()));
+        app.MapPost("/api/privacy", async (HttpContext context, ScreenCaptureProtection protection) =>
+        {
+            if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
+            if (context.Request.ContentLength is > 1_000) return Results.StatusCode(413);
+            ScreenCaptureUpdate? update;
+            try { update = await context.Request.ReadFromJsonAsync<ScreenCaptureUpdate>(context.RequestAborted); }
+            catch (System.Text.Json.JsonException) { return Results.BadRequest(); }
+            if (update?.HideFromScreenCapture is not bool enabled) return Results.BadRequest();
+            var status = await protection.ChangeAsync(enabled);
+            return Results.Json(status, statusCode: status.Requested == enabled &&
+                status.Active == enabled && status.Error is null ? 200 : 409);
+        });
         app.MapGet("/api/viewed-identities", (LocalStore store) =>
             Results.Ok(store.GetViewedTokens()));
         app.MapPost("/api/viewed-identities", async (HttpContext context, LocalStore store) =>
@@ -384,7 +401,7 @@ internal static class Program
         else
         {
             ApplicationConfiguration.Initialize();
-            Application.Run(new CatalogForm(address));
+            Application.Run(new CatalogForm(address, captureProtection));
         }
         app.StopAsync().GetAwaiter().GetResult();
     }
@@ -407,8 +424,10 @@ internal sealed class CatalogForm : Form
         get { var parameters = base.CreateParams; parameters.Style &= ~0x00C00000; return parameters; }
     }
 
-    public CatalogForm(string address, string? webViewDataDirectory = null)
+    public CatalogForm(string address, ScreenCaptureProtection captureProtection,
+        string? webViewDataDirectory = null)
     {
+        captureProtection.Attach(this);
         home = new Uri(address);
         userDataDirectory = webViewDataDirectory ?? Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData), "ArtCatalog", "WebView2");
@@ -417,7 +436,13 @@ internal sealed class CatalogForm : Form
         Height = 900;
         MinimumSize = new Size(840, 570);
         BackColor = Color.FromArgb(24, 24, 24);
-        HandleCreated += (_, _) => WindowChrome.Apply(Handle);
+        HandleCreated += (_, _) =>
+        {
+            WindowChrome.Apply(Handle);
+            captureProtection.HandleCreated(Handle);
+        };
+        HandleDestroyed += (_, _) => captureProtection.HandleDestroyed();
+        FormClosed += (_, _) => captureProtection.Detach(this);
         Resize += (_, _) => PublishWindowState();
         Controls.Add(webView);
         Shown += async (_, _) => await InitializeAsync();

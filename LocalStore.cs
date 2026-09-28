@@ -35,6 +35,11 @@ public sealed class ContentPreferences
     public List<HiddenAuthor> HiddenAuthors { get; set; } = [];
 }
 
+public sealed class PrivacyPreferences
+{
+    public bool HideFromScreenCapture { get; set; }
+}
+
 public sealed class HiddenAuthor
 {
     public string Source { get; set; } = "artist";
@@ -117,6 +122,8 @@ internal sealed class LocalStore : ISankakuSessionStore
     private readonly string recommendationPreferencesLockFile;
     private readonly string contentPreferencesFile;
     private readonly string contentPreferencesLockFile;
+    private readonly string privacyPreferencesFile;
+    private readonly string privacyPreferencesLockFile;
     private readonly string viewedFile;
     private readonly string viewedLockFile;
     private readonly string favoriteTagsFile;
@@ -136,6 +143,8 @@ internal sealed class LocalStore : ISankakuSessionStore
         recommendationPreferencesLockFile = Path.Combine(directory, "recommendation-tag-preferences.lock");
         contentPreferencesFile = Path.Combine(directory, "content-preferences.json");
         contentPreferencesLockFile = Path.Combine(directory, "content-preferences.lock");
+        privacyPreferencesFile = Path.Combine(directory, "privacy-preferences.json");
+        privacyPreferencesLockFile = Path.Combine(directory, "privacy-preferences.lock");
         viewedFile = Path.Combine(directory, "viewed-identities.json");
         viewedLockFile = Path.Combine(directory, "viewed-identities.lock");
         favoriteTagsFile = Path.Combine(directory, "favorite-tags.json");
@@ -411,6 +420,35 @@ internal sealed class LocalStore : ISankakuSessionStore
         {
             using var fileLock = AcquireFileLock(contentPreferencesLockFile);
             return ReadContentPreferencesFile(contentPreferencesFile);
+        }
+    }
+
+    public PrivacyPreferences GetPrivacyPreferences()
+    {
+        lock (sync)
+        {
+            using var fileLock = AcquireFileLock(privacyPreferencesLockFile);
+            foreach (var path in new[] { privacyPreferencesFile, privacyPreferencesFile + ".bak" })
+            {
+                if (!File.Exists(path)) continue;
+                try
+                {
+                    return JsonSerializer.Deserialize<PrivacyPreferences>(File.ReadAllText(path), Json)
+                        ?? new();
+                }
+                catch (JsonException) { /* Preserve the damaged file for recovery. */ }
+            }
+            return new();
+        }
+    }
+
+    public void SetPrivacyPreferences(bool hideFromScreenCapture)
+    {
+        lock (sync)
+        {
+            using var fileLock = AcquireFileLock(privacyPreferencesLockFile);
+            WriteAtomic(privacyPreferencesFile, JsonSerializer.SerializeToUtf8Bytes(
+                new PrivacyPreferences { HideFromScreenCapture = hideFromScreenCapture }, Json));
         }
     }
 

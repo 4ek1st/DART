@@ -18,6 +18,25 @@ List|Лист|List
 Graphite, cool blue and halftone dots|Графит, холодный голубой и полутоновые точки|Graphit, kühles Blau und Rasterpunkte
 The choice takes effect immediately and is saved on this computer.|Выбор применяется сразу и сохраняется на этом компьютере.|Die Auswahl wird sofort angewendet und auf diesem Computer gespeichert.
 Language|Язык|Sprache
+Privacy|Конфиденциальность|Privatsphäre
+Screen capture|Захват экрана|Bildschirmaufnahme
+Screen capture protection|Защита от захвата экрана|Schutz vor Bildschirmaufnahme
+Hide the DART window from supported screenshots and screen sharing apps while it stays visible on your display.|Скрывать окно DART от поддерживаемых средств создания скриншотов и демонстрации экрана. На вашем мониторе оно останется видимым.|DART wird in unterstützten Screenshots und Bildschirmübertragungen ausgeblendet, bleibt auf Ihrem Monitor aber sichtbar.
+Hide DART from screen capture|Скрывать DART при захвате экрана|DART bei Bildschirmaufnahmen ausblenden
+Applies to the entire DART window. The choice is saved for future launches.|Применяется ко всему окну DART. Выбор сохраняется для следующих запусков.|Gilt für das gesamte DART-Fenster. Die Einstellung bleibt für künftige Starts gespeichert.
+Checking protection status…|Проверяем состояние защиты…|Schutzstatus wird geprüft…
+Protection is active.|Защита включена.|Schutz ist aktiv.
+Protection is off.|Защита выключена.|Schutz ist ausgeschaltet.
+Capture protection is unavailable.|Защита от захвата экрана недоступна.|Schutz vor Bildschirmaufnahmen ist nicht verfügbar.
+Open the DART desktop window to change this setting.|Откройте окно настольной версии DART, чтобы изменить эту настройку.|Öffnen Sie das DART-Desktopfenster, um diese Einstellung zu ändern.
+Windows 10 version 2004 or later is required. Some capture tools and external cameras can still record the display.|Требуется Windows 10 версии 2004 или новее. Некоторые средства захвата и внешние камеры всё равно могут записать экран.|Windows 10 Version 2004 oder neuer ist erforderlich. Manche Aufnahmetools und externe Kameras können den Bildschirm weiterhin erfassen.
+Screen capture protection requires Windows 10 version 2004 or later.|Для защиты от захвата экрана нужна Windows 10 версии 2004 или новее.|Für den Schutz vor Bildschirmaufnahmen ist Windows 10 Version 2004 oder neuer erforderlich.
+Windows desktop composition is unavailable.|Композиция рабочего стола Windows недоступна.|Die Windows-Desktopkomposition ist nicht verfügbar.
+Windows could not change capture protection for this window.|Windows не удалось изменить защиту от захвата для этого окна.|Windows konnte den Aufnahmeschutz für dieses Fenster nicht ändern.
+Windows did not confirm capture protection for this window.|Windows не подтвердила защиту от захвата для этого окна.|Windows hat den Aufnahmeschutz für dieses Fenster nicht bestätigt.
+Could not save capture protection. Check the current status.|Не удалось сохранить защиту от захвата экрана. Проверьте её текущее состояние.|Der Aufnahmeschutz konnte nicht gespeichert werden. Prüfen Sie den aktuellen Status.
+Could not read privacy settings|Не удалось прочитать настройки конфиденциальности|Die Privatsphäre-Einstellungen konnten nicht gelesen werden
+Could not change capture protection|Не удалось изменить защиту от захвата экрана|Der Aufnahmeschutz konnte nicht geändert werden
 Interface language|Язык интерфейса|Sprache der Benutzeroberfläche
 Choose the interface language. Artwork titles, artist names and search tags stay in their original language.|Выберите язык интерфейса. Названия работ, имена авторов и поисковые теги остаются на языке источника.|Wählen Sie die Sprache der Benutzeroberfläche. Werktitel, Künstlernamen und Such-Tags bleiben in der Originalsprache.
 Your choice is saved in this profile and takes effect immediately.|Выбор сохраняется в этом профиле и применяется сразу.|Ihre Auswahl wird in diesem Profil gespeichert und sofort übernommen.

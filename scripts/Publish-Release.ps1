@@ -38,6 +38,7 @@ Invoke-Checked -Program dotnet -Arguments @($releaseTool,'check-base',$Installat
 $testFiles = @(Get-ChildItem -LiteralPath 'tests' -Filter '*.test.cjs' -File | Select-Object -ExpandProperty FullName)
 Invoke-Checked node (@('--test','--test-concurrency=1') + $testFiles)
 Invoke-Checked -Program dotnet -Arguments @('run','--project','tests/Rule34FixtureTests.csproj','-c','Release')
+Invoke-Checked -Program dotnet -Arguments @('run','--project','tests/privacy/PrivacyFixtureTests.csproj','-c','Release')
 Invoke-Checked -Program dotnet -Arguments @('run','--project','tests/updates/UpdateSystemTests.csproj','-c','Release')
 $output = Join-Path $env:TEMP ('DART-release-' + $Version + '-' + [Guid]::NewGuid().ToString('N'))
 Invoke-Checked -Program dotnet -Arguments @('publish','ArtCatalog.csproj','-c','Release','-r','win-x64','--self-contained','true',

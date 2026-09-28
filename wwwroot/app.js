@@ -78,6 +78,10 @@ let contentPreferences = { language: globalThis.DartI18n?.language || 'en', aiMo
   hideViewedAndSaved: false, hiddenAuthors: [] };
 let contentPreferencesSaving = false;
 let contentPreferencesRevision = 0;
+let privacyStatus = { requested: false, active: false, available: false, error: null };
+let privacyLoading = true;
+let privacySaving = false;
+let privacyRevision = 0;
 let sankakuSigningIn = false;
 let sankakuLoginError = '';
 const sourceKeyHint = source =>
@@ -397,7 +401,7 @@ function startTab(tab) {
   if (tab.kind === 'likes') loadLikes(tab);
   if (tab.kind === 'recommendations') loadRecommendations(tab);
   if (tab.kind === 'follows') loadFollowFeed(tab);
-  if (tab.kind === 'settings') { loadSettings(); loadContentPreferences(); }
+  if (tab.kind === 'settings') { loadSettings(); loadContentPreferences(); loadPrivacyStatus(); }
   if (tab.kind === 'detail') loadDetail(tab);
   if (tab.kind === 'profile') loadProfile(tab);
 }
@@ -428,7 +432,7 @@ function restoreSession() {
       feed: 'illustrations',
       item: saved.item?.key ? rememberItem(saved.item) : saved.item,
       profileRef: saved.profileRef,
-      settingsSection: ['content', 'authors', 'sources', 'tabs', 'appearance', 'language'].includes(saved.settingsSection)
+      settingsSection: ['content', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(saved.settingsSection)
         ? saved.settingsSection : 'content',
       items: [], errors: {}, page: 0,
       loading: false, started: false,
@@ -481,6 +485,7 @@ function openSettings(section = 'content') {
     existing.settingsSection = section;
     if (existing.id === activeId) render();
     else activate(existing.id);
+    if (section === 'privacy') loadPrivacyStatus();
   } else createTab('settings', 'Настройки', { settingsSection: section });
 }
 
@@ -1468,6 +1473,45 @@ async function loadSettings() {
   try { settings = await request('/api/settings'); }
   catch { toast('Настройки не удалось прочитать'); }
   if (currentTab()?.kind === 'settings') render();
+}
+
+async function loadPrivacyStatus() {
+  if (privacySaving) return;
+  const revision = ++privacyRevision;
+  try {
+    const status = await request('/api/privacy');
+    if (revision === privacyRevision && !privacySaving) privacyStatus = status;
+  }
+  catch { toast('Could not read privacy settings'); }
+  finally {
+    privacyLoading = false;
+    if (currentTab()?.kind === 'settings') render();
+  }
+}
+
+const privacyErrors = {
+  'unsupported-windows': 'Screen capture protection requires Windows 10 version 2004 or later.',
+  'composition-unavailable': 'Windows desktop composition is unavailable.',
+  'apply-failed': 'Windows could not change capture protection for this window.',
+  'verify-failed': 'Windows did not confirm capture protection for this window.',
+  'window-unavailable': 'Open the DART desktop window to change this setting.',
+  'save-failed': 'Could not save capture protection. Check the current status.'
+};
+
+async function savePrivacyStatus(enabled) {
+  if (privacySaving) return;
+  privacySaving = true;
+  ++privacyRevision;
+  render();
+  try {
+    const response = await fetch('/api/privacy', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hideFromScreenCapture: enabled })
+    });
+    privacyStatus = await response.json();
+    if (!response.ok) toast(privacyErrors[privacyStatus.error] || 'Could not change capture protection');
+  } catch { toast('Could not change capture protection'); }
+  finally { privacySaving = false; render(); }
 }
 
 async function loadContentPreferences() {
@@ -3173,7 +3217,7 @@ function formatDate(value) {
 }
 
 function renderSettings() {
-  const section = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language'].includes(currentTab()?.settingsSection)
+  const section = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(currentTab()?.settingsSection)
     ? currentTab().settingsSection : 'content';
   const themePreference = globalThis.DartTheme?.preference || 'system';
   const hideGenerated = contentPreferences.aiMode !== 'all';
@@ -3188,9 +3232,14 @@ function renderSettings() {
         <button type="button" id="settings-tab-sources" role="tab" aria-selected="${section === 'sources'}" aria-controls="settings-panel" class="settings-section ${section === 'sources' ? 'active' : ''}" data-action="settings-section" data-section="sources">Источники<span>Подключения и ключи</span></button>
         <button type="button" id="settings-tab-tabs" role="tab" aria-selected="${section === 'tabs'}" aria-controls="settings-panel" class="settings-section ${section === 'tabs' ? 'active' : ''}" data-action="settings-section" data-section="tabs">Вкладки<span>Просмотр и закрепление</span></button>
         <button type="button" id="settings-tab-appearance" role="tab" aria-selected="${section === 'appearance'}" aria-controls="settings-panel" class="settings-section ${section === 'appearance' ? 'active' : ''}" data-action="settings-section" data-section="appearance">Оформление<span>Цвет и тема</span></button>
+        <button type="button" id="settings-tab-privacy" role="tab" aria-selected="${section === 'privacy'}" aria-controls="settings-panel" class="settings-section ${section === 'privacy' ? 'active' : ''}" data-action="settings-section" data-section="privacy">Privacy<span>Screen capture</span></button>
         <button type="button" id="settings-tab-language" role="tab" aria-selected="${section === 'language'}" aria-controls="settings-panel" class="settings-section settings-language-section ${section === 'language' ? 'active' : ''}" data-action="settings-section" data-section="language">Язык<span data-no-i18n>English · Русский · Deutsch</span></button>
       </nav>
       <div class="settings-view" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${section}">
+        ${section === 'privacy' ? `<div class="settings-card"><h2>Screen capture protection</h2><p>Hide the DART window from supported screenshots and screen sharing apps while it stays visible on your display.</p>
+          <label class="settings-toggle"><input type="checkbox" name="hideFromScreenCapture" ${privacyStatus.requested ? 'checked' : ''} ${privacyLoading || privacySaving || !privacyStatus.available && !privacyStatus.requested ? 'disabled' : ''}><span><strong>Hide DART from screen capture</strong><small>Applies to the entire DART window. The choice is saved for future launches.</small></span></label>
+          <p class="privacy-status ${privacyStatus.error ? 'privacy-status-error' : privacyStatus.active ? 'privacy-status-active' : ''}" role="status">${privacyLoading ? 'Checking protection status…' : privacyStatus.error ? privacyErrors[privacyStatus.error] || 'Capture protection is unavailable.' : privacyStatus.active ? 'Protection is active.' : privacyStatus.available ? 'Protection is off.' : 'Open the DART desktop window to change this setting.'}</p>
+          <p class="settings-hint">Windows 10 version 2004 or later is required. Some capture tools and external cameras can still record the display.</p></div>` : ''}
         ${section === 'appearance' ? `<div class="settings-card"><h2>Тема оформления</h2><p>Системный режим автоматически выбирает светлую или тёмную тему по настройке Windows. Можно выбрать постоянную тему вручную.</p>
           <div class="theme-choices" role="group" aria-label="Тема оформления">
             ${[
@@ -4064,6 +4113,10 @@ main.addEventListener('change', event => {
     saveContentPreferences({ ...contentPreferences, language: event.target.value });
     return;
   }
+  if (name === 'hideFromScreenCapture') {
+    savePrivacyStatus(event.target.checked);
+    return;
+  }
   if (name === 'artworkTabs') {
     tabPreferences.artworkTabs = event.target.value === 'new' ? 'new' : 'preview';
     try { localStorage.setItem('artcatalog-tab-preferences', JSON.stringify(tabPreferences)); }
@@ -4186,9 +4239,10 @@ main.addEventListener('click', event => {
     if (artwork) openQuickPreview(artwork);
   }
   else if (action === 'settings-section' && tab?.kind === 'settings') {
-    tab.settingsSection = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language'].includes(control.dataset.section)
+    tab.settingsSection = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(control.dataset.section)
       ? control.dataset.section : 'content';
     saveSession(); render();
+    if (tab.settingsSection === 'privacy') loadPrivacyStatus();
   }
   else if (action === 'theme-choice' && tab?.kind === 'settings') {
     if (globalThis.DartTheme?.setPreference(control.dataset.themeChoice)) {

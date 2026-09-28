@@ -403,6 +403,9 @@ h3 { font-size: 15px; }
 .settings-toggle-child { margin-left: 22px; }
 .settings-toggle:has(input:disabled) { opacity: .6; cursor: default; }
 .settings-card .settings-hint { font-size: 12px; color: #939da5; margin: 14px 0 0; }
+.settings-card .privacy-status { margin: 14px 0 0; padding: 10px 12px; border-radius: 7px; background: #30383d; color: #cbd8e0; }
+.settings-card .privacy-status-active { background: #1e3d32; color: #b7e7cf; }
+.settings-card .privacy-status-error { background: #473326; color: #f3c7a3; }
 .excluded-tags-form { display: flex; gap: 10px; margin-top: 18px; }
 .excluded-tags-form input { flex: 1; min-width: 0; padding: 11px 12px; background: #303030; border: 1px solid #505050; border-radius: 6px; color: #fff; }
 .excluded-tags-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }

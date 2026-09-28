@@ -157,6 +157,9 @@
 :root[data-theme='light'] .settings-card .settings-hint,
 :root[data-theme='light'] .settings-toggle small,
 :root[data-theme='light'] .field small { color: var(--muted); }
+:root[data-theme='light'] .settings-card .privacy-status { background: #e8eef3; color: #344d5b; }
+:root[data-theme='light'] .settings-card .privacy-status-active { background: #e0f3e9; color: #17643f; }
+:root[data-theme='light'] .settings-card .privacy-status-error { background: #fff0e2; color: #8c481e; }
 :root[data-theme='light'] .excluded-tag { background: #e5f0f7; color: #22567b; border-color: #aac7db; }
 :root[data-theme='light'] .toast { background: #fff; color: var(--text); border-color: var(--theme-border); box-shadow: 0 10px 30px #20374833; }
 :root[data-theme='light'] .update-dialog button:not([data-update-close]) { color: var(--text); background: var(--theme-control); border-color: var(--theme-border); }
