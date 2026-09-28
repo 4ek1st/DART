@@ -49,7 +49,7 @@
     function check(force = false) {
       // Focus, network recovery and the timer can arrive together. Share their request.
       if (checkPromise) return checkPromise;
-      window.clearTimeout(checkTimer);
+      if (checkTimer !== undefined) window.clearTimeout(checkTimer);
       checkPromise = (async () => {
         try { showStatus(await api(force ? '/check' : '', force ? { method: 'POST' } : undefined)); }
         catch (error) { showStatus({ ...status, available: false, error: error.message }); }
