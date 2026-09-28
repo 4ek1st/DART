@@ -260,6 +260,31 @@
     } catch { return value; }
   }
 
+  function signedMediaExpired(value, now = Date.now()) {
+    if (mediaCacheKey(value) === value) return false;
+    try {
+      const params = new URL(value).searchParams;
+      return [['expires', 'token'], ['e', 'm']].some(([expiry, signature]) =>
+        params.has(signature) && /^\d+$/.test(params.get(expiry) || '') &&
+        Number(params.get(expiry)) * 1000 <= now + 15000);
+    } catch { return false; }
+  }
+
+  function renewWorkMedia(item, detail) {
+    if (detail?.source !== 'sankaku') return item;
+    if (![item.thumbnail, ...(item.images || []), ...(item.imageRecords || []).map(record => record.url)]
+        .some(url => typeof url === 'string' && url.includes('sankakucomplex.com'))) return item;
+    const replacements = new Map([detail.thumbnail, ...(detail.images || [])].filter(Boolean)
+      .map(url => [mediaCacheKey(url), url]));
+    const renew = url => replacements.get(mediaCacheKey(url)) || url;
+    const thumbnail = item.key === detail.key && detail.thumbnail ? detail.thumbnail : renew(item.thumbnail);
+    const images = (item.images || []).map(renew);
+    const imageRecords = (item.imageRecords || []).map(record => ({ ...record, url: renew(record.url) }));
+    if (thumbnail === item.thumbnail && images.every((url, index) => url === item.images[index]) &&
+        imageRecords.every((record, index) => record.url === item.imageRecords[index].url)) return item;
+    return { ...item, thumbnail, images, imageRecords };
+  }
+
   const validVisualHash = hash => /^[a-f0-9]{16}$/i.test(hash || '');
   const visualTags = tags => [...new Set((tags || []).map(normalizeFilterTag))].filter(Boolean).sort();
   const knownUploader = value => value && !/^(anonymous|unknown|none|0)$/i.test(value);
@@ -1202,7 +1227,7 @@
     artworkTags, artworkTagKind,
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,
     sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType,
-    mediaCacheKey, needsVisualFingerprint, perceptualImageHash,
+    mediaCacheKey, signedMediaExpired, renewWorkMedia, needsVisualFingerprint, perceptualImageHash,
     supportedSources, filterCatalogItems, cleanClientState,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,

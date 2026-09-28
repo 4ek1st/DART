@@ -3061,6 +3061,65 @@ function renderSettings() {
   </div>`;
 }
 
+const sankakuMediaRecovery = {
+  posts: new Map(), lanes: [Promise.resolve(), Promise.resolve()], lane: 0,
+  post(id, signal) {
+    const cached = this.posts.get(id);
+    if (cached && cached.until > Date.now()) {
+      if (cached.until === Infinity) cached.signals.add(signal);
+      return cached.promise;
+    }
+    const lane = this.lane++ % this.lanes.length;
+    const entry = { until: Infinity, signals: new Set([signal]) };
+    // Shared, bounded requests use the existing authenticated detail endpoint.
+    // It also renews stored media in Likes/Bookmarks without toggling either.
+    entry.promise = this.lanes[lane].then(() => [...entry.signals].every(signal => signal.aborted) ? null : request(
+      `/api/detail?source=sankaku&id=${encodeURIComponent(id)}`,
+      { signal: AbortSignal.timeout(20000) })).catch(() => null).then(detail => {
+        entry.until = [...entry.signals].every(signal => signal.aborted) ? 0 : Date.now() + 60000;
+        entry.signals.clear();
+        return detail;
+      });
+    this.lanes[lane] = entry.promise;
+    this.posts.set(id, entry);
+    if (this.posts.size > 256) for (const [key, value] of this.posts) {
+      if (value.until < Date.now()) this.posts.delete(key);
+    }
+    return entry.promise;
+  },
+  apply(detail) {
+    const lists = [likes, bookmarks, recent, ...tabs.flatMap(tab =>
+      [tab.items, tab.related, tab.creatorWorks, tab.creatorCandidates])];
+    const items = new Set([...itemIndex.values(), ...lists.filter(Array.isArray).flat(),
+      ...tabs.map(tab => tab.item), quickPreviewWork].filter(Boolean));
+    for (const item of items) {
+      const updated = CatalogLogic.renewWorkMedia(item, detail);
+      if (updated !== item) Object.assign(item, updated);
+    }
+    for (const list of lists) CatalogLogic.invalidateGrouping(list);
+  },
+  async recover(images, url, signal) {
+    if (CatalogLogic.mediaCacheKey(url) === url || signal.aborted) return '';
+    const img = [...images].find(image => image.isConnected);
+    const card = img?.closest?.('[data-work-key]');
+    const item = card ? itemIndex.get(card.dataset.workKey) : currentTab()?.item;
+    if (!item) return '';
+    const key = CatalogLogic.mediaCacheKey(url);
+    const refs = CatalogLogic.workSources(item).filter(ref => ref.source === 'sankaku');
+    for (const ref of refs) {
+      if (signal.aborted) return '';
+      const detail = await this.post(ref.id, signal);
+      if (!detail || signal.aborted) continue;
+      const renewed = [detail.thumbnail, ...(detail.images || [])].filter(Boolean)
+        .find(candidate => CatalogLogic.mediaCacheKey(candidate) === key) ||
+        (item.key === detail.key && CatalogLogic.mediaCacheKey(item.thumbnail) === key ? detail.thumbnail : '');
+      this.apply(detail);
+      if (renewed) return renewed;
+    }
+    return '';
+  }
+};
+
 const imageLoader = {
   queue: [], active: 0, controllers: new Set(), cache: new Map(), bytes: 0,
   current: new Set(), visible: new Set(), activeJobs: new Map(), generation: 0,
@@ -3149,14 +3208,32 @@ const imageLoader = {
           ![...job.images].some(img => img.isConnected && this.visible.has(img) &&
             this.key(img.dataset.imageUrl) === (job.key || this.key(job.url)))) continue;
       this.active++;
-      const key = job.key || this.key(job.url);
+      let key = job.key || this.key(job.url);
       this.activeJobs.set(key, job);
       const controller = new AbortController();
       this.controllers.add(controller);
       (async () => {
-        const requestedUrl = job.url;
+        let requestedUrl = job.url;
         try {
-          const response = await fetch(`/api/image?url=${encodeURIComponent(requestedUrl)}`, { signal: controller.signal });
+          let renewed = false;
+          const recover = async () => {
+            renewed = true;
+            const url = await sankakuMediaRecovery.recover(job.images, requestedUrl, controller.signal);
+            if (!url || controller.signal.aborted || job.generation !== this.generation) return false;
+            const previousKey = key;
+            for (const img of job.images)
+              if (this.key(img.dataset.imageUrl) === previousKey) img.dataset.imageUrl = url;
+            job.url = requestedUrl = url;
+            job.key = key = this.key(url);
+            if (this.activeJobs.get(previousKey) === job) this.activeJobs.delete(previousKey);
+            this.activeJobs.set(key, job);
+            return true;
+          };
+          if (CatalogLogic.signedMediaExpired(requestedUrl)) await recover();
+          if (controller.signal.aborted || job.generation !== this.generation) return;
+          let response = await fetch(`/api/image?url=${encodeURIComponent(requestedUrl)}`, { signal: controller.signal });
+          if (!response.ok && !renewed && await recover())
+            response = await fetch(`/api/image?url=${encodeURIComponent(requestedUrl)}`, { signal: controller.signal });
           if (!response.ok) throw new Error('Image unavailable');
           const blob = await response.blob();
           if (job.generation !== this.generation) return;
