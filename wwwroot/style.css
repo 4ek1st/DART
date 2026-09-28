@@ -303,6 +303,13 @@ h3 { font-size: 15px; }
 .detail-save-button:hover { background: #383838; border-color: #747474; }
 .detail-save-button.saved { background: #302a30; }
 .detail-save-button.bookmark-button.saved { background: #243547; }
+.quick-preview { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 14px; border: 0; background: #080808f5; color: white; overflow: hidden; place-items: center; }
+.quick-preview[open] { display: grid; }
+.quick-preview:not([open]) { display: none; }
+.quick-preview::backdrop { background: #000d; }
+.quick-preview-image { display: block; max-width: 100%; max-height: calc(100vh - 28px); width: auto; height: auto; object-fit: contain; }
+.quick-preview-actions { position: absolute; right: 22px; bottom: 22px; display: flex; gap: 8px; padding: 7px; border-radius: 11px; background: #161616df; box-shadow: 0 4px 22px #000a; }
+@media (max-width: 600px) { .quick-preview-actions { right: 10px; bottom: 10px; } }
 .primary-button, .secondary-button { border-radius: 6px; padding: 10px 16px; font-weight: 700; border: 0; }
 .secondary-button svg { width: 16px; height: 16px; vertical-align: -3px; margin-left: 4px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .primary-button { background: #167ecc; color: #fff; }

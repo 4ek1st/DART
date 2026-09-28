@@ -45,6 +45,15 @@ tabContextMenu.className = 'tab-context-menu';
 tabContextMenu.setAttribute('role', 'menu');
 tabContextMenu.hidden = true;
 document.body.append(tabContextMenu);
+const quickPreview = document.createElement('dialog');
+quickPreview.id = 'quick-preview';
+quickPreview.className = 'quick-preview';
+quickPreview.setAttribute('aria-label', 'Быстрый просмотр изображения');
+quickPreview.tabIndex = -1;
+document.body.append(quickPreview);
+let quickPreviewWork = null;
+let quickPreviewPointer = null;
+let quickPreviewGeneration = 0;
 const tabs = [];
 const itemIndex = new Map();
 let nextId = 1;
@@ -494,6 +503,7 @@ function abortTab(tab) {
 function activate(id, record = true, view = null) {
   if (!findTab(id)) return;
   if (activeId === id && (!view || view === currentTab())) return;
+  closeQuickPreview();
   hideTabPanels();
   const previous = currentTab();
   if (previous) previous.scrollTop = main.scrollTop;
@@ -1842,6 +1852,58 @@ function savedWorkButton(item, collection, detail = false) {
   return `<button type="button" class="${detail ? 'detail-save-button ' : ''}${like ? 'heart-button' : 'bookmark-button'}${saved ? ' saved' : ''}" data-action="${like ? 'like' : 'bookmark'}" data-key="${escapeHtml(item.key)}" title="${label}" aria-label="${label}" aria-pressed="${saved}"${savedWorkPending.has(collection + ':' + item.key) ? ' disabled' : ''}>${svg(like ? 'heart' : 'bookmark')}</button>`;
 }
 
+function quickPreviewShortcutAllowed(event, focused) {
+  if (event.code !== 'Space' && event.key !== ' ') return false;
+  if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
+      focused?.isContentEditable) return false;
+  return !focused?.closest?.('input, textarea, select, [contenteditable]');
+}
+
+function quickPreviewArtworkAt(target, tab, index) {
+  const opener = target?.closest?.('button.card-art[data-action="open"]');
+  const cardImage = opener?.querySelector?.('img[data-image-url]');
+  const cardItem = opener && index.get(opener.dataset.key);
+  if (cardImage && cardItem) {
+    const url = [...(cardItem.images || []), cardItem.thumbnail, cardImage.dataset.imageUrl]
+      .find(candidate => candidate && !CatalogLogic.videoMimeType(candidate));
+    return url ? { item: cardItem, image: cardImage, url } : null;
+  }
+  if (tab?.kind !== 'detail' || !target?.matches?.('.detail-image img[data-image-url]')) return null;
+  const url = target.dataset.imageUrl;
+  return url && !CatalogLogic.videoMimeType(url) ? { item: tab.item, image: target, url } : null;
+}
+
+function openQuickPreview({ item, image, url }) {
+  if (!item || !url || quickPreview.open) return;
+  item = quickPreviewWork = rememberItem(item);
+  retainFeedWork(currentTab(), item);
+  const preview = image.currentSrc || image.getAttribute?.('src') ||
+    imageLoader.cached(image.dataset.imageUrl)?.blobUrl || '';
+  const full = imageLoader.cached(url)?.blobUrl || `/api/image?url=${encodeURIComponent(url)}`;
+  quickPreview.innerHTML = `<img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}">
+    <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}</div>`;
+  quickPreview.showModal();
+  quickPreview.focus({ preventScroll: true });
+  recordDetailVisit({ item });
+  const generation = ++quickPreviewGeneration;
+  if (preview && preview !== full) {
+    const loaded = new Image();
+    loaded.onload = () => {
+      if (quickPreview.open && generation === quickPreviewGeneration)
+        quickPreview.querySelector('.quick-preview-image').src = full;
+    };
+    loaded.src = full;
+  }
+}
+
+function closeQuickPreview() {
+  if (!quickPreview.open) return;
+  ++quickPreviewGeneration;
+  quickPreview.close();
+  quickPreview.replaceChildren();
+  quickPreviewWork = null;
+}
+
 async function toggleSavedWork(item, collection) {
   const pendingKey = collection + ':' + item.key;
   if (savedWorkPending.has(pendingKey)) return;
@@ -1894,7 +1956,8 @@ async function toggleSavedWork(item, collection) {
 }
 
 function syncSavedWorkButtons() {
-  main.querySelectorAll('[data-action="bookmark"][data-key], [data-action="like"][data-key]').forEach(button => {
+  [...main.querySelectorAll('[data-action="bookmark"][data-key], [data-action="like"][data-key]'),
+    ...quickPreview.querySelectorAll('[data-action="bookmark"][data-key], [data-action="like"][data-key]')].forEach(button => {
     const collection = button.dataset.action === 'like' ? 'likes' : 'bookmarks';
     const saved = isSavedWork(itemIndex.get(button.dataset.key) || { key: button.dataset.key }, collection);
     const label = collection === 'likes' ? saved ? 'Unlike' : 'Like' : saved ? 'Remove bookmark' : 'Add bookmark';
@@ -3329,6 +3392,44 @@ document.getElementById('search-form').addEventListener('submit', event => {
 });
 searchInput.addEventListener('focus', showPopover);
 searchInput.addEventListener('input', showPopover);
+main.addEventListener('pointermove', event => {
+  if (event.pointerType === 'mouse') quickPreviewPointer = { x: event.clientX, y: event.clientY };
+});
+main.addEventListener('pointerleave', () => { quickPreviewPointer = null; });
+quickPreview.addEventListener('cancel', event => {
+  event.preventDefault();
+  closeQuickPreview();
+});
+quickPreview.addEventListener('click', event => {
+  const button = event.target.closest?.('button[data-action]');
+  if (button && quickPreviewWork) {
+    if (button.dataset.action === 'like') void toggleSavedWork(quickPreviewWork, 'likes');
+    if (button.dataset.action === 'bookmark') void toggleSavedWork(quickPreviewWork, 'bookmarks');
+  } else if (event.target === quickPreview) closeQuickPreview();
+});
+document.addEventListener('keydown', event => {
+  if (quickPreview.open) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeQuickPreview();
+    } else if (event.code === 'Space' && (event.repeat || document.activeElement === quickPreview)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+    return;
+  }
+  if (!quickPreviewPointer || !quickPreviewShortcutAllowed(event, document.activeElement) ||
+      document.querySelector('dialog[open]') || !tabListPanel.hidden || !tabContextMenu.hidden ||
+      !recommendationTagMenu.hidden) return;
+  const hovered = document.elementFromPoint(quickPreviewPointer.x, quickPreviewPointer.y);
+  if (!hovered || !main.contains(hovered)) return;
+  const artwork = quickPreviewArtworkAt(hovered, currentTab(), itemIndex);
+  if (!artwork) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  openQuickPreview(artwork);
+}, true);
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && (!tabListPanel.hidden || !tabContextMenu.hidden)) {
     event.preventDefault(); hideTabPanels(); document.getElementById('tab-list-button').focus(); return;
