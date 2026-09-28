@@ -66,11 +66,10 @@
       dialog.querySelector('[data-update-status]').textContent = status.error ||
         (status.installing ? 'Скачиваем и проверяем обновление…' : canInstall(status) ?
           `Доступна версия ${status.version}` : status.configured ? 'Установлена последняя проверенная версия.' :
-            'Укажите репозиторий GitHub для получения обновлений.');
+            'Настройка обновлений доступна в установленной DART.');
       const button = dialog.querySelector('[data-update-install]');
       button.hidden = !canInstall(status);
       button.disabled = !!status.installing;
-      dialog.querySelector('[name="repository"]').value = status.repository || '';
       dialog.querySelector('[data-update-notes]').textContent = status.notes || '';
     }
     function openPanel() {
@@ -79,10 +78,7 @@
         dialog.className = 'update-dialog';
         dialog.innerHTML = `<div class="update-dialog-head"><h2>Обновления DART</h2><button type="button" data-update-close aria-label="Закрыть">×</button></div>
           <p data-update-current></p><p data-update-status role="status"></p><p data-update-notes class="update-notes"></p>
-          <div class="update-dialog-actions"><button type="button" data-update-check>Проверить обновления</button><button type="button" data-update-install hidden>Установить и перезапустить</button></div>
-          <form data-update-source><label>Репозиторий GitHub<input name="repository" type="url" placeholder="https://github.com/owner/DART" required></label>
-          <label>Токен для закрытого репозитория<input name="token" type="password" autocomplete="off" placeholder="Не нужен для публичного репозитория"></label><button type="submit">Сохранить источник</button></form>
-          <p class="settings-hint">Обновление проверяет подпись и файлы. Закладки, подписки и настройки остаются в вашем профиле.</p>`;
+          <div class="update-dialog-actions"><button type="button" data-update-check>Проверить обновления</button><button type="button" data-update-install hidden>Установить и перезапустить</button></div>`;
         document.body.appendChild(dialog);
         dialog.querySelector('[data-update-close]').onclick = () => dialog.close();
         dialog.querySelector('[data-update-check]').onclick = () => check(true);
@@ -92,14 +88,6 @@
             if (typeof window.saveSession === 'function') window.saveSession();
             await api('/install', { method: 'POST' });
           } catch (error) { status.installing = false; status.error = error.message; renderPanel(); }
-        };
-        dialog.querySelector('form').onsubmit = async event => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          try { showStatus(await api('/source', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ repository: form.repository.value, token: form.token.value }) }));
-            form.token.value = ''; await check(true);
-          } catch (error) { status.error = error.message; renderPanel(); }
         };
       }
       renderPanel(); dialog.showModal(); check();

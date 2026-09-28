@@ -31,18 +31,15 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .window-controls .window-close:hover { background: #c42b1c; }
 .window-controls svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1; }
 .install-update-button { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid #316cbd; border-radius: 7px; color: #3180ff; background: #202e42; }
-.install-update-button svg { width: 25px; height: 25px; fill: currentColor; }
+.install-update-button svg { width: 18px; height: 18px; fill: currentColor; }
 .install-update-button:hover { color: #69aaff; background: #294568; }
 .update-dialog { width: min(580px, calc(100vw - 36px)); color: var(--text); background: #242424; border: 1px solid #4b4b4b; border-radius: 14px; padding: 24px; box-shadow: 0 20px 80px #0009; }
 .update-dialog::backdrop { background: #0009; }
 .update-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .update-dialog-head button { border: 0; background: transparent; color: #aaa; font-size: 27px; }
-.update-dialog-actions { display: flex; gap: 10px; margin: 20px 0; }
+.update-dialog-actions { display: flex; gap: 10px; margin: 20px 0 0; }
 .update-dialog button:not([data-update-close]) { border: 1px solid #555; border-radius: 7px; padding: 10px 13px; color: white; background: #383838; }
 .update-dialog [data-update-install] { background: #247545 !important; }
-.update-dialog form { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid #444; }
-.update-dialog label { display: grid; gap: 7px; }
-.update-dialog input { width: 100%; background: #303030; border: 1px solid #555; color: white; padding: 10px 12px; border-radius: 7px; }
 .update-notes { white-space: pre-wrap; max-height: 180px; overflow: auto; color: #ccc; }
 .nav-arrows { display: flex; align-items: center; gap: 1px; margin-right: 8px; }
 .icon-button { background: transparent; border: 0; width: 36px; height: 36px; display: inline-grid; place-items: center; color: #b4b4b4; border-radius: 7px; padding: 0; }
