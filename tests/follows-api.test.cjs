@@ -288,16 +288,18 @@ test('content preferences save separately from API credentials and survive a res
     assert.equal((await saveViewed('https://other.example', ['key:danbooru:12'])).status, 403);
     assert.equal((await saveViewed(server.origin, ['original:unrecognized'])).status, 400);
     const savedViewed = await saveViewed(server.origin, ['key:danbooru:12',
-      'hash:' + 'a'.repeat(32), 'original:x-status:123456789']);
+      'hash:' + 'a'.repeat(32), 'original:x-status:123456789',
+      'original:discord-attachment:1333763634647531541:1550829244970704996']);
     assert.equal(savedViewed.status, 200);
-    assert.deepEqual(await savedViewed.json(), { saved: 3 });
+    assert.deepEqual(await savedViewed.json(), { saved: 4 });
     await stopServer(server);
     server = await startServer(dataDirectory);
     assert.equal((await get()).hideViewedAndSaved, true);
     const viewedResponse = await fetch(server.origin + '/api/viewed-identities');
     assert.equal(viewedResponse.status, 200);
     assert.deepEqual(await viewedResponse.json(), ['key:danbooru:12',
-      'hash:' + 'a'.repeat(32), 'original:x-status:123456789']);
+      'hash:' + 'a'.repeat(32), 'original:x-status:123456789',
+      'original:discord-attachment:1333763634647531541:1550829244970704996']);
     const readFavorites = async () => {
       const response = await fetch(server.origin + '/api/favorite-tags');
       assert.equal(response.status, 200);

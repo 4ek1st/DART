@@ -415,8 +415,9 @@ try
     var groupedBookmark = JsonSerializer.Deserialize<CatalogItem>("""
         {"key":"rule34:18529241","source":"rule34","id":"18529241",
          "memberKeys":["rule34:18529241","sankaku:AbC123","gelbooru:123"],
-         "visualHash":"f7ba6fc954f4d66e","allTags":["ai-created"],
+         "visualHash":"f7ba6fc954f4d66e","visualPHash":"b0f596e434b2aced","visualAspectRatio":0.644,"allTags":["ai-created"],
          "visualSamples":[{"hash":"f7ba6fc954f4d66e","owner":"sankaku:creator:anteiru",
+           "creator":"anteiru","perceptualHash":"b0f596e434b2aced","aspectRatio":0.644,
            "source":"sankaku","tags":["original","anteiru","fujisaki honami"],
            "characters":["fujisaki honami"],"uploader":"ragnarok",
            "published":"2026-08-31T19:02:01+02:00"}]}
@@ -428,6 +429,9 @@ try
     Expect(savedGroup.MemberKeys.SequenceEqual(["rule34:18529241", "sankaku:AbC123", "gelbooru:123"]),
         "Reading bookmarks after restart must retain every confirmed source, including Sankaku");
     Expect(savedGroup.VisualHash == "f7ba6fc954f4d66e" && savedGroup.VisualSamples.Count == 1 &&
+        savedGroup.VisualPHash == "b0f596e434b2aced" && savedGroup.VisualAspectRatio == 0.644 &&
+        savedGroup.VisualSamples[0].PerceptualHash == "b0f596e434b2aced" &&
+        savedGroup.VisualSamples[0].AspectRatio == 0.644 && savedGroup.VisualSamples[0].Creator == "anteiru" &&
         savedGroup.VisualSamples[0].Source == "sankaku" &&
         savedGroup.VisualSamples[0].Uploader == "ragnarok" &&
         savedGroup.VisualSamples[0].Characters.SequenceEqual(["fujisaki honami"]) &&

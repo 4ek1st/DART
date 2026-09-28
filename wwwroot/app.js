@@ -119,7 +119,7 @@ try { recommendationVisitCount = Math.max(0, Number.parseInt(
 catch { recommendationVisitCount = 0; }
 
 async function request(path, options = {}) {
-  const { skipVisualHashes = false, ...fetchOptions } = options;
+  const fetchOptions = options;
   const response = await fetch(path, fetchOptions);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -130,7 +130,7 @@ async function request(path, options = {}) {
   if (Array.isArray(result?.items)) result.items = CatalogLogic.filterCatalogItems(result.items);
   if (!fetchOptions.signal?.aborted &&
       (path.startsWith('/api/search?') || path.startsWith('/api/profile?')))
-    await addCatalogVisualHashes(result.items || [], !skipVisualHashes, fetchOptions.signal);
+    await addCatalogVisualHashes(result.items || [], fetchOptions.signal);
   return result;
 }
 
@@ -152,48 +152,102 @@ function runVisualHashJob(job) {
   });
 }
 
-async function catalogThumbnailHash(url) {
+function catalogBitmapFingerprint(bitmap) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 9;
+  canvas.height = 8;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.drawImage(bitmap, 0, 0, 9, 8);
+  const pixels = context.getImageData(0, 0, 9, 8).data;
+  const lightness = index => 0.299 * pixels[index] +
+    0.587 * pixels[index + 1] + 0.114 * pixels[index + 2];
+  let hash = '';
+  for (let row = 0; row < 8; row++)
+    for (let col = 0; col < 8; col += 4) {
+      let nibble = 0;
+      for (let bit = 0; bit < 4; bit++) {
+        const left = (row * 9 + col + bit) * 4;
+        nibble = nibble * 2 + Number(lightness(left + 4) > lightness(left));
+      }
+      hash += nibble.toString(16);
+    }
+  canvas.width = canvas.height = 32;
+  context.drawImage(bitmap, 0, 0, 32, 32);
+  return { hash, perceptualHash: CatalogLogic.perceptualImageHash(
+    context.getImageData(0, 0, 32, 32).data),
+    aspectRatio: (bitmap.naturalWidth || bitmap.width) / (bitmap.naturalHeight || bitmap.height) };
+}
+
+async function catalogThumbnailFingerprint(url, loadedUrl = '') {
   const key = CatalogLogic.mediaCacheKey(url);
   if (!visualHashCache.has(key)) {
     const pending = runVisualHashJob(async () => {
-      const response = await fetch(`/api/image?url=${encodeURIComponent(url)}`,
+      const response = await fetch(loadedUrl.startsWith('blob:') ? loadedUrl : `/api/image?url=${encodeURIComponent(url)}`,
         { signal: AbortSignal.timeout(5000) });
       if (!response.ok) throw new Error('Thumbnail unavailable');
       const bitmap = await createImageBitmap(await response.blob());
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = 9;
-        canvas.height = 8;
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        context.drawImage(bitmap, 0, 0, 9, 8);
-        const pixels = context.getImageData(0, 0, 9, 8).data;
-        const lightness = index => 0.299 * pixels[index] +
-          0.587 * pixels[index + 1] + 0.114 * pixels[index + 2];
-        let hash = '';
-        for (let row = 0; row < 8; row++)
-          for (let col = 0; col < 8; col += 4) {
-            let nibble = 0;
-            for (let bit = 0; bit < 4; bit++) {
-              const left = (row * 9 + col + bit) * 4;
-              nibble = nibble * 2 + Number(lightness(left + 4) > lightness(left));
-            }
-            hash += nibble.toString(16);
-          }
-        return hash;
-      } finally { bitmap.close(); }
+      try { return catalogBitmapFingerprint(bitmap); }
+      finally { bitmap.close(); }
     }).then(hash => { if (!hash) visualHashCache.delete(key); return hash; });
     visualHashCache.set(key, pending);
+    while (visualHashCache.size > 2000) visualHashCache.delete(visualHashCache.keys().next().value);
   }
   return visualHashCache.get(key);
 }
 
-async function addCatalogVisualHashes(items, includeRule34 = true, signal) {
-  await Promise.all(items.filter(item => item.thumbnail &&
-      !/^[a-f0-9]{16}$/i.test(item.visualHash || '') && !item.visualSamples?.length &&
-      (includeRule34 && item.source === 'rule34' ||
-       item.source === 'sankaku' && item.creatorTag && (item.tags || []).length >= 12))
+let cardFingerprintTimer;
+async function rememberCardFingerprint(img) {
+  const card = img.closest?.('.card[data-work-key]');
+  const item = card && itemIndex.get(card.dataset.workKey);
+  if (!item || !img.naturalWidth || !CatalogLogic.needsVisualFingerprint(item) ||
+      item.visualPHash || img.dataset.fingerprintPending) return;
+  img.dataset.fingerprintPending = 'true';
+  // Always decode through the same ImageBitmap path: DOM image downscaling
+  // can produce different hashes even from identical cached bytes.
+  const fingerprint = await catalogThumbnailFingerprint(item.thumbnail, img.src);
+  delete img.dataset.fingerprintPending;
+  if (!fingerprint) return;
+  const update = { visualHash: fingerprint.hash, visualPHash: fingerprint.perceptualHash,
+    visualAspectRatio: fingerprint.aspectRatio };
+  Object.assign(item, update);
+  // Old saved works gain evidence from thumbnails that are already visible;
+  // opening Liked must not download the whole saved collection up front.
+  const lists = [likes, bookmarks, recent, ...tabs.flatMap(tab => [tab.items, tab.related, tab.creatorWorks])];
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    let changed = false;
+    for (const candidate of list) if (candidate.key === item.key) {
+      Object.assign(candidate, update); changed = true;
+    }
+    if (changed) CatalogLogic.invalidateGrouping(list);
+  }
+  if (!img.isConnected) return;
+  clearTimeout(cardFingerprintTimer);
+  const tab = currentTab();
+  cardFingerprintTimer = setTimeout(() => {
+    if (currentTab() !== tab) return;
+    const bounds = main.getBoundingClientRect();
+    const anchor = [...main.querySelectorAll('.card[data-work-key]')]
+      .find(node => node.getBoundingClientRect().bottom > bounds.top);
+    const key = anchor?.dataset.workKey, top = anchor?.getBoundingClientRect().top;
+    render();
+    const next = [...main.querySelectorAll('.card[data-work-key]')].find(node =>
+      node.dataset.workKey === key || itemIndex.get(node.dataset.workKey)?.memberKeys?.includes(key));
+    if (next && top !== undefined) main.scrollTop += next.getBoundingClientRect().top - top;
+  }, 120);
+}
+
+async function addCatalogVisualHashes(items, signal) {
+  await Promise.all(items.filter(item => CatalogLogic.needsVisualFingerprint(item) &&
+      !(/^[a-f0-9]{16}$/i.test(item.visualHash || '') && /^[a-f0-9]{16}$/i.test(item.visualPHash || '')))
     .map(async item => {
-      if (!signal?.aborted) item.visualHash = await catalogThumbnailHash(item.thumbnail);
+      if (signal?.aborted) return;
+      const fingerprint = await catalogThumbnailFingerprint(item.thumbnail);
+      if (fingerprint && !signal?.aborted) {
+        item.visualHash = fingerprint.hash;
+        item.visualPHash = fingerprint.perceptualHash;
+        item.visualAspectRatio = fingerprint.aspectRatio;
+      }
     }));
 }
 
@@ -962,7 +1016,7 @@ async function loadRecommendations(tab, append = false) {
         rating: tab.rating, sort: 'recent', kind: 'illustrations' });
       try {
         return { group, stream, response: await request(`/api/search?${params}`,
-          { signal: controller.signal, skipVisualHashes: true }) };
+          { signal: controller.signal }) };
       } catch (error) { return { group, stream, error }; }
     }));
     if (!findTab(tab.id) || version !== tab.recommendationVersion ||
@@ -3109,6 +3163,7 @@ const autoFeed = {
 
 let virtualScrollPending = false;
 main.addEventListener('load', event => {
+  rememberCardFingerprint(event.target);
   rememberImageDimensions(event.target);
   if (event.target.matches?.('.profile-page .grid .card img[data-image-url]')) {
     const tab = currentTab();

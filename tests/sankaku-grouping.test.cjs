@@ -100,8 +100,8 @@ function requestFixture(items, pauseImages = false) {
   const context = vm.createContext({ CatalogLogic, visualHashCache: new Map(),
     AbortSignal, AbortController, setTimeout, clearTimeout, URL, console,
     document: { createElement: () => ({ getContext: () => ({ drawImage() {},
-      getImageData: () => ({ data: new Uint8ClampedArray(9 * 8 * 4) }) }) }) },
-    createImageBitmap: async () => ({ close() {} }),
+      getImageData: (_x, _y, width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }) }) }) },
+    createImageBitmap: async () => ({ width: 160, height: 240, close() {} }),
     fetch: async path => {
       if (path.startsWith('/api/image?')) {
         imageRequests.push(path); active++; maximum = Math.max(maximum, active);
@@ -116,14 +116,18 @@ function requestFixture(items, pauseImages = false) {
   return { context, imageRequests, maximum: () => maximum };
 }
 
-test('recommendation fast mode still fingerprints Sankaku while skipping Rule34', async () => {
+test('recommendations and search fingerprint eligible works from all four sources', async () => {
   const sankaku = series()[0]; delete sankaku.visualHash;
-  const rule34 = { key: 'rule34:1', source: 'rule34', thumbnail: 'https://example.test/r.jpg' };
-  const probe = requestFixture([sankaku, rule34]);
-  const response = await probe.context.request('/api/search?q=anteiru', { skipVisualHashes: true });
-  assert.match(response.items[0].visualHash, /^[a-f0-9]{16}$/);
-  assert.equal(response.items[1].visualHash, undefined);
-  assert.equal(probe.imageRequests.length, 1);
+  const items = CatalogLogic.supportedSources.map(source => ({ ...sankaku, source,
+    key: `${source}:1`, thumbnail: `https://example.test/${source}.jpg` }));
+  const probe = requestFixture(items);
+  const response = await probe.context.request('/api/search?q=anteiru');
+  for (const item of response.items) {
+    assert.match(item.visualHash, /^[a-f0-9]{16}$/);
+    assert.match(item.visualPHash, /^[a-f0-9]{16}$/);
+    assert.equal(item.visualAspectRatio, 160 / 240);
+  }
+  assert.equal(probe.imageRequests.length, 4);
 });
 
 test('parallel Sankaku feed requests share a bounded thumbnail queue and cache', async () => {

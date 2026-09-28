@@ -147,16 +147,29 @@
         .exec(url.pathname);
       return match ? `group:pixiv:${match[1]}` : '';
     }
+    if (host === 'cdn.discordapp.com' || host === 'media.discordapp.net') {
+      // Attachment IDs identify the file; expiry, signatures and resize parameters do not.
+      const match = /^\/attachments\/(\d{5,25})\/(\d{5,25})\/[^/]+$/.exec(url.pathname);
+      return match ? `original:discord-attachment:${match[1]}:${match[2]}` : '';
+    }
     return '';
   }
 
   function itemIdentities(item) {
     const hash = /^[a-f0-9]{32}$/i.test(item.contentHash || '')
       ? `hash:${item.contentHash.toLowerCase()}` : '';
+    const members = [item.key, ...(item.memberKeys || [])].filter(key =>
+      typeof key === 'string' && /^(danbooru|gelbooru|rule34|sankaku):[a-z0-9]+$/i.test(key));
     return [...new Set([...(item.identityKeys || []),
+      ...members.map(key => `key:${key}`),
+      // A child can point at a parent whose response omits has_children. Include
+      // every member's own parent identity, including members of saved groups.
+      ...members.map(key => `group:${key.replace(':', ':parent:')}`),
       item.groupKey && `group:${item.groupKey}`,
       item.pixivGroupKey && `group:${item.pixivGroupKey}`,
-      originalPostIdentity(item.originalUrl), hash].filter(Boolean))];
+      originalPostIdentity(item.originalUrl), hash,
+      ...itemImageRecords(item).filter(record => /^[a-f0-9]{32}$/i.test(record.hash || ''))
+        .map(record => `hash:${record.hash.toLowerCase()}`)].filter(Boolean))];
   }
 
   function workHistoryTokens(item) {
@@ -247,28 +260,87 @@
     } catch { return value; }
   }
 
+  const validVisualHash = hash => /^[a-f0-9]{16}$/i.test(hash || '');
+  const visualTags = tags => [...new Set((tags || []).map(normalizeFilterTag))].filter(Boolean).sort();
+  const knownUploader = value => value && !/^(anonymous|unknown|none|0)$/i.test(value);
+  const visualPublication = url => {
+    const identity = originalPostIdentity(url);
+    return identity.startsWith('original:discord-attachment:') ? '' : identity;
+  };
+
+  function visualCreator(item) {
+    const tag = normalizeFilterTag(workAttribution(item).creator?.follow?.artistId || '');
+    return /^(artist request|unknown artist|anonymous artist|anonymous|unknown)$/.test(tag) ? '' : tag;
+  }
+
+  function needsVisualFingerprint(item) {
+    return supportedSources.includes(item?.source) && item.thumbnail &&
+      !(item.images || []).some(videoMimeType) &&
+      (visualCreator(item) && (item.tags || []).length >= 12 ||
+       item.source === 'rule34' && knownUploader(item.uploaderId || item.artistId) && (item.tags || []).length >= 12);
+  }
+
   function itemVisualSamples(item) {
-    const saved = (item.visualSamples || []).filter(sample =>
-      /^[a-f0-9]{16}$/i.test(sample?.hash || '') && sample.owner && Array.isArray(sample.tags));
-    if (saved.length) return saved;
-    if (!['rule34', 'sankaku'].includes(item.source) ||
-        !/^[a-f0-9]{16}$/i.test(item.visualHash || ''))
-      return [];
-    if (item.source === 'sankaku') {
-      // Sankaku IDs are opaque, and variants frequently lack a parent/source URL.
-      // Use a confirmed creator, never the account that uploaded the file.
-      const creator = String(item.creatorTag || '').trim().toLowerCase();
-      const tags = [...new Set((item.tags || []).map(normalizeFilterTag))].filter(Boolean).sort();
-      return creator && tags.length >= 12 ? [{ hash: item.visualHash.toLowerCase(),
-        owner: `sankaku:creator:${creator}`, source: 'sankaku', tags,
-        characters: [...new Set((item.characterTags || []).map(normalizeFilterTag))].sort(),
-        uploader: String(item.uploaderId || '').trim().toLowerCase(),
-        published: item.published || '', publication: originalPostIdentity(item.originalUrl) }] : [];
+    const creator = visualCreator(item);
+    const samples = (item.visualSamples || []).filter(sample =>
+      validVisualHash(sample?.hash) && sample.owner && Array.isArray(sample.tags)).map(sample => {
+        // Upgrade old saved evidence without assigning the preferred source's
+        // uploader to images that came from another catalog.
+        const confirmed = normalizeFilterTag(sample.creator ||
+          /^sankaku:creator:(.+)$/.exec(sample.owner)?.[1] ||
+          (sample.hash === item.visualHash ? creator : ''));
+        const source = sample.source || item.source;
+        const legacyUploader = /^\w+:uploader:(.+)$/.exec(sample.owner)?.[1] ||
+          (source === 'rule34' && !sample.owner.includes(':') ? sample.owner : '');
+        const uploader = String(sample.uploader || legacyUploader).trim().toLowerCase();
+        return { ...sample, hash: sample.hash.toLowerCase(), creator: confirmed, source,
+          tags: visualTags(sample.tags), characters: visualTags(sample.characters),
+          owner: confirmed ? `creator:${confirmed}` : `${source}:uploader:${uploader}`, uploader };
+      }).filter(sample => sample.creator || sample.source === 'rule34' && knownUploader(sample.uploader));
+    if (supportedSources.includes(item.source) && validVisualHash(item.visualHash)) {
+      const tags = visualTags(item.tags);
+      const uploader = String(item.uploaderId || item.artistId || '').trim().toLowerCase();
+      if (creator && tags.length >= 12 || item.source === 'rule34' && knownUploader(uploader) && tags.length >= 3) {
+        const sample = { hash: item.visualHash.toLowerCase(), creator,
+          owner: creator ? `creator:${creator}` : `${item.source}:uploader:${uploader}`,
+          source: item.source, tags, characters: visualTags(item.characterTags), uploader,
+          published: item.published || '', publication: visualPublication(item.originalUrl),
+          perceptualHash: item.visualPHash || '', aspectRatio: item.visualAspectRatio || 0 };
+        const existing = samples.findIndex(saved => saved.hash === sample.hash && saved.source === sample.source);
+        if (existing >= 0) samples[existing] = { ...samples[existing], ...sample,
+          perceptualHash: sample.perceptualHash || samples[existing].perceptualHash,
+          aspectRatio: sample.aspectRatio || samples[existing].aspectRatio };
+        else samples.push(sample);
+      }
     }
-    const owner = String(item.artistId || '').trim().toLowerCase();
-    const tags = [...new Set((item.tags || []).map(tag => String(tag).toLowerCase()))].sort();
-    return owner && tags.length >= 3
-      ? [{ hash: item.visualHash.toLowerCase(), owner, tags }] : [];
+    return samples;
+  }
+
+  function perceptualImageHash(pixels) {
+    if (pixels?.length !== 32 * 32 * 4) return '';
+    // Low-frequency DCT complements the existing edge hash. The separable
+    // transform needs about 10k operations per cached thumbnail.
+    const cosine = perceptualImageHash.cosine ||= Array.from({ length: 8 }, (_, u) =>
+      Array.from({ length: 32 }, (_, x) => Math.cos((2 * x + 1) * u * Math.PI / 64)));
+    const rows = new Float64Array(32 * 8), coefficients = [];
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+      const offset = (y * 32 + x) * 4;
+      const gray = pixels[offset] * .299 + pixels[offset + 1] * .587 + pixels[offset + 2] * .114;
+      for (let u = 0; u < 8; u++) rows[y * 8 + u] += gray * cosine[u][x];
+    }
+    for (let v = 0; v < 8; v++) for (let u = 0; u < 8; u++) {
+      let value = 0;
+      for (let y = 0; y < 32; y++) value += rows[y * 8 + u] * cosine[v][y];
+      coefficients.push(value);
+    }
+    const median = coefficients.slice(1).sort((a, b) => a - b)[31];
+    let hash = '';
+    for (let i = 0; i < 64; i += 4) {
+      let nibble = 0;
+      for (let bit = 0; bit < 4; bit++) nibble = nibble * 2 + Number(coefficients[i + bit] > median);
+      hash += nibble.toString(16);
+    }
+    return hash;
   }
 
   function visualDistance(first, second) {
@@ -291,14 +363,20 @@
 
   function compatibleVisualSamples(first, second, distance) {
     if (!similarVisualTags(first.tags, second.tags)) return false;
-    if (first.source !== 'sankaku' && second.source !== 'sankaku') return true;
-    if (first.source !== second.source) return false;
     if (first.publication && second.publication && first.publication !== second.publication)
       return false;
     const characters = first.characters || [];
     const otherCharacters = second.characters || [];
     if (characters.length && otherCharacters.length &&
         !characters.some(tag => otherCharacters.includes(tag))) return false;
+    if (first.creator && first.creator === second.creator &&
+        validVisualHash(first.perceptualHash) && validVisualHash(second.perceptualHash))
+      return first.tags.length >= 12 && second.tags.length >= 12 &&
+        first.aspectRatio > 0 && second.aspectRatio > 0 &&
+        Math.abs(Math.log(first.aspectRatio / second.aspectRatio)) <= .05 &&
+        visualDistance(first.perceptualHash, second.perceptualHash) <= 12 && distance <= 12;
+    if (distance > 8 || first.source !== second.source) return false;
+    if (first.source === 'rule34') return true;
     // Near-identical copies can be uploaded again later. Larger changes (text,
     // clothing, translations) need evidence of the same compact upload batch.
     if (distance <= 2) return true;
@@ -311,6 +389,7 @@
   }
 
   const groupedCache = new WeakMap();
+  function invalidateGrouping(items) { if (Array.isArray(items)) groupedCache.delete(items); }
   function groupWorks(items) {
     if (Array.isArray(items) && groupedCache.has(items)) return groupedCache.get(items);
     const works = (items || []).filter(item => item?.key);
@@ -336,7 +415,7 @@
     const candidates = works.map((item, index) => {
       const id = Number(item.id);
       const time = Date.parse(item.published || '');
-      const creator = String(item.creatorTag || '').trim().toLowerCase();
+      const creator = visualCreator(item);
       const uploader = String(item.uploaderId || '').trim().toLowerCase();
       const tags = new Set((item.tags || []).map(tag => String(tag).toLowerCase()));
       const memberIds = (item.memberKeys || [item.key]).map(key => {
@@ -348,11 +427,11 @@
         ? 'adult' : ['g', 'general', 'safe'].includes(item.rating) ? 'general' : '';
       if (!supportedSources.includes(item.source) ||
           !Number.isSafeInteger(id) || id < 1 || !Number.isFinite(time) ||
-          !creator || !uploader || !rating || tags.size < 12 ||
+          !creator || !knownUploader(uploader) || !rating || tags.size < 12 ||
           item.groupKey || item.pixivGroupKey || originalPostIdentity(item.originalUrl) ||
           memberIds.some(value => !Number.isSafeInteger(value) || value < 1)) return null;
       return { index, id: Math.max(id, ...memberIds), minId: Math.min(id, ...memberIds), time, tags,
-        bucket: `${item.source}\n${creator}\n${uploader}\n${rating}` };
+        bucket: JSON.stringify([item.source, creator, uploader, rating, visualTags(item.characterTags)]) };
     }).filter(Boolean).sort((first, second) => second.id - first.id);
     const sameSeries = (anchor, candidate) => {
       if (Math.max(anchor.id, candidate.id) - Math.min(anchor.minId, candidate.minId) > 12 ||
@@ -372,16 +451,58 @@
       }
       else anchors.push(candidate);
     }
+    const samples = works.map(itemVisualSamples);
+    // Opaque IDs cannot use the numeric upload-batch fallback. A short scene
+    // batch needs exact, confirmed characters and creator, a named uploader,
+    // dense tag overlap and a total span of at most 45 seconds. Keep each frame.
+    const sceneBuckets = new Map();
+    samples.forEach((entries, index) => {
+      for (const sample of entries) {
+        const time = Date.parse(sample.published || '');
+        const characters = sample.characters.filter(tag => !['original character', 'character request'].includes(tag));
+        if (!sample.creator || !knownUploader(sample.uploader) || !Number.isFinite(time) ||
+            !/T\d{2}:\d{2}:\d{2}/.test(sample.published || '') ||
+            sample.publication || !characters.length || sample.tags.length < 35 ||
+            works[index].groupKey || works[index].pixivGroupKey || (works[index].images || []).some(videoMimeType)) continue;
+        const bucket = JSON.stringify([sample.source, sample.creator, sample.uploader, characters]);
+        if (!sceneBuckets.has(bucket)) sceneBuckets.set(bucket, []);
+        sceneBuckets.get(bucket).push({ sample, index, time, characters });
+      }
+    });
+    for (const entries of sceneBuckets.values()) {
+      const ranges = new Map(), anchors = [];
+      for (const entry of entries) {
+        const root = find(entry.index), range = ranges.get(root) || [entry.time, entry.time];
+        ranges.set(root, [Math.min(range[0], entry.time), Math.max(range[1], entry.time)]);
+      }
+      for (const entry of entries.sort((a, b) => a.time - b.time)) {
+        const match = anchors.find(anchor => {
+          const first = ranges.get(find(anchor.index)), second = ranges.get(find(entry.index));
+          if (Math.max(first[1], second[1]) - Math.min(first[0], second[0]) > 45000) return false;
+          const tags = new Set(anchor.sample.tags);
+          const common = entry.sample.tags.filter(tag => tags.has(tag)).length;
+          const multiple = entry.characters.length > 1;
+          return common >= (multiple ? 35 : 40) && common /
+            (tags.size + entry.sample.tags.length - common) >= (multiple ? .58 : .9);
+        });
+        if (match) {
+          const root = find(match.index), other = find(entry.index);
+          const a = ranges.get(root), b = ranges.get(other);
+          roots[other] = root;
+          ranges.set(root, [Math.min(a[0], b[0]), Math.max(a[1], b[1])]);
+        } else anchors.push(entry);
+      }
+    }
     const visualTrees = new Map();
     const findVisualMatches = (node, sample, index) => {
       if (!node) return;
       const distance = visualDistance(sample.hash, node.hash);
-      if (distance <= 8)
+      if (distance <= 12)
         for (const previous of node.entries)
           if (compatibleVisualSamples(sample, previous.sample, distance))
             roots[find(index)] = find(previous.index);
       for (const [edge, child] of node.children)
-        if (edge >= distance - 8 && edge <= distance + 8)
+        if (edge >= distance - 12 && edge <= distance + 12)
           findVisualMatches(child, sample, index);
     };
     const addVisualSample = (root, sample, index) => {
@@ -403,7 +524,7 @@
       }
     };
     works.forEach((item, index) => {
-      for (const sample of itemVisualSamples(item)) {
+      for (const sample of samples[index]) {
         const tree = visualTrees.get(sample.owner);
         if (tree) {
           findVisualMatches(tree, sample, index);
@@ -478,6 +599,8 @@
     merged.memberKeys = [...new Set([previous.key, ...(previous.memberKeys || []),
       ...(incoming.memberKeys || [])].filter(Boolean))];
     merged.visualHash = incoming.visualHash || previous.visualHash || '';
+    merged.visualPHash = incoming.visualPHash || previous.visualPHash || '';
+    merged.visualAspectRatio = incoming.visualAspectRatio || previous.visualAspectRatio || 0;
     merged.visualSamples = [...new Map([...itemVisualSamples(previous), ...itemVisualSamples(incoming)]
       .map(sample => [JSON.stringify(sample), sample])).values()].slice(0, 100);
     if (merged.memberKeys.length > 1) merged.allTags = [...new Set([
@@ -1074,12 +1197,12 @@
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks,
-    removeNavigationEntry, groupWorks,
+    removeNavigationEntry, groupWorks, invalidateGrouping,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind,
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,
     sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType,
-    mediaCacheKey,
+    mediaCacheKey, needsVisualFingerprint, perceptualImageHash,
     supportedSources, filterCatalogItems, cleanClientState,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,

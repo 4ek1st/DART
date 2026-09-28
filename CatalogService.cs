@@ -32,6 +32,8 @@ public sealed class CatalogItem
     public string PixivGroupKey { get; set; } = "";
     public string ContentHash { get; set; } = "";
     public string VisualHash { get; set; } = "";
+    public string VisualPHash { get; set; } = "";
+    public double VisualAspectRatio { get; set; }
     public List<CatalogVisualSample> VisualSamples { get; set; } = [];
     [JsonIgnore] public string OriginalImageFileUrl { get; set; } = "";
     [JsonIgnore] public bool Rule34TagInfoKnown { get; set; }
@@ -99,6 +101,9 @@ public sealed class ProfileResponse
 public sealed class CatalogVisualSample
 {
     public string Hash { get; set; } = "";
+    public string PerceptualHash { get; set; } = "";
+    public double AspectRatio { get; set; }
+    public string Creator { get; set; } = "";
     public string Owner { get; set; } = "";
     public List<string> Tags { get; set; } = [];
     public string Source { get; set; } = "";

@@ -293,7 +293,7 @@ internal static class Program
                     !(new[] { "key:", "group:", "hash:" }.Any(prefix =>
                         token.StartsWith(prefix, StringComparison.Ordinal)) ||
                       System.Text.RegularExpressions.Regex.IsMatch(token,
-                          @"^original:x-status:\d{5,25}$")) ||
+                          @"^original:(?:x-status:\d{5,25}|discord-attachment:\d{5,25}:\d{5,25})$")) ||
                     token.Any(char.IsControl))) return Results.BadRequest();
             store.AddViewedTokens(tokens);
             return Results.Ok(new { saved = tokens.Count });

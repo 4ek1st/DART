@@ -53,7 +53,7 @@ test('recommendations search both names and Other and continue past 120 cards', 
     findTab: id => id === tab.id ? tab : undefined, activeId: tab.id,
     render: () => {}, rememberItems: () => {}, AbortController, URLSearchParams,
     request: async (path, options) => {
-      assert.equal(options.skipVisualHashes, true);
+      assert.ok(options.signal, 'recommendation fingerprint work follows the request cancellation signal');
       const params = new URL(path, 'http://localhost').searchParams;
       const tag = params.get('q');
       const page = Number(params.get('page'));
