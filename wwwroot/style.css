@@ -311,7 +311,7 @@ h3 { font-size: 15px; }
 .quick-preview-stage { position: relative; width: fit-content; max-width: 100%; }
 .quick-preview-image { display: block; width: auto; height: auto; max-width: min(84vw, 1100px); max-height: 78vh; object-fit: contain; }
 .quick-preview-actions { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; padding: 7px; border-radius: 11px; background: #161616df; box-shadow: 0 4px 22px #000a; }
-@media (max-width: 600px) { .quick-preview-image { max-width: calc(100vw - 24px); max-height: 84vh; } .quick-preview-actions { right: 8px; bottom: 8px; } }
+@media (max-width: 600px) { .quick-preview-image { max-width: calc(100vw - 48px); max-height: 84vh; } .quick-preview-actions { right: 8px; bottom: 8px; } }
 .primary-button, .secondary-button { border-radius: 6px; padding: 10px 16px; font-weight: 700; border: 0; }
 .secondary-button svg { width: 16px; height: 16px; vertical-align: -3px; margin-left: 4px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .primary-button { background: #167ecc; color: #fff; }
