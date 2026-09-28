@@ -31,7 +31,7 @@ function fixture({ hidden = true, bookmarks = [], likes = [], viewed = [], tab =
       throw new Error(`Unexpected fixture request: ${path}`);
     }
   });
-  vm.runInContext(between('function filterFeedWorks(', '\nfunction measureVirtualGrids(') + '\n' +
+  vm.runInContext(between('function isHideableFeed(', '\nfunction measureVirtualGrids(') + '\n' +
     between('function setSavedWorks(', '\nasync function loadFavoriteTags(') + '\n' +
     between('async function recordViewedWorks(', '\nasync function refreshFollows(') + '\n' +
     between('function isSavedWork(', '\nfunction syncSavedWorkButtons('), context);

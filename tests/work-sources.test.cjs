@@ -84,7 +84,8 @@ test('reopening an existing artwork tab adds newly confirmed mirrors', () => {
   const existing = { id: 1, kind: 'detail', title: work.title, item: work };
   let saved = 0;
   const context = vm.createContext({ CatalogLogic: logic, tabs: [existing], itemIndex: new Map(),
-    rememberItem: item => item, currentTab: () => existing, activate() {}, saveSession() { saved++; } });
+    rememberItem: item => item, currentTab: () => existing, retainFeedWork() {},
+    activate() {}, saveSession() { saved++; } });
   vm.runInContext(app.slice(app.indexOf('function openDetail('), app.indexOf('\nfunction isSavedWork(')), context);
   context.openDetail(grouped);
   assert.equal(logic.workSources(existing.item).length, 2);

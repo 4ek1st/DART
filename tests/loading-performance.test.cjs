@@ -161,7 +161,7 @@ test('scrolling back above a virtual grid restores its first rows instead of lea
     addEventListener: (name, handler) => { onScroll = handler; } };
   vm.runInNewContext(source.slice(start, end), { main, virtualScrollPending: false,
     currentTab: () => tab, requestAnimationFrame: fn => fn(), render: () => renders++,
-    autoFeed: { mount() {} } });
+    autoFeed: { mount() {} }, expireRetainedFeedWorks: () => false });
   onScroll();
   assert.equal(renders, 1);
 });
