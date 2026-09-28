@@ -54,6 +54,8 @@ document.body.append(quickPreview);
 let quickPreviewWork = null;
 let quickPreviewPointer = null;
 let quickPreviewGeneration = 0;
+let quickPreviewView = { scale: 1, x: 0, y: 0 };
+let quickPreviewDrag = null;
 const tabs = [];
 const itemIndex = new Map();
 let nextId = 1;
@@ -1889,6 +1891,65 @@ function quickPreviewArtworkAt(target, tab, index) {
   return url && !CatalogLogic.videoMimeType(url) ? { item: tab.item, image: target, url } : null;
 }
 
+function quickPreviewBoundScale(value) {
+  const scale = Math.max(1, Math.min(6, value));
+  return scale < 1.01 ? 1 : scale;
+}
+
+function quickPreviewClampPan(view, width, height) {
+  const scale = quickPreviewBoundScale(view.scale);
+  const limitX = Math.max(0, width * (scale - 1) / 2);
+  const limitY = Math.max(0, height * (scale - 1) / 2);
+  return {
+    scale,
+    x: scale === 1 ? 0 : Math.max(-limitX, Math.min(limitX, view.x)),
+    y: scale === 1 ? 0 : Math.max(-limitY, Math.min(limitY, view.y))
+  };
+}
+
+function quickPreviewZoomAt(view, nextScale, pointX, pointY, width, height) {
+  const scale = quickPreviewBoundScale(nextScale);
+  const ratio = scale / view.scale;
+  return quickPreviewClampPan({ scale,
+    x: pointX - (pointX - view.x) * ratio,
+    y: pointY - (pointY - view.y) * ratio }, width, height);
+}
+
+function paintQuickPreview(instant = false) {
+  const stage = quickPreview.querySelector('.quick-preview-stage');
+  const image = stage?.querySelector('.quick-preview-image');
+  if (!image) return;
+  quickPreviewView = quickPreviewClampPan(quickPreviewView, stage.clientWidth, stage.clientHeight);
+  stage.classList.toggle('zoomed', quickPreviewView.scale > 1.01);
+  stage.classList.toggle('panning', !!quickPreviewDrag);
+  image.style.transitionDuration = instant || quickPreviewDrag ? '0s' : '';
+  image.style.transform = `translate3d(${quickPreviewView.x}px, ${quickPreviewView.y}px, 0) scale(${quickPreviewView.scale})`;
+  quickPreview.querySelector('.quick-preview-zoom').textContent = `${Math.round(quickPreviewView.scale * 100)}%`;
+  quickPreview.querySelector('[data-preview-action="zoom-out"]').disabled = quickPreviewView.scale <= 1;
+  quickPreview.querySelector('[data-preview-action="zoom-in"]').disabled = quickPreviewView.scale >= 6;
+  quickPreview.querySelector('[data-preview-action="fit"]').disabled = quickPreviewView.scale <= 1;
+}
+
+function zoomQuickPreview(nextScale, clientX, clientY) {
+  const stage = quickPreview.querySelector('.quick-preview-stage');
+  if (!stage) return;
+  const bounds = stage.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  const pointX = Math.max(-bounds.width / 2,
+    Math.min(bounds.width / 2, clientX - bounds.left - bounds.width / 2));
+  const pointY = Math.max(-bounds.height / 2,
+    Math.min(bounds.height / 2, clientY - bounds.top - bounds.height / 2));
+  quickPreviewView = quickPreviewZoomAt(quickPreviewView, nextScale,
+    pointX, pointY, bounds.width, bounds.height);
+  paintQuickPreview();
+}
+
+function zoomQuickPreviewFromCenter(nextScale) {
+  const bounds = quickPreview.querySelector('.quick-preview-stage')?.getBoundingClientRect();
+  if (bounds) zoomQuickPreview(nextScale,
+    bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+}
+
 function openQuickPreview({ item, image, url }) {
   if (!item || !url || quickPreview.open) return;
   item = quickPreviewWork = rememberItem(item);
@@ -1896,12 +1957,23 @@ function openQuickPreview({ item, image, url }) {
   const preview = image.currentSrc || image.getAttribute?.('src') ||
     imageLoader.cached(image.dataset.imageUrl)?.blobUrl || '';
   const full = imageLoader.cached(url)?.blobUrl || `/api/image?url=${encodeURIComponent(url)}`;
+  quickPreviewView = { scale: 1, x: 0, y: 0 };
+  quickPreviewDrag = null;
   quickPreview.innerHTML = `<div class="quick-preview-stage">
-    <img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}">
+    <img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}" draggable="false">
+    <div class="quick-preview-tools" role="group" aria-label="Image zoom">
+      <button type="button" data-preview-action="zoom-out" title="Zoom out" aria-label="Zoom out" disabled>−</button>
+      <span class="quick-preview-zoom" aria-live="off">100%</span>
+      <button type="button" data-preview-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+      <button type="button" data-preview-action="fit" title="Fit image" aria-label="Fit image" disabled>↺</button>
+    </div>
+    <button type="button" class="quick-preview-close" data-preview-action="close" title="Close preview" aria-label="Close preview">×</button>
     <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}</div>
   </div>`;
   quickPreview.showModal();
   quickPreview.focus({ preventScroll: true });
+  quickPreview.querySelector('.quick-preview-image').addEventListener('load', () => paintQuickPreview(true));
+  paintQuickPreview(true);
   recordDetailVisit({ item });
   const generation = ++quickPreviewGeneration;
   if (preview && preview !== full) {
@@ -1917,6 +1989,7 @@ function openQuickPreview({ item, image, url }) {
 function closeQuickPreview() {
   if (!quickPreview.open) return;
   ++quickPreviewGeneration;
+  quickPreviewDrag = null;
   quickPreview.close();
   quickPreview.replaceChildren();
   quickPreviewWork = null;
@@ -2871,7 +2944,7 @@ function renderDetailImage(item, url, index) {
   const preview = imageLoader.cached(url)?.blobUrl ||
     (previewUrl ? imageLoader.cached(previewUrl)?.blobUrl : '');
   const size = longDetailImageSize(url, previewUrl);
-  return `<div class="detail-image${size ? ' long-image' : ''}"${size ? ` style="aspect-ratio: ${size.width} / ${size.height}"` : ''}><img data-image-url="${escapeHtml(url)}"${previewUrl ? ` data-preview-url="${escapeHtml(previewUrl)}"` : ''}${preview ? ` src="${escapeHtml(preview)}"` : ''} alt="${escapeHtml(item.title)}" decoding="async"><span class="image-fail">Изображение недоступно</span></div>`;
+  return `<div class="detail-image${size ? ' long-image' : ''}"${size ? ` style="aspect-ratio: ${size.width} / ${size.height}"` : ''}><img data-action="zoom-image" data-image-url="${escapeHtml(url)}"${previewUrl ? ` data-preview-url="${escapeHtml(previewUrl)}"` : ''}${preview ? ` src="${escapeHtml(preview)}"` : ''} alt="${escapeHtml(item.title)}" role="button" tabindex="0" aria-label="Увеличить изображение: ${escapeHtml(item.title)}" decoding="async"><span class="image-fail">Изображение недоступно</span></div>`;
 }
 
 function longDetailImageSize(url, previewUrl) {
@@ -3538,7 +3611,61 @@ quickPreview.addEventListener('cancel', event => {
   event.preventDefault();
   closeQuickPreview();
 });
+quickPreview.addEventListener('wheel', event => {
+  if (!quickPreview.open) return;
+  event.preventDefault();
+  const stage = event.target.closest?.('.quick-preview-stage');
+  if (!stage) return;
+  const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientHeight : 1);
+  zoomQuickPreview(quickPreviewView.scale * Math.exp(-delta * 0.0015),
+    event.clientX, event.clientY);
+}, { passive: false });
+quickPreview.addEventListener('pointerdown', event => {
+  const stage = event.target.closest?.('.quick-preview-stage');
+  if (!stage || event.target.closest?.('button') || ![0, 1].includes(event.button)) return;
+  if (event.button === 1) event.preventDefault();
+  if (quickPreviewView.scale <= 1 || quickPreviewDrag) return;
+  event.preventDefault();
+  quickPreviewDrag = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY,
+    x: quickPreviewView.x, y: quickPreviewView.y };
+  stage.setPointerCapture(event.pointerId);
+  paintQuickPreview(true);
+});
+quickPreview.addEventListener('pointermove', event => {
+  if (!quickPreviewDrag || event.pointerId !== quickPreviewDrag.pointerId) return;
+  quickPreviewView = { ...quickPreviewView,
+    x: quickPreviewDrag.x + event.clientX - quickPreviewDrag.clientX,
+    y: quickPreviewDrag.y + event.clientY - quickPreviewDrag.clientY };
+  paintQuickPreview(true);
+});
+function stopQuickPreviewDrag(event) {
+  if (!quickPreviewDrag || event.pointerId !== quickPreviewDrag.pointerId) return;
+  quickPreviewDrag = null;
+  const stage = quickPreview.querySelector('.quick-preview-stage');
+  if (stage?.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
+  paintQuickPreview(true);
+}
+quickPreview.addEventListener('pointerup', stopQuickPreviewDrag);
+quickPreview.addEventListener('pointercancel', stopQuickPreviewDrag);
+quickPreview.addEventListener('lostpointercapture', stopQuickPreviewDrag);
+quickPreview.addEventListener('auxclick', event => {
+  if (event.button === 1 && event.target.closest?.('.quick-preview-stage')) event.preventDefault();
+});
+quickPreview.addEventListener('dblclick', event => {
+  if (!event.target.closest?.('.quick-preview-stage') || event.target.closest?.('button')) return;
+  event.preventDefault();
+  if (quickPreviewView.scale > 1) zoomQuickPreviewFromCenter(1);
+  else zoomQuickPreview(2.5, event.clientX, event.clientY);
+});
 quickPreview.addEventListener('click', event => {
+  const previewAction = event.target.closest?.('button[data-preview-action]')?.dataset.previewAction;
+  if (previewAction) {
+    if (previewAction === 'close') closeQuickPreview();
+    else if (previewAction === 'fit') zoomQuickPreviewFromCenter(1);
+    else if (previewAction === 'zoom-in') zoomQuickPreviewFromCenter(quickPreviewView.scale * 1.5);
+    else if (previewAction === 'zoom-out') zoomQuickPreviewFromCenter(quickPreviewView.scale / 1.5);
+    return;
+  }
   const button = event.target.closest?.('button[data-action]');
   if (button && quickPreviewWork) {
     if (button.dataset.action === 'like') void toggleSavedWork(quickPreviewWork, 'likes');
@@ -3559,6 +3686,26 @@ document.addEventListener('keydown', event => {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (!event.repeat) closeQuickPreview();
+    } else if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      zoomQuickPreviewFromCenter(quickPreviewView.scale * 1.5);
+    } else if (event.key === '-' || event.key === '_') {
+      event.preventDefault();
+      zoomQuickPreviewFromCenter(quickPreviewView.scale / 1.5);
+    } else if (event.key === '0') {
+      event.preventDefault();
+      zoomQuickPreviewFromCenter(1);
+    }
+    return;
+  }
+  const focusedImage = document.activeElement;
+  if ((event.key === 'Enter' || event.code === 'Space') && !event.repeat &&
+      focusedImage?.matches?.('.detail-image img[data-image-url]')) {
+    const artwork = quickPreviewArtworkAt(focusedImage, currentTab(), itemIndex);
+    if (artwork) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      openQuickPreview(artwork);
     }
     return;
   }
@@ -3908,7 +4055,11 @@ main.addEventListener('click', event => {
   const tab = currentTab();
   const action = control.dataset.action;
   const item = itemForControl(control);
-  if (action === 'settings-section' && tab?.kind === 'settings') {
+  if (action === 'zoom-image' && tab?.kind === 'detail') {
+    const artwork = quickPreviewArtworkAt(control, tab, itemIndex);
+    if (artwork) openQuickPreview(artwork);
+  }
+  else if (action === 'settings-section' && tab?.kind === 'settings') {
     tab.settingsSection = ['content', 'authors', 'sources', 'tabs', 'language'].includes(control.dataset.section)
       ? control.dataset.section : 'content';
     saveSession(); render();

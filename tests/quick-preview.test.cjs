@@ -53,3 +53,15 @@ test('hovering a detail image opens that specific page; video cards use their st
   assert.equal(choice.url, detailImage.dataset.imageUrl);
   assert.equal(choice.item, item);
 });
+
+test('zoom keeps the pointed pixel fixed, constrains panning and resets to fit', () => {
+  const start = { scale: 1, x: 0, y: 0 };
+  const zoomed = context.quickPreviewZoomAt(start, 2, 100, -50, 400, 300);
+  assert.deepEqual({ ...zoomed }, { scale: 2, x: -100, y: 50 });
+  assert.equal((100 - zoomed.x) / zoomed.scale, (100 - start.x) / start.scale);
+  assert.equal((-50 - zoomed.y) / zoomed.scale, (-50 - start.y) / start.scale);
+  assert.deepEqual({ ...context.quickPreviewClampPan({ scale: 2, x: 999, y: -999 }, 400, 300) },
+    { scale: 2, x: 200, y: -150 });
+  assert.deepEqual({ ...context.quickPreviewZoomAt(zoomed, 1, 80, 70, 400, 300) }, start);
+  assert.deepEqual({ ...context.quickPreviewZoomAt(zoomed, 1.0000000000000002, 80, 70, 400, 300) }, start);
+});

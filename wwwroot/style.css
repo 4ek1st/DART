@@ -281,6 +281,8 @@ h3 { font-size: 15px; }
 .detail-image.long-image { width: min(100%, 900px); height: auto; }
 .detail-image[hidden] { display: none; }
 .detail-image.long-image img { position: absolute; inset: 0; max-height: none; }
+.detail-image img[data-action="zoom-image"] { cursor: zoom-in; }
+.detail-image img[data-action="zoom-image"]:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .detail-image .image-fail { display: none; position: absolute; bottom: 16px; max-width: calc(100% - 32px); color: #a5a5a5; padding: 12px 16px; border-radius: 6px; background: #171717e6; text-align: center; }
 .detail-image.failed .image-fail { display: block; }
 .detail-video { width: 100%; display: flex; flex-direction: column; align-items: center; }
@@ -305,13 +307,25 @@ h3 { font-size: 15px; }
 .detail-save-button.saved { background: #302a30; }
 .detail-save-button.bookmark-button.saved { background: #243547; }
 .quick-preview { position: fixed; inset: 0; width: fit-content; height: fit-content; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); margin: auto; padding: 0; border: 1px solid #454545; border-radius: 10px; background: #101010; color: white; overflow: hidden; box-shadow: 0 18px 70px #000b; }
-.quick-preview[open] { display: block; }
+.quick-preview[open] { display: block; animation: quick-preview-enter .2s cubic-bezier(.2, .8, .2, 1); }
 .quick-preview:not([open]) { display: none; }
-.quick-preview::backdrop { background: #000b; }
-.quick-preview-stage { position: relative; width: fit-content; max-width: 100%; }
-.quick-preview-image { display: block; width: auto; height: auto; max-width: min(84vw, 1100px); max-height: 78vh; object-fit: contain; }
-.quick-preview-actions { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; padding: 7px; border-radius: 11px; background: #161616df; box-shadow: 0 4px 22px #000a; }
-@media (max-width: 600px) { .quick-preview-image { max-width: calc(100vw - 48px); max-height: 84vh; } .quick-preview-actions { right: 8px; bottom: 8px; } }
+.quick-preview::backdrop { background: #000b; animation: quick-preview-backdrop .2s ease-out; }
+.quick-preview-stage { position: relative; width: fit-content; max-width: 100%; overflow: hidden; touch-action: none; cursor: zoom-in; }
+.quick-preview-stage.zoomed { cursor: grab; }
+.quick-preview-stage.panning { cursor: grabbing; }
+.quick-preview-image { display: block; width: auto; height: auto; max-width: min(84vw, 1100px); max-height: 78vh; object-fit: contain; transform-origin: center center; transition: transform .22s cubic-bezier(.2, .8, .2, 1); user-select: none; -webkit-user-drag: none; }
+.quick-preview-tools, .quick-preview-actions { position: absolute; z-index: 1; display: flex; align-items: center; gap: 6px; padding: 7px; border-radius: 11px; background: #161616df; box-shadow: 0 4px 22px #000a; }
+.quick-preview-tools { top: 12px; left: 12px; }
+.quick-preview-tools button, .quick-preview-close { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #595959; border-radius: 7px; background: #292929; color: #eee; font-size: 22px; line-height: 1; cursor: pointer; }
+.quick-preview-tools button:hover:not(:disabled), .quick-preview-close:hover { background: #414141; }
+.quick-preview-tools button:disabled { opacity: .4; cursor: default; }
+.quick-preview-zoom { min-width: 43px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.quick-preview-close { position: absolute; z-index: 1; top: 12px; right: 12px; font-size: 25px; background: #161616df; }
+.quick-preview-actions { right: 12px; bottom: 12px; }
+@keyframes quick-preview-enter { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+@keyframes quick-preview-backdrop { from { background: #0000; } to { background: #000b; } }
+@media (max-width: 600px) { .quick-preview-image { max-width: calc(100vw - 48px); max-height: 84vh; } .quick-preview-tools { top: 8px; left: 8px; } .quick-preview-close { top: 8px; right: 8px; } .quick-preview-actions { right: 8px; bottom: 8px; } }
+@media (prefers-reduced-motion: reduce) { .quick-preview[open], .quick-preview::backdrop { animation: none; } .quick-preview-image { transition: none; } }
 .primary-button, .secondary-button { border-radius: 6px; padding: 10px 16px; font-weight: 700; border: 0; }
 .secondary-button svg { width: 16px; height: 16px; vertical-align: -3px; margin-left: 4px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .primary-button { background: #167ecc; color: #fff; }
