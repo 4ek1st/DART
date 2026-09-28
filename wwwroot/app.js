@@ -1896,8 +1896,10 @@ function openQuickPreview({ item, image, url }) {
   const preview = image.currentSrc || image.getAttribute?.('src') ||
     imageLoader.cached(image.dataset.imageUrl)?.blobUrl || '';
   const full = imageLoader.cached(url)?.blobUrl || `/api/image?url=${encodeURIComponent(url)}`;
-  quickPreview.innerHTML = `<img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}">
-    <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}</div>`;
+  quickPreview.innerHTML = `<div class="quick-preview-stage">
+    <img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}">
+    <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}</div>
+  </div>`;
   quickPreview.showModal();
   quickPreview.focus({ preventScroll: true });
   recordDetailVisit({ item });
@@ -3464,7 +3466,11 @@ quickPreview.addEventListener('click', event => {
   if (button && quickPreviewWork) {
     if (button.dataset.action === 'like') void toggleSavedWork(quickPreviewWork, 'likes');
     if (button.dataset.action === 'bookmark') void toggleSavedWork(quickPreviewWork, 'bookmarks');
-  } else if (event.target === quickPreview) closeQuickPreview();
+  } else if (event.target === quickPreview) {
+    const bounds = quickPreview.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right ||
+        event.clientY < bounds.top || event.clientY > bounds.bottom) closeQuickPreview();
+  }
 });
 document.addEventListener('keydown', event => {
   if (quickPreview.open) {
@@ -3472,9 +3478,10 @@ document.addEventListener('keydown', event => {
       event.preventDefault();
       event.stopImmediatePropagation();
       closeQuickPreview();
-    } else if (event.code === 'Space' && (event.repeat || document.activeElement === quickPreview)) {
+    } else if (event.code === 'Space' || event.key === ' ') {
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (!event.repeat) closeQuickPreview();
     }
     return;
   }
