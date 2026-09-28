@@ -56,6 +56,17 @@ test('disabled hiding still displays saved related works', () => {
   assert.match(context.renderGrid([copy], 'related'), /gelbooru:copy/);
 });
 
+test('unloaded viewed work holds an empty slot without changing later artwork positions', () => {
+  const context = fixture({ viewed: ['key:rule34:fresh'] });
+  const tab = context.currentTab();
+  tab.expiredFeedWorks = new Map([[fresh.key, { height: 260 }]]);
+  tab.expiredFeedTokens = new Map([['key:rule34:fresh', fresh.key]]);
+  const html = context.renderGrid([fresh, copy], 'related');
+  assert.match(html, /class="card feed-placeholder" data-work-key="rule34:fresh"[^>]*height:260px/);
+  assert.match(html, /data-key="gelbooru:copy"/);
+  assert.doesNotMatch(html, /data-image-url="[^"]*fresh/);
+});
+
 test('liked copies are also hidden in discovery feeds when hiding is enabled', () => {
   const context = fixture({ likes: [saved] });
   assert.doesNotMatch(context.renderGrid([copy, fresh], 'related'), /gelbooru:copy/);

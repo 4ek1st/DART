@@ -506,7 +506,11 @@ function activate(id, record = true, view = null) {
   closeQuickPreview();
   hideTabPanels();
   const previous = currentTab();
-  if (previous) previous.scrollTop = main.scrollTop;
+  if (previous) {
+    previous.scrollTop = main.scrollTop;
+    delete previous.expiredFeedWorks;
+    delete previous.expiredFeedTokens;
+  }
   if (view && view !== findTab(id)) {
     abortTab(findTab(id));
     tabs[tabs.findIndex(tab => tab.id === id)] = view;
@@ -744,6 +748,9 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
     tab.loadError = false;
     tab.virtualState = {};
     tab.retainedFeedWorks = new Map();
+    delete tab.retainedFeedHeights;
+    delete tab.expiredFeedWorks;
+    delete tab.expiredFeedTokens;
     tab.searchPageStats = {};
     tab.sourcePages = Object.fromEntries(tab.selectedSources.map(source => [source, 0]));
     tab.pausedSources = {};
@@ -1002,6 +1009,9 @@ async function loadRecommendations(tab, append = false) {
   if (!append) {
     tab.items = []; tab.errors = {}; tab.loadError = false;
     tab.retainedFeedWorks = new Map();
+    delete tab.retainedFeedHeights;
+    delete tab.expiredFeedWorks;
+    delete tab.expiredFeedTokens;
     prepareRecommendationProfile(tab, visibleLikes);
   }
   const groups = selectRecommendationGroups(tab);
@@ -1425,6 +1435,9 @@ function applyContentPreferences(saved) {
   if (!contentChanged) return;
   for (const tab of tabs) {
     tab.retainedFeedWorks = new Map();
+    delete tab.retainedFeedHeights;
+    delete tab.expiredFeedWorks;
+    delete tab.expiredFeedTokens;
     tab.profileBanner = '';
     if (tab.kind === 'follows' && tab.followGroups && tab.followStreams) updateFollowFeed(tab);
     if (tab.kind !== 'recommendations') continue;
@@ -1608,6 +1621,9 @@ async function loadRelated(tab, append = false) {
     tab.relatedQuery = tab.relatedSearches[0]?.query || '';
     tab.related = [];
     tab.retainedFeedWorks = new Map();
+    delete tab.retainedFeedHeights;
+    delete tab.expiredFeedWorks;
+    delete tab.expiredFeedTokens;
     tab.relatedCursor = 0;
     tab.relatedPaused = {};
     tab.relatedErrors = {};
@@ -1911,6 +1927,7 @@ async function toggleSavedWork(item, collection) {
   syncSavedWorkButtons();
   const sourceTab = currentTab();
   const clickedVisibleFeedCard = visibleFeedCard(sourceTab, item);
+  const clickedVisibleFeedHeight = clickedVisibleFeedCard?.getBoundingClientRect().height || 0;
   try {
     if (item.source === 'sankaku' && !isSavedWork(item, collection)) {
       try {
@@ -1926,7 +1943,7 @@ async function toggleSavedWork(item, collection) {
       ![entry.key, ...(entry.memberKeys || [])].some(key => keys.has(key)));
     setSavedWorks(collection, response.saved ? [item, ...remaining] : remaining);
     if (response.saved) {
-      if (clickedVisibleFeedCard) retainFeedWork(sourceTab, item, true);
+      if (clickedVisibleFeedCard) retainFeedWork(sourceTab, item, clickedVisibleFeedHeight);
       void recordViewedWorks([item]);
     }
     syncSavedWorkButtons();
@@ -2224,7 +2241,7 @@ function renderSearchSummary(tab) {
   const knownTokens = new Set([...viewedTokens, ...[...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
   const counts = CatalogLogic.searchResultCounts(tab.items, contentPreferences, knownTokens);
   if (contentPreferences.hideViewedAndSaved) {
-    counts.shown = filterFeedWorks(tab.items, tab).length;
+    counts.shown = filterFeedWorks(tab.items, tab).filter(item => !isExpiredFeedWork(tab, item)).length;
     counts.hiddenKnown = counts.works - counts.hiddenContent - counts.shown;
   }
   const received = Math.max(counts.records, Object.values(tab.searchPageStats || {})
@@ -2565,7 +2582,7 @@ function visibleFeedCard(tab, item) {
   const card = [...main.querySelectorAll('.card[data-work-key]')]
     .find(node => node.dataset.workKey === item.key ||
       (item.memberKeys || []).includes(node.dataset.workKey));
-  if (!card || !isHideableFeed(tab,
+  if (!card || card.classList.contains('feed-placeholder') || !isHideableFeed(tab,
       tab.kind === 'detail' && card.closest?.('[data-grid-key="related"]') ? 'related' : ''))
     return null;
   const bounds = main.getBoundingClientRect();
@@ -2573,11 +2590,17 @@ function visibleFeedCard(tab, item) {
   return rect.bottom > bounds.top && rect.top < bounds.bottom ? card : null;
 }
 
-function retainFeedWork(tab, item, wasVisible = false) {
-  if (!contentPreferences.hideViewedAndSaved || !tab ||
-      (!wasVisible && !visibleFeedCard(tab, item))) return;
+function retainFeedWork(tab, item, visibleHeight = 0) {
+  if (!contentPreferences.hideViewedAndSaved || !tab) return;
+  const card = visibleFeedCard(tab, item);
+  if (!visibleHeight && !card) return;
   tab.retainedFeedWorks ||= new Map();
   tab.retainedFeedWorks.set(item.key, new Set(CatalogLogic.workHistoryTokens(item)));
+  const height = card?.getBoundingClientRect().height || visibleHeight;
+  if (height) {
+    tab.retainedFeedHeights ||= new Map();
+    tab.retainedFeedHeights.set(item.key, height);
+  }
 }
 
 function isRetainedFeedWork(tab, item) {
@@ -2587,6 +2610,20 @@ function isRetainedFeedWork(tab, item) {
     tokens.some(token => held.has(token)));
 }
 
+function expiredFeedSlot(tab, item) {
+  if (!tab?.expiredFeedWorks?.size) return null;
+  const key = item.key;
+  const direct = tab.expiredFeedWorks.get(key);
+  if (direct) return direct;
+  for (const token of CatalogLogic.workHistoryTokens(item)) {
+    const owner = tab.expiredFeedTokens?.get(token);
+    if (owner) return tab.expiredFeedWorks.get(owner) || null;
+  }
+  return null;
+}
+
+function isExpiredFeedWork(tab, item) { return !!expiredFeedSlot(tab, item); }
+
 function expireRetainedFeedWorks(tab) {
   if (!tab?.retainedFeedWorks?.size) return false;
   const bounds = main.getBoundingClientRect();
@@ -2595,12 +2632,24 @@ function expireRetainedFeedWorks(tab) {
     card, tokens: CatalogLogic.workHistoryTokens(
       itemIndex.get(card.dataset.workKey) || { key: card.dataset.workKey })
   }));
+  let knownTokens;
   let changed = false;
   for (const [key, held] of tab.retainedFeedWorks) {
     const shown = cards.find(entry => entry.tokens.some(token => held.has(token)));
     const rect = shown?.card.getBoundingClientRect();
     if (!rect || rect.bottom < bounds.top - margin || rect.top > bounds.bottom + margin) {
       tab.retainedFeedWorks.delete(key);
+      knownTokens ||= new Set([...viewedTokens,
+        ...[...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
+      if ([...held].some(token => knownTokens.has(token))) {
+        tab.expiredFeedWorks ||= new Map();
+        tab.expiredFeedTokens ||= new Map();
+        tab.expiredFeedWorks.set(key, {
+          height: tab.retainedFeedHeights?.get(key) || rect?.height || 0
+        });
+        for (const token of held) tab.expiredFeedTokens.set(token, key);
+      }
+      tab.retainedFeedHeights?.delete(key);
       changed = true;
     }
   }
@@ -2615,7 +2664,7 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '') {
   if (!hideKnown) return works;
   const knownTokens = new Set([...viewedTokens,
     ...[...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
-  return works.filter(item => isRetainedFeedWork(tab, item) ||
+  return works.filter(item => isRetainedFeedWork(tab, item) || isExpiredFeedWork(tab, item) ||
     !CatalogLogic.workHistoryTokens(item).some(token => knownTokens.has(token)));
 }
 
@@ -2635,7 +2684,7 @@ function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false
   const attribute = key ? ` data-grid-key="${escapeHtml(key)}"` : '';
   if (!key || works.length <= 160 || !tab)
     return `<div${attribute}><div class="grid">${works.map(item =>
-      renderCard(item, (item.memberKeys || [item.key]).some(key => newKeys.has(key)))).join('')}</div></div>`;
+      renderFeedCard(item, tab, newKeys)).join('')}</div></div>`;
   tab.virtualState ||= {};
   const state = tab.virtualState[key] ||= { cols: 7, pitch: 260, startRow: 0, endRow: 0 };
   const cols = Math.max(1, state.cols);
@@ -2654,7 +2703,17 @@ function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false
   const top = Math.round(state.startRow * state.pitch);
   const bottom = Math.round(Math.max(0, totalRows - state.endRow) * state.pitch);
   return `<div class="virtual-grid"${attribute}><div class="virtual-spacer" style="height:${top}px"></div><div class="grid">${visible.map(item =>
-    renderCard(item, (item.memberKeys || [item.key]).some(key => newKeys.has(key)))).join('')}</div><div class="virtual-spacer" style="height:${bottom}px"></div></div>`;
+    renderFeedCard(item, tab, newKeys)).join('')}</div><div class="virtual-spacer" style="height:${bottom}px"></div></div>`;
+}
+
+function renderFeedCard(item, tab, newKeys) {
+  const expired = tab?.expiredFeedWorks?.size ? expiredFeedSlot(tab, item) : null;
+  if (expired) {
+    const height = Number.isFinite(expired.height) && expired.height > 0
+      ? ` style="height:${Math.round(expired.height)}px"` : '';
+    return `<article class="card feed-placeholder" data-work-key="${escapeHtml(item.key)}" aria-hidden="true"${height}></article>`;
+  }
+  return renderCard(item, (item.memberKeys || [item.key]).some(key => newKeys.has(key)));
 }
 
 function measureVirtualGrids(tab) {

@@ -17,8 +17,9 @@ function fixture() {
   const other = { key: 'gelbooru:other', source: 'gelbooru' };
   const tab = { id: 1, kind: 'search', retainedFeedWorks: new Map() };
   const bounds = { top: 0, bottom: 500 };
-  const rect = { top: 120, bottom: 380 };
-  const card = { dataset: { workKey: item.key }, getBoundingClientRect: () => rect };
+  const rect = { top: 120, bottom: 380, height: 260 };
+  const card = { dataset: { workKey: item.key }, classList: { contains: () => false },
+    getBoundingClientRect: () => rect };
   const context = vm.createContext({
     CatalogLogic, Set, Map, contentPreferences: { hideViewedAndSaved: true },
     viewedTokens: new Set(), likes: [], bookmarks: [], itemIndex: new Map([[item.key, item]]),
@@ -29,7 +30,7 @@ function fixture() {
   return { context, item, other, tab, rect, card };
 }
 
-test('opened visible work survives a feed rerender, then hides after leaving the loaded range', () => {
+test('opened visible work keeps its feed slot after unloading, without showing its image', () => {
   const { context, item, other, tab, rect } = fixture();
   assert.equal(context.filterFeedWorks([item, other], tab).length, 2);
   context.retainFeedWork(tab, item);
@@ -39,11 +40,12 @@ test('opened visible work survives a feed rerender, then hides after leaving the
   rect.top = -1900;
   rect.bottom = -1640;
   assert.equal(context.expireRetainedFeedWorks(tab), true);
-  assert.equal(context.filterFeedWorks([item, other], tab).length, 1);
-  assert.equal(context.filterFeedWorks([item, other], tab)[0].key, other.key);
+  assert.equal(context.filterFeedWorks([item, other], tab).length, 2);
+  assert.equal(context.isExpiredFeedWork(tab, item), true);
+  assert.equal(context.isExpiredFeedWork(tab, other), false);
 });
 
-test('saved visible group stays until unload, but its source copy is hidden afterwards', () => {
+test('saved visible group keeps its slot after unloading, including grouped source copies', () => {
   const { context, item, tab, rect } = fixture();
   const group = { ...item, memberKeys: [item.key, 'gelbooru:copy'] };
   context.retainFeedWork(tab, item);
@@ -53,7 +55,8 @@ test('saved visible group stays until unload, but its source copy is hidden afte
   rect.top = 1700;
   rect.bottom = 1960;
   assert.equal(context.expireRetainedFeedWorks(tab), true);
-  assert.equal(context.filterFeedWorks([group], tab, true).length, 0);
+  assert.equal(context.filterFeedWorks([group], tab, true).length, 1);
+  assert.equal(context.isExpiredFeedWork(tab, group), true);
 });
 
 test('a work outside the viewport does not gain a display hold', () => {
