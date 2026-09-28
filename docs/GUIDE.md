@@ -44,10 +44,23 @@ Format support depends on the codecs available to WebView2.
 
 ## Likes and recommendations
 
-Click the heart to bookmark a post. Recommendations use the tags of your saved
+Click the heart to like a post. Recommendations use the tags of your liked
 posts, your selected sources, and your rating filter. The order changes when
-you reopen or refresh the feed. Saved posts and known related copies are
+you reopen or refresh the feed. Liked posts and known related copies are
 excluded.
+
+The bookmark icon inside an open work saves it to the separate **Bookmarks** page
+for later. Thumbnails only show the heart button.
+A work can be liked, bookmarked, or both. Bookmarks do not change recommendation
+preferences. **Liked** contains your heart-marked works.
+
+On the first launch after upgrading, existing bookmarks move to **Liked** and
+the new **Bookmarks** collection starts empty. A verified copy of the original
+file is kept in the profile's `migration-backups` folder. This migration runs once.
+Identical files from several catalogs appear once inside a grouped work. Static
+images are also compared after loading to recognize copies with different
+compression. Source links and distinct pages or variants remain available;
+animations are not compared using their first frame.
 
 Right-click a tag to adjust it:
 
@@ -81,7 +94,7 @@ If you run the portable EXE directly, download newer versions from
 
 An existing installation keeps your personal profile at
 `Documents\ArtCatalog\Profile`. The folder name remains for compatibility.
-It contains bookmarks, subscriptions, tabs, history, and settings.
+It contains liked works, bookmarks, subscriptions, tabs, history, and settings.
 Bookmarks retain post details; loading the image itself still requires
 internet access to the source.
 

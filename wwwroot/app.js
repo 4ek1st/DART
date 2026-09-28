@@ -14,6 +14,7 @@ const icons = {
 };
 icons.pin = '<path d="m8 3 8 0-1 6 3 4H6l3-4-1-6ZM12 13v8"/>';
 icons.list = '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>';
+icons.bookmark = '<path d="M6 3h12v18l-6-4-6 4V3Z"/>';
 const svg = name => `<svg viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${icons[name]}</svg>`;
 const names = { danbooru: 'Danbooru', gelbooru: 'Gelbooru', rule34: 'Rule34', sankaku: 'Sankaku' };
 let favoriteTags = [];
@@ -53,6 +54,8 @@ try {
   if (JSON.parse(localStorage.getItem('artcatalog-tab-preferences') || '{}').artworkTabs === 'new')
     tabPreferences.artworkTabs = 'new';
 } catch { /* Use preview mode for a fresh profile. */ }
+let likes = [];
+let likedKeys = new Set();
 let bookmarks = [];
 let savedKeys = new Set();
 let follows = [];
@@ -70,7 +73,7 @@ let recent = [];
 let viewedTokens = new Set();
 const viewedPending = new Set();
 let toastTimer;
-const bookmarkPending = new Set();
+const savedWorkPending = new Set();
 let tagSuggestionTimer;
 let tagSuggestionController;
 let tagSuggestionTerm = '';
@@ -239,7 +242,7 @@ function saveSession() {
     settingsSection: tab.kind === 'settings' ? tab.settingsSection || 'content' : undefined,
     preview: !!tab.preview, pinned: !!tab.pinned, scrollTop: tab.scrollTop || 0
   }));
-  const session = { tabs: descriptors, activeIndex: tabs.findIndex(tab => tab.id === activeId),
+  const session = { tabs: descriptors, savedWorksVersion: 1, activeIndex: tabs.findIndex(tab => tab.id === activeId),
     tabPreferences: { ...tabPreferences } };
   try {
     localStorage.setItem('artcatalog-session', JSON.stringify(session));
@@ -299,6 +302,7 @@ function startTab(tab) {
   tab.started = true;
   if (tab.kind === 'home' || tab.kind === 'search') loadSearch(tab);
   if (tab.kind === 'bookmarks') loadBookmarks(tab);
+  if (tab.kind === 'likes') loadLikes(tab);
   if (tab.kind === 'recommendations') loadRecommendations(tab);
   if (tab.kind === 'follows') loadFollowFeed(tab);
   if (tab.kind === 'settings') { loadSettings(); loadContentPreferences(); }
@@ -313,7 +317,7 @@ function restoreSession() {
   if (!session || !Array.isArray(session.tabs) || !session.tabs.length) return false;
   if (session.tabPreferences)
     tabPreferences.artworkTabs = session.tabPreferences.artworkTabs === 'new' ? 'new' : 'preview';
-  const allowed = new Set(['home', 'search', 'detail', 'profile', 'bookmarks',
+  const allowed = new Set(['home', 'search', 'detail', 'profile', 'bookmarks', 'likes',
     'recommendations', 'follows', 'recent', 'settings']);
   let hasPreview = false;
   for (const saved of session.tabs) {
@@ -356,7 +360,7 @@ function matchingTab(kind, extra) {
     [...(extra.selectedSources || defaultSources)].sort().join(',');
   return tabs.find(tab => {
     if (tab.kind !== kind) return false;
-    if (['home', 'bookmarks', 'follows', 'recommendations', 'recent', 'settings'].includes(kind)) return true;
+    if (['home', 'bookmarks', 'likes', 'follows', 'recommendations', 'recent', 'settings'].includes(kind)) return true;
     if (kind === 'search') return (tab.query || '') === (extra.query || '') &&
       tab.rating === (extra.rating || 'general') && tab.sort === (extra.sort || 'recent') &&
       tab.feed === (extra.feed || 'illustrations') && sameSources(tab);
@@ -534,7 +538,7 @@ function renderTabList() {
   const list = tabListPanel.querySelector('.tab-list-items');
   const query = tabListPanel.querySelector('input').value.trim().toLocaleLowerCase();
   const labels = { home: 'Главная', search: 'Поиск', detail: 'Работа', profile: 'Автор',
-    bookmarks: 'Закладки', follows: 'Подписки', recommendations: 'Рекомендации',
+    bookmarks: 'Закладки', likes: 'Понравившиеся', follows: 'Подписки', recommendations: 'Рекомендации',
     recent: 'История', settings: 'Настройки' };
   const matching = tabs.filter(tab => `${tabHasCatalogTitle(tab) ? tab.title :
     globalThis.DartI18n?.translate(tab.title) || tab.title} ${tab.query || ''}`.toLocaleLowerCase().includes(query));
@@ -710,13 +714,23 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   }
 }
 
-async function refreshBookmarks() {
-  try {
-    bookmarks = CatalogLogic.filterCatalogItems(await request('/api/bookmarks'));
-    savedKeys = new Set(bookmarks.map(item => item.key));
-    rememberItems(bookmarks);
-  } catch { toast('Закладки не удалось прочитать'); }
+function setSavedWorks(collection, items) {
+  const keys = new Set(items.flatMap(item => [item.key, ...(item.memberKeys || [])]));
+  if (collection === 'likes') { likes = items; likedKeys = keys; }
+  else { bookmarks = items; savedKeys = keys; }
+  rememberItems(items);
+  for (const tab of tabs.filter(tab => tab.kind === collection)) tab.items = items;
 }
+
+async function refreshSavedWorks(collection) {
+  try {
+    setSavedWorks(collection, CatalogLogic.filterCatalogItems(await request(`/api/${collection}`)));
+    return true;
+  } catch { toast(collection === 'likes' ? 'Не удалось прочитать лайки' : 'Закладки не удалось прочитать'); return false; }
+}
+
+async function refreshBookmarks() { return refreshSavedWorks('bookmarks'); }
+async function refreshLikes() { return refreshSavedWorks('likes'); }
 
 async function loadFavoriteTags() {
   try {
@@ -822,7 +836,7 @@ function selectRecommendationGroups(tab) {
 }
 
 function prepareRecommendationProfile(tab, liked = CatalogLogic.filterWorks(
-  CatalogLogic.groupWorks(bookmarks), contentPreferences)) {
+  CatalogLogic.groupWorks(likes), contentPreferences)) {
   recommendationVisitCount = (recommendationVisitCount + 1) % 1000000;
   try { localStorage.setItem('artcatalog-recommendation-visit-count',
     String(recommendationVisitCount)); } catch { /* Storage may be unavailable. */ }
@@ -894,11 +908,11 @@ async function loadRecommendations(tab, append = false) {
   const controller = new AbortController();
   tab.recommendationController = controller;
   const version = tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
-  const visibleBookmarks = CatalogLogic.filterWorks(
-    CatalogLogic.groupWorks(bookmarks), contentPreferences);
+  const visibleLikes = CatalogLogic.filterWorks(
+    CatalogLogic.groupWorks(likes), contentPreferences);
   if (!append) {
     tab.items = []; tab.errors = {}; tab.loadError = false;
-    prepareRecommendationProfile(tab, visibleBookmarks);
+    prepareRecommendationProfile(tab, visibleLikes);
   }
   const groups = selectRecommendationGroups(tab);
   tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
@@ -955,7 +969,7 @@ async function loadRecommendations(tab, append = false) {
       }
     }
     const previousCount = tab.items.length;
-    const ranked = await mergeRecommendationsAsync(visibleBookmarks, tab.items,
+    const ranked = await mergeRecommendationsAsync(visibleLikes, tab.items,
       candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed);
     if (!findTab(tab.id) || version !== tab.recommendationVersion || controller.signal.aborted) return;
     tab.items = CatalogLogic.filterWorks(ranked, contentPreferences);
@@ -1274,6 +1288,15 @@ async function loadBookmarks(tab) {
   if (activeId === tab.id) render();
 }
 
+async function loadLikes(tab) {
+  tab.loading = true;
+  render();
+  await refreshLikes();
+  tab.items = likes;
+  tab.loading = false;
+  if (activeId === tab.id) render();
+}
+
 async function loadSettings() {
   try { settings = await request('/api/settings'); }
   catch { toast('Настройки не удалось прочитать'); }
@@ -1346,11 +1369,9 @@ async function loadDetail(tab) {
       recent = recent.map(entry => entry.key === tab.item.key
         ? CatalogLogic.mergeDetailPages(entry, detail) : entry);
       localStorage.setItem('artcatalog-recent', JSON.stringify(recent));
-      if (savedKeys.has(tab.item.key)) {
-        await refreshBookmarks();
+      if (savedKeys.has(tab.item.key) || likedKeys.has(tab.item.key)) {
+        await Promise.all([refreshBookmarks(), refreshLikes()]);
         if (controller.signal.aborted || findTab(tab.id) !== tab) return;
-        for (const entry of tabs.filter(entry => entry.kind === 'bookmarks'))
-          entry.items = bookmarks;
       }
       saveSession();
     }
@@ -1694,29 +1715,47 @@ function openDetail(item, options = {}) {
   return replacement;
 }
 
-async function toggleBookmark(item) {
-  if (bookmarkPending.has(item.key)) return;
-  bookmarkPending.add(item.key);
+function isSavedWork(item, collection) {
+  const keys = collection === 'likes' ? likedKeys : savedKeys;
+  return [item.key, ...(item.memberKeys || [])].some(key => keys.has(key));
+}
+
+function savedWorkButton(item, collection, detail = false) {
+  const like = collection === 'likes';
+  const saved = isSavedWork(item, collection);
+  const label = like ? saved ? 'Unlike' : 'Like' : saved ? 'Remove bookmark' : 'Add bookmark';
+  return `<button type="button" class="${detail ? 'detail-save-button ' : ''}${like ? 'heart-button' : 'bookmark-button'}${saved ? ' saved' : ''}" data-action="${like ? 'like' : 'bookmark'}" data-key="${escapeHtml(item.key)}" title="${label}" aria-label="${label}" aria-pressed="${saved}"${savedWorkPending.has(collection + ':' + item.key) ? ' disabled' : ''}>${svg(like ? 'heart' : 'bookmark')}</button>`;
+}
+
+async function toggleSavedWork(item, collection) {
+  const pendingKey = collection + ':' + item.key;
+  if (savedWorkPending.has(pendingKey)) return;
+  savedWorkPending.add(pendingKey);
+  syncSavedWorkButtons();
   try {
-    if (item.source === 'sankaku' && !savedKeys.has(item.key)) {
+    if (item.source === 'sankaku' && !isSavedWork(item, collection)) {
       try {
         const detail = await request(`/api/detail?source=sankaku&id=${encodeURIComponent(item.id)}`);
         item = rememberItem(CatalogLogic.mergeDetailPages(item, detail));
       } catch { /* Retain the available preview and tag names if details are restricted. */ }
     }
-    const response = await request('/api/bookmarks', {
+    const response = await request(`/api/${collection}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item)
     });
-    if (response.saved) savedKeys.add(item.key); else savedKeys.delete(item.key);
+    const keys = new Set([item.key, ...(item.memberKeys || [])]);
+    const remaining = (collection === 'likes' ? likes : bookmarks).filter(entry =>
+      ![entry.key, ...(entry.memberKeys || [])].some(key => keys.has(key)));
+    setSavedWorks(collection, response.saved ? [item, ...remaining] : remaining);
     if (response.saved) void recordViewedWorks([item]);
-    syncBookmarkButtons();
-    await refreshBookmarks();
-    syncBookmarkButtons();
+    syncSavedWorkButtons();
+    await refreshSavedWorks(collection);
+    syncSavedWorkButtons();
     for (const tab of tabs.filter(entry => entry.kind === 'recommendations')) {
+      if (collection !== 'likes') continue;
       tab.recommendationController?.abort();
       tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
       if (tab.id === activeId) {
-        tab.items = tab.items.filter(entry => !savedKeys.has(entry.key));
+        tab.items = tab.items.filter(entry => !isSavedWork(entry, 'likes'));
         tab.loading = false;
         tab.loadError = false;
         tab.errors = {};
@@ -1725,31 +1764,25 @@ async function toggleBookmark(item) {
       } else tab.started = false;
     }
     const tab = currentTab();
-    if (tab?.kind === 'bookmarks') tab.items = bookmarks;
-    if (tab?.kind === 'bookmarks' || tab?.kind === 'recommendations') {
-      if (response.saved && tab.kind === 'recommendations' || !response.saved) {
-        main.querySelectorAll('.card').forEach(card => {
-          if (card.querySelector('.heart-button')?.dataset.key === item.key) card.remove();
-        });
-      }
-      if (tab.kind === 'bookmarks' && !bookmarks.length) render();
-    }
+    if (tab?.kind === 'bookmarks' || tab?.kind === 'likes' || tab?.kind === 'recommendations') render();
     if (response.saved && contentPreferences.hideViewedAndSaved && tab?.kind === 'detail') render();
-    toast(response.saved ? 'Добавлено в закладки' : 'Удалено из закладок');
-  } catch { toast('Не удалось изменить закладки'); }
-  finally { bookmarkPending.delete(item.key); }
+    toast(collection === 'likes' ? response.saved ? 'Добавлено в понравившиеся' : 'Лайк удалён'
+      : response.saved ? 'Добавлено в закладки' : 'Удалено из закладок');
+  } catch { toast(collection === 'likes' ? 'Не удалось изменить лайк' : 'Не удалось изменить закладки'); }
+  finally { savedWorkPending.delete(pendingKey); syncSavedWorkButtons(); }
 }
 
-function syncBookmarkButtons() {
-  main.querySelectorAll('[data-action="bookmark"][data-key]').forEach(button => {
-    const saved = savedKeys.has(button.dataset.key);
-    if (button.classList.contains('heart-button')) {
-      button.classList.toggle('saved', saved);
-      button.setAttribute('aria-pressed', String(saved));
-    } else {
-      button.textContent = saved ? 'В закладках' : 'Добавить в закладки';
-      button.setAttribute('aria-pressed', String(saved));
-    }
+function syncSavedWorkButtons() {
+  main.querySelectorAll('[data-action="bookmark"][data-key], [data-action="like"][data-key]').forEach(button => {
+    const collection = button.dataset.action === 'like' ? 'likes' : 'bookmarks';
+    const saved = isSavedWork(itemIndex.get(button.dataset.key) || { key: button.dataset.key }, collection);
+    const label = collection === 'likes' ? saved ? 'Unlike' : 'Like' : saved ? 'Remove bookmark' : 'Add bookmark';
+    button.classList.toggle('saved', saved);
+    button.setAttribute('aria-pressed', String(saved));
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.disabled = savedWorkPending.has(collection + ':' + button.dataset.key);
+    globalThis.DartI18n?.translateTree(button);
   });
 }
 
@@ -1860,6 +1893,7 @@ function render() {
   else if (tab.kind === 'detail') markup = renderDetail(tab);
   else if (tab.kind === 'profile') markup = renderProfile(tab);
   else if (tab.kind === 'bookmarks') markup = renderList('Закладки', 'Сохранённые работы доступны без повторного поиска.', tab);
+  else if (tab.kind === 'likes') markup = renderList('Понравившиеся', 'Лайки помогают подбирать рекомендации по вашему вкусу.', tab);
   else if (tab.kind === 'recommendations') markup = renderRecommendations(tab);
   else if (tab.kind === 'follows') markup = renderFollows(tab);
   else if (tab.kind === 'recent') markup = renderList('Недавно открытое', 'История просмотра хранится на этом компьютере.', { items: recent, loading: false });
@@ -2002,7 +2036,7 @@ function renderSearch(tab) {
 }
 
 function renderSearchSummary(tab) {
-  const knownTokens = new Set([...viewedTokens, ...bookmarks.flatMap(CatalogLogic.workHistoryTokens)]);
+  const knownTokens = new Set([...viewedTokens, ...[...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
   const counts = CatalogLogic.searchResultCounts(tab.items, contentPreferences, knownTokens);
   const received = Math.max(counts.records, Object.values(tab.searchPageStats || {})
     .reduce((total, stats) => total + (Number(stats.received) || 0), 0));
@@ -2082,15 +2116,15 @@ function renderRecommendationOtherList(tab) {
 
 function renderRecommendations(tab) {
   const tags = tab.recommendationTags || [];
-  const visibleBookmarks = CatalogLogic.filterWorks(
-    CatalogLogic.groupWorks(bookmarks), contentPreferences);
+  const visibleLikes = CatalogLogic.filterWorks(
+    CatalogLogic.groupWorks(likes), contentPreferences);
   const groups = tab.recommendationTagGroups || { names: [], other: [] };
   const visibleNames = tab.showMoreRecommendationNames
     ? groups.names : groups.names.slice(0, 6);
   const hiddenNameCount = Math.max(0, groups.names.length - 6);
   return `<div class="content"><h1>Рекомендации</h1>
-    <p class="section-sub">Подборка по тегам изображений, которые вы отметили сердечком. Сохранённые работы не повторяются.</p>
-    ${!bookmarks.length ? '<div class="empty feature-empty">Добавьте изображения в закладки сердечком, и здесь появятся рекомендации.</div>' : !visibleBookmarks.length ? '<div class="empty feature-empty">Все сохранённые работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.</div>' : !tags.length ? '<div class="empty feature-empty">У сохранённых работ пока нет подходящих тегов для подбора.</div>' : `
+    <p class="section-sub">Подборка по тегам изображений, которые вы отметили сердечком. Понравившиеся работы не повторяются.</p>
+    ${!likes.length ? '<div class="empty feature-empty">Поставьте лайк сердечком, и здесь появятся рекомендации.</div>' : !visibleLikes.length ? '<div class="empty feature-empty">Все понравившиеся работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.</div>' : !tags.length ? '<div class="empty feature-empty">У понравившихся работ пока нет подходящих тегов для подбора.</div>' : `
       <div class="recommendation-tags"><span>Ваши частые теги</span>${renderRecommendationTagChips(visibleNames)}${hiddenNameCount ? `<button class="filter-button" data-action="recommendation-tags-more" aria-expanded="${!!tab.showMoreRecommendationNames}">${tab.showMoreRecommendationNames ? 'Свернуть' : `Ещё +${hiddenNameCount}`}</button>` : ''}<button class="filter-button recommendation-other-toggle" data-action="recommendation-other" aria-expanded="${!!tab.otherTagsOpen}" aria-controls="recommendation-other-panel">Other</button></div>
       ${tab.otherTagsOpen ? `<div class="recommendation-other-panel" id="recommendation-other-panel"><div class="recommendation-other-heading"><strong>Теги содержания</strong><span class="recommendation-other-count">${filteredRecommendationOtherTags(tab).length} из ${groups.other.length}</span></div><p class="recommendation-other-note">Частые необычные теги влияют на подбор. Приглушённые общие теги учитываются только с жёлтым приоритетом. Настройка — правой кнопкой мыши.</p><input class="recommendation-other-filter" type="search" data-recommendation-other-filter value="${escapeHtml(tab.otherTagFilter || '')}" placeholder="Найти тег, например group_sex" aria-label="Найти тег содержания"><div class="recommendation-other-list">${renderRecommendationOtherList(tab)}</div></div>` : ''}
       <div class="search-tools">
@@ -2189,8 +2223,10 @@ function renderProfile(tab) {
 }
 
 function renderList(title, subtitle, tab) {
+  const empty = tab.kind === 'likes' ? 'Поставьте лайк сердечком, чтобы сохранить работу здесь.'
+    : tab.kind === 'bookmarks' ? 'Нажмите значок закладки на работе, чтобы вернуться к ней позже.' : 'Здесь пока нет работ.';
   return `<div class="content"><h1>${title}</h1><p class="section-sub">${subtitle}</p>
-    <section class="section" style="margin-top:32px">${tab.loading ? skeletons(10) : renderGrid(tab.items, tab.kind)}</section></div>`;
+    <section class="section" style="margin-top:32px">${tab.loading ? skeletons(10) : tab.items?.length ? renderGrid(tab.items, tab.kind) : `<div class="empty">${empty}</div>`}</section></div>`;
 }
 
 function hasResultError(errors) {
@@ -2251,7 +2287,7 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '') {
        tab?.kind === 'detail' && gridKey === 'related');
   if (!hideKnown) return works;
   const knownTokens = new Set([...viewedTokens,
-    ...bookmarks.flatMap(CatalogLogic.workHistoryTokens)]);
+    ...[...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
   return CatalogLogic.hideViewedWorks(works, knownTokens);
 }
 
@@ -2351,7 +2387,7 @@ function renderCard(item, isNew = false) {
       ${item.images?.length > 1 ? `<span class="image-count">▣ ${item.images.length}</span>` : ''}
       ${item.images?.some(url => CatalogLogic.videoMimeType(url)) ? '<span class="video-badge" role="img" aria-label="Видео" title="Видео">▶</span>' : ''}
     </button>
-    <button class="heart-button ${savedKeys.has(item.key) ? 'saved' : ''}" data-action="bookmark" data-key="${escapeHtml(item.key)}" title="Закладка" aria-label="Закладка" aria-pressed="${savedKeys.has(item.key)}">${svg('heart')}</button>
+    ${savedWorkButton(item, 'likes')}
   </div><button class="card-title" data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</button>
   <button class="card-artist" data-action="${taggedArtist && primary.role === 'unknown' ? 'follow-tag-search' : 'attribution-primary'}" data-key="${escapeHtml(item.key)}" ${['creator', 'contributor'].includes(primary.role) ? creatorActionData(item) : ''} data-i18n-keep="${escapeHtml(JSON.stringify(primary.role === 'unknown' && !taggedArtist ? [] : [artistLabel]))}" title="${escapeHtml(roleLabel)}: ${escapeHtml(artistLabel)}"><span class="artist-avatar">${escapeHtml((taggedArtist && primary.role === 'unknown' ? artistLabel.slice(1) : artistLabel)[0].toUpperCase())}</span><span><small>${escapeHtml(roleLabel)}</small>${escapeHtml(artistLabel)}</span></button>${currentTab()?.sort === 'popular' && Number.isInteger(item.popularityCount) ? `<div class="card-popularity">Голоса: ${item.popularityCount}</div>` : ''}</article>`;
 }
@@ -2364,7 +2400,8 @@ function renderDetail(tab) {
   const item = tab.item = rememberItem(tab.item);
   if (CatalogLogic.isWorkHidden(item, contentPreferences))
     return `<div class="content"><div class="empty feature-empty">Эта работа скрыта фильтрами содержимого. <button class="inline-retry" data-action="content-settings">Изменить фильтры</button></div></div>`;
-  const images = item.images?.length ? item.images : item.thumbnail ? [item.thumbnail] : [];
+  const images = item.images?.length ? detailImageDeduper.unique(CatalogLogic.artworkMedia(item).images)
+    : item.thumbnail ? [item.thumbnail] : [];
   const tags = CatalogLogic.artworkTags(item, tab.searchQuery);
   const visibleTags = tab.showAllTags ? tags : tags.slice(0, 40);
   const visibleCreatorWorks = selectCreatorWorks(item, tab.creatorCandidates || tab.creatorWorks || []);
@@ -2378,7 +2415,7 @@ function renderDetail(tab) {
     <div>${tab.detailAccessMessage || item.requiresAuthentication ? `<div class="source-notice source-warning"><span>${escapeHtml(tab.detailAccessMessage || (settings.hasSankakuSession ? 'Для этой работы Sankaku требуется дополнительный доступ аккаунта на сайте.' : item.accessMessage))}</span><button data-action="sankaku-auth">${settings.hasSankakuSession ? 'Аккаунт Sankaku' : 'Авторизуйтесь'}</button></div>` : ''}${images.length ? `<div class="artwork-stage">${images.map((url, index) => renderDetailImage(item, url, index)).join('')}</div>` : ''}
       <div class="detail-meta"><h1>${escapeHtml(item.title)}</h1>
         <div class="muted">${escapeHtml(sourceLabel)} · ${escapeHtml(formatDate(item.published))}${item.rating ? ` · <span${ratingLabel(item.rating) === 'Q' ? ' title="Questionable — пограничный контент"' : ''}>${escapeHtml(ratingLabel(item.rating))}</span>` : ''}</div>
-        <div class="detail-actions"><button class="primary-button" data-action="bookmark" data-key="${escapeHtml(item.key)}" aria-pressed="${savedKeys.has(item.key)}">${savedKeys.has(item.key) ? 'В закладках' : 'Добавить в закладки'}</button>
+        <div class="detail-actions">${savedWorkButton(item, 'bookmarks', true)}${savedWorkButton(item, 'likes', true)}
           <button class="secondary-button" data-action="external" data-key="${escapeHtml(item.key)}">Открыть на сайте ↗</button></div>
         ${tags.length ? renderArtworkTags(tab, tags, visibleTags) : ''}
       </div>
@@ -2469,7 +2506,49 @@ function rememberImageDimensions(img) {
   frame.classList.toggle('long-image', !!size);
   if (size) frame.style.aspectRatio = `${size.width} / ${size.height}`;
   else frame.style.removeProperty('aspect-ratio');
+  void detailImageDeduper.inspect(img);
 }
+
+const detailImageDeduper = {
+  signatures: new Map(),
+  unique(urls) {
+    const seen = [];
+    return urls.filter(url => {
+      const signature = this.signatures.get(CatalogLogic.mediaCacheKey(url))?.value;
+      if (!signature) return true;
+      if (seen.some(previous => DartMediaDuplicates.sameImagePixels(previous, signature))) return false;
+      seen.push(signature); return true;
+    });
+  },
+  async inspect(img) {
+    const stage = img.closest('.artwork-stage');
+    if (!stage || stage.querySelectorAll('.detail-image').length < 2) return;
+    const url = img.dataset.imageUrl;
+    const entry = imageLoader.cached(url);
+    if (!entry || entry.blobUrl !== img.getAttribute('src')) return;
+    const key = CatalogLogic.mediaCacheKey(url);
+    let record = this.signatures.get(key);
+    if (!record || record.blobUrl !== entry.blobUrl) {
+      record = { blobUrl: entry.blobUrl, value: null };
+      this.signatures.set(key, record);
+      record.pending = runVisualHashJob(async () => {
+        const blob = await (await fetch(entry.blobUrl)).blob();
+        record.value = await DartMediaDuplicates.fingerprint(blob);
+      });
+      while (this.signatures.size > 128) this.signatures.delete(this.signatures.keys().next().value);
+    }
+    await record.pending;
+    if (!img.isConnected || img.dataset.imageUrl !== url) return;
+    const seen = [];
+    for (const image of stage.querySelectorAll('.detail-image img[data-image-url]')) {
+      const signature = this.signatures.get(CatalogLogic.mediaCacheKey(image.dataset.imageUrl))?.value;
+      const duplicate = !!signature && seen.some(previous =>
+        DartMediaDuplicates.sameImagePixels(previous, signature));
+      image.closest('.detail-image').hidden = duplicate;
+      if (signature && !duplicate) seen.push(signature);
+    }
+  }
+};
 
 function ratingLabel(value) {
   if (['q', 'questionable'].includes(value)) return 'Q';
@@ -2517,12 +2596,12 @@ function renderSettings() {
             <option value="de" ${contentPreferences.language === 'de' ? 'selected' : ''}>Deutsch</option>
           </select></label><p class="settings-hint">Выбор сохраняется в этом профиле и применяется сразу.</p><p class="settings-hint">Английский — язык по умолчанию.</p></div>` : ''}
         ${section === 'content' ? `
-        <div class="settings-card"><h2>AI изображения</h2><p>Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах и закладках. Сохранённые работы остаются на месте.</p>
+        <div class="settings-card"><h2>AI изображения</h2><p>Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах, понравившихся и закладках. Сохранённые работы остаются на месте.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideGenerated" ${hideGenerated ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать AI-generated</strong><small>Работы с метками AI генерации и известных генераторов.</small></span></label>
           <label class="settings-toggle settings-toggle-child"><input type="checkbox" name="hideAssisted" ${hideAssisted ? 'checked' : ''} ${!hideGenerated || contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать также AI-assisted</strong><small>Если выключено, работы с участием AI остаются видимыми.</small></span></label>
           <p class="settings-hint">Учитываются метки вроде #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai и #ai-assisted. Работа без такой метки не определяется автоматически как AI.</p>
         </div>
-        <div class="settings-card"><h2>Уже просмотренное</h2><p>По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Закладки и история просмотра останутся доступны в своих вкладках.</p>
+        <div class="settings-card"><h2>Уже просмотренное</h2><p>По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Понравившиеся, закладки и история просмотра останутся доступны в своих вкладках.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideViewedAndSaved" ${contentPreferences.hideViewedAndSaved ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать просмотренные и сохранённые работы</strong><small>Учитываются также объединённые копии одной работы из разных источников. Изначально выключено.</small></span></label>
         </div>
         <div class="settings-card"><h2>Исключённые теги</h2><p>Работы с указанными тегами не появятся в каталоге. Совпадение точное: #latex не скрывает #latex_gloves.</p>
@@ -2839,7 +2918,8 @@ document.querySelectorAll('[data-icon]').forEach(node => node.innerHTML = svg(no
 document.getElementById('back-button').innerHTML = svg('back');
 document.getElementById('forward-button').innerHTML = svg('forward');
 document.getElementById('menu-button').innerHTML = svg('menu');
-document.getElementById('bookmarks-button').innerHTML = svg('heart');
+document.getElementById('bookmarks-button').innerHTML = svg('bookmark');
+document.getElementById('likes-button').innerHTML = svg('heart');
 document.getElementById('settings-button').innerHTML = svg('settings');
 
 document.getElementById('new-tab-button').addEventListener('click', () => createTab('home', 'Главная', {}, { forceNew: true }));
@@ -2876,6 +2956,7 @@ document.getElementById('forward-button').addEventListener('click', () => travel
 document.getElementById('menu-button').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('collapsed'));
 document.getElementById('brand-button').addEventListener('click', () => createTab('home', 'Главная'));
 document.getElementById('bookmarks-button').addEventListener('click', () => createTab('bookmarks', 'Закладки'));
+document.getElementById('likes-button').addEventListener('click', () => createTab('likes', 'Понравившиеся'));
 document.getElementById('settings-button').addEventListener('click', () => openSettings());
 
 tabsNode.addEventListener('click', event => {
@@ -2923,6 +3004,7 @@ document.getElementById('sidebar').addEventListener('click', event => {
   else if (kind === 'recommendations') createTab('recommendations', 'Рекомендации');
   else if (kind === 'follows') createTab('follows', 'Подписки');
   else if (kind === 'bookmarks') createTab('bookmarks', 'Закладки');
+  else if (kind === 'likes') createTab('likes', 'Понравившиеся');
   else if (kind === 'recent') createTab('recent', 'Недавно открытое');
   else if (kind === 'settings') openSettings();
 });
@@ -3273,7 +3355,8 @@ main.addEventListener('click', event => {
   else if (action === 'follow-tag-search' && item?.followedArtistTag)
     openSearch(item.followedArtistTag, { rating: tab?.rating || 'general',
       selectedSources: [item.source], sort: 'recent', feed: 'illustrations' });
-  else if (action === 'bookmark' && item) toggleBookmark(item);
+  else if (action === 'bookmark' && item) toggleSavedWork(item, 'bookmarks');
+  else if (action === 'like' && item) toggleSavedWork(item, 'likes');
   else if (action === 'follow') toggleFollow({ source: control.dataset.followSource,
     artistId: control.dataset.followArtist, service: control.dataset.followService,
     name: control.dataset.followName });
@@ -3433,9 +3516,9 @@ window.addEventListener('beforeunload', () => {
   for (const entry of imageLoader.cache.values()) URL.revokeObjectURL(entry.blobUrl);
 });
 
-Promise.allSettled([refreshBookmarks(), refreshFollows(), loadSettings(),
+Promise.allSettled([refreshBookmarks(), refreshLikes(), refreshFollows(), loadSettings(),
   loadContentPreferences(), loadClientState(), loadRecommendationTagPreferences(),
   loadViewedTokens(), loadFavoriteTags()]).finally(() => {
-  void recordViewedWorks([...recent, ...bookmarks]);
+  void recordViewedWorks([...recent, ...likes, ...bookmarks]);
   if (!restoreSession()) createTab('home', 'Главная');
 });

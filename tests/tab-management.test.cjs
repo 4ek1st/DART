@@ -26,7 +26,7 @@ function fixture() {
   vm.runInContext('function findTab(id) { return tabs.find(tab => tab.id === id); } function currentTab() { return findTab(activeId); }', context);
   vm.runInContext(slice('function saveSession(', '\nasync function saveRecommendationTagPreference('), context);
   vm.runInContext(slice('function restoreSession(', '\nfunction openSearch('), context);
-  vm.runInContext(slice('function openDetail(', '\nasync function toggleBookmark('), context);
+  vm.runInContext(slice('function openDetail(', '\nfunction isSavedWork('), context);
   // The app's real rendering is exercised in the browser checks; this harness keeps the navigation state real.
   context.render = () => { context.main.dataset.tabId = String(context.activeId); };
   context.hideTabPanels = () => {};
@@ -119,7 +119,7 @@ test('late detail response cannot overwrite a replacement preview', async () => 
   const old = f.run('currentTab()');
   let finish;
   f.context.request = () => new Promise(resolve => { finish = resolve; });
-  f.context.savedKeys = new Set(); f.context.loadCreatorWorks = () => {}; f.context.loadRelated = () => {};
+  f.context.savedKeys = new Set(); f.context.likedKeys = new Set(); f.context.loadCreatorWorks = () => {}; f.context.loadRelated = () => {};
   vm.runInContext(slice('async function loadDetail(', '\nasync function loadCreatorWorks('), f.context);
   const pending = f.context.loadDetail(old);
   f.run('openDetail(b);');

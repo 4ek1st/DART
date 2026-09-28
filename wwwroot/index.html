@@ -7,6 +7,7 @@
   <title>DART — Discover Art</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/catalog-logic.js" defer></script>
+  <script src="/media-duplicates.js" defer></script>
   <script src="/locales.js" defer></script>
   <script src="/i18n.js" defer></script>
   <script src="/app.js" defer></script>
@@ -41,6 +42,7 @@
       </form>
       <div class="header-actions">
         <button id="install-update-button" class="install-update-button" type="button" title="Install update" aria-label="Install update" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2h6v11.1l4.4-4.4 3.6 3.6L12 23 1 12.3l3.6-3.6L9 13.1V2z"/></svg></button>
+        <button id="likes-button" class="icon-button" title="Liked" aria-label="Liked"></button>
         <button id="bookmarks-button" class="icon-button" title="Bookmarks" aria-label="Bookmarks"></button>
         <button id="settings-button" class="icon-button" title="Settings" aria-label="Settings"></button>
       </div>
@@ -57,7 +59,8 @@
           <div class="nav-group separated">
             <button data-nav="recommendations" class="side-link"><span data-icon="spark"></span><span>Recommendations</span></button>
             <button data-nav="follows" class="side-link"><span data-icon="users"></span><span>Following</span></button>
-            <button data-nav="bookmarks" class="side-link"><span data-icon="heart"></span><span>Bookmarks</span></button>
+            <button data-nav="likes" class="side-link"><span data-icon="heart"></span><span>Liked</span></button>
+            <button data-nav="bookmarks" class="side-link"><span data-icon="bookmark"></span><span>Bookmarks</span></button>
             <button data-nav="recent" class="side-link"><span data-icon="clock"></span><span>Recently opened</span></button>
           </div>
           <div class="nav-group separated">

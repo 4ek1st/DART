@@ -11,7 +11,8 @@
     const state = value && typeof value === 'object' ? { ...value } : {};
     if (Array.isArray(state.recent)) state.recent = filterCatalogItems(state.recent);
     if (!Array.isArray(state.session?.tabs)) return state;
-    const kinds = ['home', 'search', 'detail', 'profile', 'bookmarks',
+    const legacyBookmarks = !(state.session.savedWorksVersion >= 1);
+    const kinds = ['home', 'search', 'detail', 'profile', 'bookmarks', 'likes',
       'recommendations', 'follows', 'recent', 'settings'];
     const fields = ['kind', 'title', 'query', 'searchQuery', 'selectedSources', 'rating',
       'sort', 'feed', 'item', 'profileRef', 'settingsSection', 'preview', 'pinned', 'scrollTop'];
@@ -28,12 +29,15 @@
         ? [...new Set(tab.selectedSources.filter(source => supportedSources.includes(source)))] : [];
       if (tab.selectedSources?.length && !sources.length && ['home', 'search'].includes(tab.kind)) return;
       const clean = Object.fromEntries(fields.filter(field => field in tab).map(field => [field, tab[field]]));
+      if (legacyBookmarks && clean.kind === 'bookmarks') {
+        clean.kind = 'likes'; clean.title = 'Liked';
+      }
       clean.selectedSources = sources.length ? sources : [...supportedSources];
       clean.feed = 'illustrations';
       if (index === originalActive) activeIndex = tabs.length;
       tabs.push(clean);
     });
-    state.session = { ...state.session, tabs, activeIndex: activeIndex >= 0 ? activeIndex
+    state.session = { ...state.session, tabs, savedWorksVersion: 1, activeIndex: activeIndex >= 0 ? activeIndex
       : Math.max(0, Math.min(tabs.length - 1, originalActive)) };
     return state;
   }
@@ -168,11 +172,54 @@
   }
 
   function itemImageRecords(item) {
-    if (Array.isArray(item.imageRecords)) return item.imageRecords;
     const images = item.images || [];
     const hash = images.length === 1 && /^[a-f0-9]{32}$/i.test(item.contentHash || '')
       ? item.contentHash.toLowerCase() : '';
-    return images.map(url => ({ url, hash }));
+    const known = new Map((item.imageRecords || []).filter(record => record?.url)
+      .map(record => [record.url, record]));
+    return images.map(url => {
+      const record = known.get(url) || { url };
+      return { ...record, hash: String(record.hash || mediaFileHash(url) || hash).toLowerCase() };
+    });
+  }
+
+  function mediaFileHash(value) {
+    try {
+      const url = new URL(value);
+      if (!/^https?:$/.test(url.protocol) ||
+          !/(^|\.)(donmai\.us|gelbooru\.com|rule34\.xxx|sankakucomplex\.com)$/i.test(url.hostname)) return '';
+      // These catalog CDNs name originals and resized samples after the original MD5.
+      // Never infer identity from a shared post, artist, dimensions or a visual group hash.
+      const match = /\/(?:sample-|thumbnail_|sample_)?([a-f0-9]{32})\.(?:jpe?g|png|webp|gif|avif|mp4|webm|m4v|ogv)$/i.exec(url.pathname);
+      return match?.[1].toLowerCase() || '';
+    } catch { return ''; }
+  }
+
+  function uniqueImageRecords(records) {
+    const result = [], urls = new Map(), hashes = new Map();
+    for (const record of records) {
+      if (!record?.url) continue;
+      const identity = mediaCacheKey(record.url);
+      const hash = String(record.hash || mediaFileHash(record.url) || '').toLowerCase();
+      const exactHash = /^[a-f0-9]{32}$/.test(hash) ? hash : '';
+      const previous = urls.get(identity) || (exactHash && hashes.get(exactHash));
+      if (previous) {
+        if (!previous.hash && hash) previous.hash = hash;
+        urls.set(identity, previous);
+        if (exactHash) hashes.set(exactHash, previous);
+        continue;
+      }
+      if (result.length >= 100) continue;
+      const next = { ...record, hash };
+      result.push(next); urls.set(identity, next);
+      if (exactHash) hashes.set(exactHash, next);
+    }
+    return result;
+  }
+
+  function artworkMedia(item) {
+    const imageRecords = uniqueImageRecords(itemImageRecords(item));
+    return { images: imageRecords.map(record => record.url), imageRecords };
   }
 
   function videoMimeType(url) {
@@ -373,11 +420,9 @@
     });
     const result = [...components.values()].map(members => {
       const preferred = members.find(item => item.source === 'danbooru') || members[0];
-      const imageRecords = [];
-      const imageUrls = new Set();
+      const records = [];
       const keys = new Set();
       const identities = new Set();
-      const imageHashes = new Set();
       const allTags = new Set();
       const visualSamples = [];
       const seenVisualSamples = new Set();
@@ -394,17 +439,11 @@
             seenVisualSamples.add(signature);
           }
         }
-        for (const record of itemImageRecords(item)) {
-          if (!record?.url || imageUrls.has(record.url) ||
-              record.hash && imageHashes.has(record.hash) || imageRecords.length >= 100) continue;
-          imageRecords.push(record);
-          imageUrls.add(record.url);
-          if (record.hash) imageHashes.add(record.hash);
-        }
+        records.push(...itemImageRecords(item));
       }
+      const imageRecords = uniqueImageRecords(records);
       const images = imageRecords.map(record => record.url);
-      const count = Math.max(1, imageRecords.length,
-        ...members.map(item => item.groupCount || 1));
+      const count = Math.max(1, imageRecords.length);
       const explicit = members.some(item => ['e', 'explicit'].includes(item.rating));
       const questionable = members.some(item => ['q', 'questionable'].includes(item.rating));
       const participants = mergeParticipants([preferred, ...members.filter(item => item !== preferred)]);
@@ -444,6 +483,7 @@
       ...(previous.allTags || previous.tags || []), ...(incoming.allTags || []), ...(incoming.tags || [])])];
     if (incoming.source === 'sankaku') Object.assign(merged,
       refreshSankakuMedia(previous, incoming, incoming.images || []));
+    Object.assign(merged, artworkMedia(merged));
     // Post listings contain flat tags and may omit categories learned from a detail response.
     const characters = [...new Set(incoming.characterTags?.length
       ? incoming.characterTags : previous.characterTags || [])];
@@ -470,15 +510,15 @@
     const knownKeys = [grouped?.key, ...(grouped?.memberKeys || [])].filter(Boolean);
     if (!detail || !knownKeys.includes(detail.key)) return detail;
     const memberKeys = [...new Set([...knownKeys, ...(detail.memberKeys || [])])];
-    const images = (grouped?.images || []).length < 2 ? detail.images || []
-      : [...new Set([...(grouped.images || []), ...(detail.images || [])])].slice(0, 100);
+    const images = [...new Set([...(grouped.images || []), ...(detail.images || [])])].slice(0, 100);
     const characterTags = [...new Set([...(grouped.characterTags || []),
       ...(detail.characterTags || [])])];
     const participants = memberKeys.length > 1 ? mergeParticipants([detail, grouped])
       : detail.participants?.length ? workParticipants(detail) : mergeParticipants([detail, grouped]);
     const creator = workAttribution({ ...detail, participants }).creator;
-    const media = detail.source === 'sankaku' ? refreshSankakuMedia(grouped, detail, images) : { images };
-    return { ...detail, ...media, groupCount: Math.max(grouped.groupCount || 1, media.images.length),
+    const media = detail.source === 'sankaku' ? refreshSankakuMedia(grouped, detail, images)
+      : artworkMedia({ images, imageRecords: [...itemImageRecords(grouped), ...itemImageRecords(detail)] });
+    return { ...detail, ...media, groupCount: Math.max(1, media.images.length),
       characterTags, title: titleFromCharacters(detail.title, characterTags),
       participants, creatorTag: creator?.follow.artistId || '',
       creatorName: creator?.name || (participants.length ? '' : detail.creatorName || grouped.creatorName || ''),
@@ -502,7 +542,8 @@
     const nextImages = [...new Set(images.map(updated))].slice(0, 100);
     const records = [...itemImageRecords(previous), ...itemImageRecords(incoming)].map(record =>
       ({ ...record, url: updated(record.url) })).filter(record => nextImages.includes(record.url));
-    return { images: nextImages, imageRecords: [...new Map(records.map(record => [record.url, record])).values()] };
+    const imageRecords = uniqueImageRecords(records);
+    return { images: imageRecords.map(record => record.url), imageRecords };
   }
 
   function normalizeFilterTag(tag) {
@@ -1010,7 +1051,7 @@
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind,
     normalizeExcludedTags, isWorkHidden, filterWorks,
-    sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, videoMimeType,
+    sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType,
     mediaCacheKey,
     supportedSources, filterCatalogItems, cleanClientState,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,

@@ -27,7 +27,9 @@ internal static class CatalogState
             ? index : 0;
         var kept = new JsonArray();
         var selected = -1;
-        string[] kinds = ["home", "search", "detail", "profile", "bookmarks",
+        var legacyBookmarks = session["savedWorksVersion"] is not JsonValue version ||
+            !version.TryGetValue<int>(out var savedWorksVersion) || savedWorksVersion < 1;
+        string[] kinds = ["home", "search", "detail", "profile", "bookmarks", "likes",
             "recommendations", "follows", "recent", "settings"];
         string[] fields = ["kind", "title", "query", "searchQuery", "selectedSources", "rating",
             "sort", "feed", "item", "profileRef", "settingsSection", "preview", "pinned", "scrollTop"];
@@ -47,6 +49,8 @@ internal static class CatalogState
             var clean = new JsonObject();
             foreach (var field in fields)
                 if (tab.ContainsKey(field)) clean[field] = tab[field]?.DeepClone();
+            if (legacyBookmarks && kind == "bookmarks")
+            { clean["kind"] = "likes"; clean["title"] = "Liked"; }
             clean["feed"] = "illustrations";
             clean["selectedSources"] = new JsonArray((supported is { Length: > 0 } ? supported : Sources)
                 .Select(source => (JsonNode?)JsonValue.Create(source)).ToArray());
@@ -54,6 +58,7 @@ internal static class CatalogState
             kept.Add(clean);
         }
         session["tabs"] = kept;
+        session["savedWorksVersion"] = 1;
         session["activeIndex"] = selected >= 0 ? selected : Math.Clamp(active, 0, Math.Max(0, kept.Count - 1));
         return state.ToJsonString();
     }

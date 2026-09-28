@@ -95,8 +95,7 @@ internal sealed class LocalStore : ISankakuSessionStore
     };
     private readonly object sync = new();
     private readonly string directory;
-    private readonly string bookmarksFile;
-    private readonly string bookmarksLockFile;
+    private readonly SavedWorksStore savedWorks;
     private readonly string followsFile;
     private readonly string followsLockFile;
     private readonly string clientStateFile;
@@ -116,8 +115,6 @@ internal sealed class LocalStore : ISankakuSessionStore
         directory = customDirectory ?? ResolveDefaultDirectory(AppContext.BaseDirectory,
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
         Directory.CreateDirectory(directory);
-        bookmarksFile = Path.Combine(directory, "bookmarks-v4.json");
-        bookmarksLockFile = Path.Combine(directory, "bookmarks-v4.lock");
         followsFile = Path.Combine(directory, "follows.json");
         followsLockFile = Path.Combine(directory, "follows.lock");
         clientStateFile = Path.Combine(directory, "client-state-v4.json");
@@ -130,13 +127,7 @@ internal sealed class LocalStore : ISankakuSessionStore
         favoriteTagsFile = Path.Combine(directory, "favorite-tags.json");
         favoriteTagsLockFile = Path.Combine(directory, "favorite-tags.lock");
         settingsFile = Path.Combine(directory, "settings.bin");
-        using (AcquireBookmarksLock())
-        {
-            var previous = Path.Combine(directory, "bookmarks.json");
-            if (!File.Exists(bookmarksFile) && File.Exists(previous))
-                WriteAtomic(bookmarksFile, JsonSerializer.SerializeToUtf8Bytes(
-                    ReadBookmarksFile(previous, restore: false), Json));
-        }
+        savedWorks = new SavedWorksStore(directory);
         if (File.Exists(settingsFile))
         {
             var data = Dpapi.Unprotect(File.ReadAllBytes(settingsFile));
@@ -156,27 +147,15 @@ internal sealed class LocalStore : ISankakuSessionStore
         return Path.GetFullPath(configured);
     }
 
-    public List<CatalogItem> GetBookmarks()
-    {
-        lock (sync)
-        {
-            using var fileLock = AcquireBookmarksLock();
-            return ReadBookmarksFile(bookmarksFile).Where(item => CatalogState.IsSupported(item.Source)).ToList();
-        }
-    }
+    public List<CatalogItem> GetBookmarks() => savedWorks.Get("bookmarks");
+    public List<CatalogItem> GetLikes() => savedWorks.Get("likes");
+    public bool ToggleBookmark(CatalogItem item) => savedWorks.Toggle("bookmarks", item);
+    public bool ToggleLike(CatalogItem item) => savedWorks.Toggle("likes", item);
 
-    public bool RefreshBookmarkMetadata(CatalogItem item)
+    public bool RefreshSavedMetadata(CatalogItem item)
     {
-        lock (sync)
+        return savedWorks.RefreshMetadata(item, saved =>
         {
-            using var fileLock = AcquireBookmarksLock();
-            if (!File.Exists(bookmarksFile)) return false;
-            var bookmarks = JsonNode.Parse(File.ReadAllText(bookmarksFile)) as JsonArray;
-            var saved = bookmarks?.OfType<JsonObject>().FirstOrDefault(entry =>
-                entry["key"]?.GetValue<string>() == item.Key &&
-                entry["source"]?.GetValue<string>() == item.Source &&
-                entry["id"]?.GetValue<string>() == item.Id);
-            if (saved is null) return false;
             var changed = false;
             void Update(string field, string value, bool allowEmpty = false)
             {
@@ -252,23 +231,8 @@ internal sealed class LocalStore : ISankakuSessionStore
                 if (!JsonNode.DeepEquals(saved["tags"], tags)) { saved["tags"] = tags; changed = true; }
                 Update("accessMessage", item.AccessMessage, allowEmpty: true);
             }
-            if (changed) WriteAtomic(bookmarksFile, Encoding.UTF8.GetBytes(bookmarks!.ToJsonString(Json)));
             return changed;
-        }
-    }
-
-    public bool ToggleBookmark(CatalogItem item)
-    {
-        lock (sync)
-        {
-            using var fileLock = AcquireBookmarksLock();
-            var bookmarks = ReadBookmarksFile(bookmarksFile);
-            var index = bookmarks.FindIndex(saved => saved.Key == item.Key);
-            if (index >= 0) bookmarks.RemoveAt(index);
-            else bookmarks.Insert(0, item);
-            WriteAtomic(bookmarksFile, JsonSerializer.SerializeToUtf8Bytes(bookmarks, Json));
-            return index < 0;
-        }
+        });
     }
 
     public List<FollowedArtist> GetFollows()
@@ -610,8 +574,6 @@ internal sealed class LocalStore : ISankakuSessionStore
         }
     }
 
-    private FileStream AcquireBookmarksLock() => AcquireFileLock(bookmarksLockFile);
-
     private static FileStream AcquireFileLock(string lockFile)
     {
         for (var attempt = 0; attempt < 50; attempt++)
@@ -689,34 +651,6 @@ internal sealed class LocalStore : ISankakuSessionStore
         return [];
     }
 
-    private static List<CatalogItem> ReadBookmarksFile(string path, bool restore = true)
-    {
-        if (!File.Exists(path)) return [];
-        try
-        {
-            return JsonSerializer.Deserialize<List<CatalogItem>>(File.ReadAllText(path), Json) ?? [];
-        }
-        catch (JsonException)
-        {
-            var backup = path + ".bak";
-            if (restore)
-                File.Copy(path, path + ".corrupt-" + Guid.NewGuid().ToString("N"),
-                    overwrite: false);
-            if (File.Exists(backup))
-                try
-                {
-                    var restored = JsonSerializer.Deserialize<List<CatalogItem>>(
-                        File.ReadAllText(backup), Json) ?? [];
-                    if (restore) File.Copy(backup, path, overwrite: true);
-                    return restored;
-                }
-                catch (JsonException)
-                {
-                    // Keep both damaged files for manual recovery.
-                }
-            return [];
-        }
-    }
 }
 
 internal static class Dpapi

@@ -22,7 +22,7 @@ Browse **Danbooru**, **Gelbooru**, **Rule34 (R34)**, and **Sankaku** on Windows 
 - **Explore** — search by tags, discover popular posts, and filter by source.
 - **Recommendations** — find art based on your likes, with favorite and excluded tags.
 - **Following** — see new work from the artists you follow.
-- **Your collection** — keep bookmarks, history, tabs, images, and videos together.
+- **Your collection** — like works to shape recommendations, bookmark them for later, and keep your history and tabs.
 
 The Android build currently appears as **ArtCatalog** and has a Russian interface.
 

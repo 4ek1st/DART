@@ -14,7 +14,7 @@ function renderSearchFor(tab) {
   const context = {
     CatalogLogic,
     favoriteTags: [],
-    viewedTokens: new Set(), bookmarks: [], contentPreferences: {},
+    viewedTokens: new Set(), likes: [], bookmarks: [], contentPreferences: {},
     names: { danbooru: 'Danbooru', gelbooru: 'Gelbooru',
       rule34: 'Rule34', gelbooru: 'Gelbooru' },
     sourceKeyHint: () => '', escapeHtml: value => String(value),
@@ -82,7 +82,7 @@ test('popular cards expose the source vote count', () => {
   const context = { itemIndex: new Map(), currentTab: () => ({ sort }),
     CatalogLogic, names: { danbooru: 'Danbooru', gelbooru: 'Gelbooru' },
     contentPreferences: { attributionPriority: 'creator' },
-    savedKeys: new Set(), escapeHtml: value => String(value),
+    savedWorkButton: () => '', escapeHtml: value => String(value),
     isAdultRating: () => false, svg: () => '' };
   const helpersStart = source.indexOf('function rememberItem(');
   const helpersEnd = source.indexOf('\nfunction saveSession(', helpersStart);

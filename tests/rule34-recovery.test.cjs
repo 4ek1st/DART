@@ -13,7 +13,7 @@ test('recommendations retain a failed Rule34 page and resume it without skipping
     rating: 'all', items: [], errors: {} };
   const context = { CatalogLogic, AbortController, URLSearchParams,
     Date: class extends Date { static now() { return now; } },
-    bookmarks: [1, 2, 3].map(id => ({ key: `danbooru:${id}`, source: 'danbooru', tags: ['latex'] })),
+    likes: [1, 2, 3].map(id => ({ key: `danbooru:${id}`, source: 'danbooru', tags: ['latex'] })),
     contentPreferences: {}, recommendationTagPreferences: {}, recommendationVisitCount: 0,
     localStorage: { setItem() {} }, findTab: id => id === 1 ? tab : null, activeId: 1,
     render() {}, rememberItems() {},

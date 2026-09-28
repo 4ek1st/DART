@@ -35,6 +35,43 @@ async function stopServer(server) {
   await exited;
 }
 
+test('like and bookmark endpoints persist independently and require same-origin writes', async () => {
+  const build = spawnSync('dotnet', ['build', 'ArtCatalog.csproj', '-c', 'Debug', '-v:q'],
+    { cwd: project, encoding: 'utf8', windowsHide: true });
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const directory = fs.mkdtempSync(path.join(project, 'test-data-saved-'));
+  let server;
+  const item = { key: 'danbooru:123', id: '123', source: 'danbooru', title: 'Fixture',
+    thumbnail: 'https://cdn.donmai.us/preview/fixture.jpg', images: ['https://cdn.donmai.us/original/fixture.png'],
+    imageRecords: [{ url: 'https://cdn.donmai.us/original/fixture.png', hash: 'a'.repeat(32) }] };
+  try {
+    server = await startServer(directory);
+    const get = async name => (await fetch(server.origin + '/api/' + name)).json();
+    const post = (name, value = item, origin = server.origin) => fetch(server.origin + '/api/' + name,
+      { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+    assert.equal((await post('likes', item, 'https://elsewhere.test')).status, 403);
+    assert.equal((await post('likes', { ...item, source: 'retired' })).status, 400);
+    assert.equal((await (await post('likes')).json()).saved, true);
+    assert.deepEqual(await get('bookmarks'), []);
+    assert.equal((await (await post('bookmarks')).json()).saved, true);
+    assert.equal((await (await post('likes')).json()).saved, false);
+    assert.equal((await get('bookmarks')).length, 1);
+    assert.deepEqual(await get('likes'), []);
+    assert.equal((await (await post('likes')).json()).saved, true);
+    assert.equal((await (await post('bookmarks')).json()).saved, false);
+    await stopServer(server);
+    server = await startServer(directory);
+    assert.deepEqual((await get('likes')).map(entry => entry.key), [item.key]);
+    assert.deepEqual((await get('likes'))[0].imageRecords, item.imageRecords);
+    assert.deepEqual(await get('bookmarks'), []);
+  } finally {
+    await stopServer(server);
+    const resolved = fs.realpathSync(directory);
+    assert.ok(resolved.startsWith(project + path.sep));
+    fs.rmSync(resolved, { recursive: true, force: true });
+  }
+});
+
 test('an explicit profile directory wins over an inherited test profile', async () => {
   const first = fs.mkdtempSync(path.join(project, 'test-data-explicit-'));
   const inherited = fs.mkdtempSync(path.join(project, 'test-data-inherited-'));
@@ -54,8 +91,9 @@ test('an explicit profile directory wins over an inherited test profile', async 
     server = await startServer(inherited, ['--data-dir', first]);
     const response = await fetch(server.origin + '/api/client-state');
     assert.equal((await response.json()).marker, 'personal-profile');
-    const bookmarks = await (await fetch(server.origin + '/api/bookmarks')).json();
-    assert.deepEqual(bookmarks.map(item => item.key), ['danbooru:1']);
+    const likes = await (await fetch(server.origin + '/api/likes')).json();
+    assert.deepEqual(likes.map(item => item.key), ['danbooru:1']);
+    assert.deepEqual(await (await fetch(server.origin + '/api/bookmarks')).json(), []);
     const follows = await (await fetch(server.origin + '/api/follows')).json();
     assert.deepEqual(follows.map(follow => follow.key), ['rule34::123']);
     assert.deepEqual(follows[0].seenKeys.all, ['rule34:1']);

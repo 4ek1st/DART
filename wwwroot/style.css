@@ -58,7 +58,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .tab.active { background: var(--top); border-color: #353535; border-bottom-color: var(--top); color: #fff; }
 .tab .tab-mark { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--blue); }
 .tab[data-kind="detail"] .tab-mark { background: #ad85e9; }
-.tab[data-kind="bookmarks"] .tab-mark { background: #fa8e9a; }
+.tab[data-kind="likes"] .tab-mark { background: #fa8e9a; }
+.tab[data-kind="bookmarks"] .tab-mark { background: #76b9ed; }
 .tab[data-kind="profile"] .tab-mark { background: #76c7aa; }
 .tab[data-kind="recommendations"] .tab-mark { background: #c1ad70; }
 .tab[data-kind="follows"] .tab-mark { background: #6dbbc9; }
@@ -233,10 +234,12 @@ h3 { font-size: 15px; }
 .card-art .rating-badge { position: absolute; left: 8px; bottom: 8px; background: #a6385b; color: white; font-size: 10px; font-weight: 700; padding: 4px 6px; border-radius: 4px; }
 .card-art .rating-badge.unrated { background: #464646; }
 .text-preview { display: flex; align-items: center; justify-content: center; padding: 22px; width: 100%; height: 100%; color: #d5d5d5; background: linear-gradient(145deg, #343047, #24212f); font-size: 13px; line-height: 1.55; text-align: left; overflow: hidden; }
-.heart-button { border: 0; background: transparent; color: white; display: inline-grid; place-items: center; padding: 0; }
-.heart-button svg { width: 25px; height: 25px; fill: #ffffffeb; stroke: #2b2b2b; stroke-width: 2; filter: drop-shadow(0 1px 2px #0007); }
+.heart-button, .bookmark-button { border: 0; background: transparent; color: white; display: inline-grid; place-items: center; padding: 0; }
+.heart-button svg, .bookmark-button svg { width: 25px; height: 25px; fill: #ffffffeb; stroke: #2b2b2b; stroke-width: 2; stroke-linejoin: round; filter: drop-shadow(0 1px 2px #0007); }
 .heart-button.saved svg { fill: #ff7b92; stroke: #ff7b92; }
 .card-art .heart-button { position: absolute; right: 7px; bottom: 7px; }
+.bookmark-button.saved svg { fill: #49acff; stroke: #49acff; }
+.heart-button:disabled, .bookmark-button:disabled { opacity: .6; cursor: wait; }
 .card-title { display: block; width: 100%; border: 0; padding: 8px 0 3px; background: none; text-align: left; font-weight: 700; color: #eeeeee; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .card-title:hover { color: var(--blue); }
 .card-artist { display: flex; align-items: center; gap: 3px; width: 100%; border: 0; padding: 0; background: transparent; text-align: left; color: #a5a5a5; font-size: 12px; overflow: hidden; white-space: nowrap; }
@@ -271,6 +274,7 @@ h3 { font-size: 15px; }
 .artwork-stage img { display: block; width: 100%; max-width: 100%; height: 100%; max-height: 85vh; object-fit: contain; }
 .detail-image { width: 100%; height: 85vh; min-height: 0; position: relative; flex: none; display: flex; align-items: center; justify-content: center; flex-direction: column; }
 .detail-image.long-image { width: min(100%, 900px); height: auto; }
+.detail-image[hidden] { display: none; }
 .detail-image.long-image img { position: absolute; inset: 0; max-height: none; }
 .detail-image .image-fail { display: none; position: absolute; bottom: 16px; max-width: calc(100% - 32px); color: #a5a5a5; padding: 12px 16px; border-radius: 6px; background: #171717e6; text-align: center; }
 .detail-image.failed .image-fail { display: block; }
@@ -290,6 +294,11 @@ h3 { font-size: 15px; }
 .related-section .grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); }
 .detail-meta h1 { margin-bottom: 12px; }
 .detail-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
+.detail-save-button { width: 44px; height: 44px; border: 1px solid #494949; border-radius: 7px; background: #292929; }
+.detail-save-button svg { width: 23px; height: 23px; fill: none; stroke: #d7d7d7; filter: none; }
+.detail-save-button:hover { background: #383838; border-color: #747474; }
+.detail-save-button.saved { background: #302a30; }
+.detail-save-button.bookmark-button.saved { background: #243547; }
 .primary-button, .secondary-button { border-radius: 6px; padding: 10px 16px; font-weight: 700; border: 0; }
 .secondary-button svg { width: 16px; height: 16px; vertical-align: -3px; margin-left: 4px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .primary-button { background: #167ecc; color: #fff; }

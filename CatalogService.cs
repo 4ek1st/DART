@@ -41,11 +41,19 @@ public sealed class CatalogItem
     public int? PopularityCount { get; set; }
     public string Rating { get; set; } = "";
     public List<string> Images { get; set; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<CatalogImageRecord>? ImageRecords { get; set; }
     public List<string> Tags { get; set; } = [];
     public List<string> AllTags { get; set; } = [];
     public List<string> CharacterTags { get; set; } = [];
     public bool RequiresAuthentication { get; set; }
     public string AccessMessage { get; set; } = "";
+}
+
+public sealed class CatalogImageRecord
+{
+    public string Url { get; set; } = "";
+    public string Hash { get; set; } = "";
 }
 
 public sealed class SearchResponse

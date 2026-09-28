@@ -46,7 +46,7 @@ test('recommendations search both names and Other and continue past 120 cards', 
     selectedSources: ['danbooru'], items: [], errors: {}, loading: false };
   const queries = [];
   const context = {
-    CatalogLogic, bookmarks, recommendationTagPreferences: {},
+    CatalogLogic, likes: bookmarks, bookmarks: [], recommendationTagPreferences: {},
     recommendationVisitCount: 0,
     localStorage: { setItem() {} },
     contentPreferences: { aiMode: 'all', excludedTags: [] },
@@ -79,7 +79,7 @@ test('opening recommendations again starts with another frequent tag', () => {
   const end = source.indexOf('async function loadFollowFeed(', start);
   const liked = [1, 2].map(id => ({ key: `liked:${id}`,
     source: 'danbooru', title: 'holo', tags: ['holo', 'latex', 'catsuit'] }));
-  const context = { CatalogLogic, bookmarks: liked, recommendationTagPreferences: {},
+  const context = { CatalogLogic, likes: liked, bookmarks: [], recommendationTagPreferences: {},
     recommendationVisitCount: 0, localStorage: { setItem() {} },
     contentPreferences: { aiMode: 'all', excludedTags: [] } };
   const prepare = vm.runInNewContext(source.slice(start, end) +
@@ -101,7 +101,7 @@ test('refresh starts fresh searches and does not repeat the same first tag', asy
   const tab = { id: 11, kind: 'recommendations', rating: 'general',
     selectedSources: ['danbooru'], items: [], errors: {} };
   const queried = [];
-  const context = { CatalogLogic, bookmarks, recommendationTagPreferences: {},
+  const context = { CatalogLogic, likes: bookmarks, bookmarks: [], recommendationTagPreferences: {},
     recommendationVisitCount: 0, localStorage: { setItem() {} },
     contentPreferences: { aiMode: 'all', excludedTags: [] },
     findTab: id => id === tab.id ? tab : undefined, activeId: tab.id,

@@ -15,6 +15,18 @@ NSFW illustrations|18+ иллюстрации|NSFW-Illustrationen
 Recommendations|Рекомендации|Empfehlungen
 Following|Подписки|Abonnements
 Bookmarks|Закладки|Lesezeichen
+Liked|Понравившиеся|Gefällt mir
+Like|Нравится|Gefällt mir markieren
+Unlike|Убрать лайк|Gefällt mir entfernen
+Remove bookmark|Убрать закладку|Lesezeichen entfernen
+Likes help tailor recommendations to your taste.|Лайки помогают подбирать рекомендации по вашему вкусу.|Gefällt-mir-Markierungen passen Empfehlungen an Ihren Geschmack an.
+Use the heart to save a work here.|Поставьте лайк сердечком, чтобы сохранить работу здесь.|Markieren Sie ein Werk mit dem Herz, um es hier zu speichern.
+Use the bookmark icon to return to a work later.|Нажмите значок закладки на работе, чтобы вернуться к ней позже.|Setzen Sie ein Lesezeichen, um später zu einem Werk zurückzukehren.
+No works here yet.|Здесь пока нет работ.|Hier sind noch keine Werke.
+Added to liked works|Добавлено в понравившиеся|Zu Gefällt mir hinzugefügt
+Like removed|Лайк удалён|Gefällt-mir-Markierung entfernt
+Failed to read liked works|Не удалось прочитать лайки|Gefällt-mir-Werke konnten nicht gelesen werden
+Failed to change like|Не удалось изменить лайк|Gefällt-mir-Markierung konnte nicht geändert werden
 Recently opened|Недавно открытое|Zuletzt geöffnet
 Sources and settings|Источники и настройки|Quellen und Einstellungen
 Content|Контент|Inhalte
@@ -28,14 +40,14 @@ Browsing and pinning|Просмотр и закрепление|Ansehen und Anhe
 Version and installation|Версия и установка|Version und Installation
 Updates|Обновления|Updates
 AI images|AI изображения|KI-Bilder
-Choose which works to show in search, recommendations, profiles, related works and bookmarks. Saved works are kept.|Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах и закладках. Сохранённые работы остаются на месте.|Wählen Sie, welche Werke in Suche, Empfehlungen, Profilen, ähnlichen Werken und Lesezeichen erscheinen. Gespeicherte Werke bleiben erhalten.
+Choose which works to show in search, recommendations, profiles, related works, liked works and bookmarks. Saved works are kept.|Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах, понравившихся и закладках. Сохранённые работы остаются на месте.|Wählen Sie, welche Werke in Suche, Empfehlungen, Profilen, ähnlichen Werken, Gefällt mir und Lesezeichen erscheinen. Gespeicherte Werke bleiben erhalten.
 Hide AI-generated|Скрывать AI-generated|KI-generierte Werke ausblenden
 Works tagged as AI-generated or made with known generators.|Работы с метками AI генерации и известных генераторов.|Werke mit Tags für KI-Generierung oder bekannte Generatoren.
 Also hide AI-assisted|Скрывать также AI-assisted|Auch KI-unterstützte Werke ausblenden
 When disabled, works created with AI assistance remain visible.|Если выключено, работы с участием AI остаются видимыми.|Wenn deaktiviert, bleiben KI-unterstützte Werke sichtbar.
 Recognizes tags such as #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai and #ai-assisted. Works without these tags are not automatically classified as AI.|Учитываются метки вроде #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai и #ai-assisted. Работа без такой метки не определяется автоматически как AI.|Berücksichtigt Tags wie #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai und #ai-assisted. Werke ohne diese Tags werden nicht automatisch als KI-Inhalte eingestuft.
 Previously viewed|Уже просмотренное|Bereits angesehen
-Optionally hide familiar works from illustrations, recommendations and related works. Bookmarks and browsing history remain available in their own tabs.|По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Закладки и история просмотра останутся доступны в своих вкладках.|Blenden Sie auf Wunsch bekannte Werke in Illustrationen, Empfehlungen und ähnlichen Werken aus. Lesezeichen und Verlauf bleiben in ihren eigenen Tabs verfügbar.
+Optionally hide familiar works from illustrations, recommendations and related works. Liked works, bookmarks and browsing history remain available in their own tabs.|По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Понравившиеся, закладки и история просмотра останутся доступны в своих вкладках.|Blenden Sie auf Wunsch bekannte Werke in Illustrationen, Empfehlungen und ähnlichen Werken aus. Gefällt-mir-Werke, Lesezeichen und Verlauf bleiben in ihren eigenen Tabs verfügbar.
 Hide viewed and saved works|Скрывать просмотренные и сохранённые работы|Angesehene und gespeicherte Werke ausblenden
 Includes grouped copies of a work from different sources. Disabled by default.|Учитываются также объединённые копии одной работы из разных источников. Изначально выключено.|Berücksichtigt auch zusammengefasste Kopien aus verschiedenen Quellen. Standardmäßig deaktiviert.
 Excluded tags|Исключённые теги|Ausgeschlossene Tags
@@ -254,10 +266,10 @@ Add bookmark|Добавить в закладки|Lesezeichen hinzufügen
 Bookmarked|В закладках|Als Lesezeichen gespeichert
 Added to bookmarks|Добавлено в закладки|Zu Lesezeichen hinzugefügt
 Removed from bookmarks|Удалено из закладок|Aus Lesezeichen entfernt
-Recommendations based on tags of works you liked. Saved works do not repeat.|Подборка по тегам изображений, которые вы отметили сердечком. Сохранённые работы не повторяются.|Empfehlungen anhand der Tags Ihrer mit Herz markierten Werke. Gespeicherte Werke werden nicht erneut angezeigt.
-Bookmark images with the heart button to get recommendations here.|Добавьте изображения в закладки сердечком, и здесь появятся рекомендации.|Markieren Sie Bilder mit dem Herz als Lesezeichen, um hier Empfehlungen zu erhalten.
-No suitable recommendation tags in your saved works yet.|У сохранённых работ пока нет подходящих тегов для подбора.|Ihre gespeicherten Werke haben noch keine passenden Tags für Empfehlungen.
-All saved works are hidden by filters. Change content settings to get recommendations.|Все сохранённые работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.|Alle gespeicherten Werke werden durch Filter ausgeblendet. Ändern Sie die Inhaltseinstellungen, um Empfehlungen zu erhalten.
+Recommendations based on tags of works you liked. Liked works do not repeat.|Подборка по тегам изображений, которые вы отметили сердечком. Понравившиеся работы не повторяются.|Empfehlungen anhand der Tags Ihrer mit Herz markierten Werke. Bereits markierte Werke werden nicht erneut angezeigt.
+Like images with the heart button to get recommendations here.|Поставьте лайк сердечком, и здесь появятся рекомендации.|Markieren Sie Bilder mit dem Herz, um hier Empfehlungen zu erhalten.
+No suitable recommendation tags in your liked works yet.|У понравившихся работ пока нет подходящих тегов для подбора.|Ihre mit Herz markierten Werke haben noch keine passenden Tags für Empfehlungen.
+All liked works are hidden by filters. Change content settings to get recommendations.|Все понравившиеся работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.|Alle mit Herz markierten Werke werden durch Filter ausgeblendet. Ändern Sie die Inhaltseinstellungen, um Empfehlungen zu erhalten.
 Your frequent tags|Ваши частые теги|Ihre häufigen Tags
 Content tags|Теги содержания|Inhalts-Tags
 Frequent specific tags influence recommendations. Broad muted tags count only with yellow priority. Configure with right-click.|Частые необычные теги влияют на подбор. Приглушённые общие теги учитываются только с жёлтым приоритетом. Настройка — правой кнопкой мыши.|Häufige spezifische Tags beeinflussen Empfehlungen. Gedämpfte allgemeine Tags zählen nur mit gelber Priorität. Einstellungen per Rechtsklick.

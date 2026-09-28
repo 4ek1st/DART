@@ -34,7 +34,7 @@ test('search summary includes records whose files the catalog API withheld', () 
   const start = source.indexOf('function renderSearchSummary(');
   const end = source.indexOf('\nfunction renderRecommendationTagChips(', start);
   const render = vm.runInNewContext(source.slice(start, end) + '\nrenderSearchSummary', {
-    CatalogLogic, viewedTokens: new Set(), bookmarks: [], contentPreferences: {},
+    CatalogLogic, viewedTokens: new Set(), likes: [], bookmarks: [], contentPreferences: {},
     names: { danbooru: 'Danbooru' }, escapeHtml: String
   });
   const html = render({ items: [{ key: 'danbooru:1' }],

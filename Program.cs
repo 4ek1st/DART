@@ -112,7 +112,7 @@ internal static class Program
                 var item = await catalog.GetDetailAsync(source, id, context.RequestAborted);
                 if (item is not null)
                 {
-                    try { store.RefreshBookmarkMetadata(item); }
+                    try { store.RefreshSavedMetadata(item); }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                                                    System.Text.Json.JsonException)
                     {
@@ -138,6 +138,7 @@ internal static class Program
         });
 
         app.MapGet("/api/bookmarks", (LocalStore store) => Results.Ok(store.GetBookmarks()));
+        app.MapGet("/api/likes", (LocalStore store) => Results.Ok(store.GetLikes()));
         app.MapGet("/api/favorite-tags", (LocalStore store) =>
             Results.Ok(store.GetFavoriteTags()));
         app.MapPost("/api/favorite-tags", async (HttpContext context, LocalStore store) =>
@@ -205,6 +206,13 @@ internal static class Program
             var item = await context.Request.ReadFromJsonAsync<CatalogItem>(context.RequestAborted);
             if (item is null || !CatalogService.IsValidItem(item)) return Results.BadRequest();
             return Results.Ok(new { saved = store.ToggleBookmark(item) });
+        });
+        app.MapPost("/api/likes", async (HttpContext context, LocalStore store) =>
+        {
+            if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
+            var item = await context.Request.ReadFromJsonAsync<CatalogItem>(context.RequestAborted);
+            if (item is null || !CatalogService.IsValidItem(item)) return Results.BadRequest();
+            return Results.Ok(new { saved = store.ToggleLike(item) });
         });
 
         app.MapGet("/api/follows", (LocalStore store) => Results.Ok(store.GetFollows()));

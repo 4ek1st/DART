@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Text.Json;
 using ArtCatalog;
 
+SavedWorksFixtureTests.Run();
+
 static CatalogItem? Map(string method, string payload)
 {
     using var json = JsonDocument.Parse(payload);
@@ -342,18 +344,21 @@ try
         """);
     var storeType = typeof(CatalogItem).Assembly.GetType("ArtCatalog.LocalStore")!;
     var metadataStore = Activator.CreateInstance(storeType, [metadataDirectory])!;
-    var refresh = storeType.GetMethod("RefreshBookmarkMetadata");
+    metadataFile = Path.Combine(metadataDirectory, "saved-works-v1.json");
+    void WriteLikedFixture(string items) => File.WriteAllText(metadataFile,
+        "{\"schemaVersion\":1,\"likes\":" + items + ",\"bookmarks\":[]}");
+    var refresh = storeType.GetMethod("RefreshSavedMetadata");
     Expect(refresh is not null, "Saved work metadata must be refreshable without toggling the bookmark");
     refresh!.Invoke(metadataStore, [namedRule34]);
     var persisted = File.ReadAllText(metadataFile);
     using var updated = JsonDocument.Parse(persisted);
-    var firstSaved = updated.RootElement[0];
-    Expect(updated.RootElement.GetArrayLength() == 2 &&
+    var firstSaved = updated.RootElement.GetProperty("likes")[0];
+    Expect(updated.RootElement.GetProperty("likes").GetArrayLength() == 2 &&
         firstSaved.GetProperty("title").GetString() == namedRule34.Title &&
         firstSaved.GetProperty("characterTags").GetArrayLength() == 3 &&
         firstSaved.GetProperty("images").GetArrayLength() == 2 &&
         firstSaved.GetProperty("futureField").GetProperty("keep").GetBoolean() &&
-        updated.RootElement[1].GetProperty("title").GetString() == "Unrelated",
+        updated.RootElement.GetProperty("likes")[1].GetProperty("title").GetString() == "Unrelated",
         "Refreshing metadata must preserve grouped pages, unknown fields, order, and other bookmarks");
     refresh.Invoke(metadataStore, [new CatalogItem { Key = namedRule34.Key,
         Source = namedRule34.Source, Id = namedRule34.Id, Title = "Работа #18783728" }]);
@@ -363,7 +368,7 @@ try
         Id = "unknown", Title = "Unknown", CharacterTags = ["unknown"] }]);
     Expect(File.ReadAllText(metadataFile) == persisted,
         "Refreshing metadata must never add a new bookmark");
-    File.WriteAllText(metadataFile, """
+    WriteLikedFixture("""
         [{"key":"danbooru:12069561","source":"danbooru","id":"12069561",
           "creatorTag":"lilith_(voice_actor)","creatorName":"lilith (voice actor)",
           "artistId":"lilith_(voice_actor)","artist":"lilith (voice actor)",
@@ -373,25 +378,25 @@ try
     refresh.Invoke(metadataStore, [collaborativePost]);
     using (var credited = JsonDocument.Parse(File.ReadAllText(metadataFile)))
     {
-        var savedCredits = credited.RootElement[0];
+        var savedCredits = credited.RootElement.GetProperty("likes")[0];
         Expect(savedCredits.GetProperty("creatorTag").GetString() == "the_atko" &&
             savedCredits.GetProperty("artistId").GetString() == "the_atko" &&
             savedCredits.GetProperty("participants").GetArrayLength() == 2 &&
             savedCredits.GetProperty("images").GetArrayLength() == 2 &&
             savedCredits.GetProperty("futureField").GetInt32() == 42 &&
-            credited.RootElement[1].GetProperty("title").GetString() == "Unrelated",
+            credited.RootElement.GetProperty("likes")[1].GetProperty("title").GetString() == "Unrelated",
             "Credit repair must preserve grouped media, unknown fields, order, and unrelated saves");
     }
-    File.WriteAllText(metadataFile, """
+    WriteLikedFixture("""
         [{"key":"rule34:18006569","source":"rule34","id":"18006569",
           "title":"aisha belka, original character",
           "characterTags":["aisha_belka","original_character"],"images":["one.jpg","two.jpg"]}]
         """);
     refresh.Invoke(metadataStore, [aishaPost]);
     using var cleaned = JsonDocument.Parse(File.ReadAllText(metadataFile));
-    Expect(cleaned.RootElement[0].GetProperty("title").GetString() == "aisha belka" &&
-        cleaned.RootElement[0].GetProperty("characterTags").GetArrayLength() == 1 &&
-        cleaned.RootElement[0].GetProperty("images").GetArrayLength() == 2,
+    Expect(cleaned.RootElement.GetProperty("likes")[0].GetProperty("title").GetString() == "aisha belka" &&
+        cleaned.RootElement.GetProperty("likes")[0].GetProperty("characterTags").GetArrayLength() == 1 &&
+        cleaned.RootElement.GetProperty("likes")[0].GetProperty("images").GetArrayLength() == 2,
         "Refreshing a saved Rule34 post must repair old generic character metadata without losing pages");
     var groupedBookmark = JsonSerializer.Deserialize<CatalogItem>("""
         {"key":"rule34:18529241","source":"rule34","id":"18529241",
@@ -439,8 +444,7 @@ try
 }
 finally
 {
-    foreach (var file in Directory.GetFiles(metadataDirectory)) File.Delete(file);
-    Directory.Delete(metadataDirectory);
+    Directory.Delete(metadataDirectory, recursive: true);
 }
 
 Expect((string?)CallCatalog("BuildDanbooruSearchTags", "roboco-san", "explicit", "popular") ==
