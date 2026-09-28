@@ -83,9 +83,12 @@ load as you scroll.
 
 ## Updates and your data
 
-In an installed copy, open the app's update settings. When a verified new
-release is available, an install button appears at the left end of the tab
-bar. It shows the release notes and an **Install and restart** action.
+An installed copy checks for updates on startup and every five minutes while
+open. Returning to the app also checks if at least a minute has passed;
+temporary network failures retry automatically.
+When a verified new release is available, a blue arrow appears at the top left,
+before the navigation arrows, on every page. Click it for the release notes
+and the **Install and restart** action. Opening Settings is not required.
 
 Updates verify the signature, SHA-256 hash, version, and release history.
 If a download or verification fails, the active version remains available.

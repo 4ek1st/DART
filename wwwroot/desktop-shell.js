@@ -31,7 +31,7 @@
     });
 
     const install = document.getElementById('install-update-button');
-    let status = {}, dialog, checkedAt = 0;
+    let status = {}, dialog, checkedAt = 0, checkPromise, checkTimer;
     const api = async (path, options) => {
       const response = await window.fetch('/api/updates' + path, options);
       const value = await response.json();
@@ -46,10 +46,20 @@
       install.setAttribute('aria-label', label);
       if (dialog?.open) renderPanel();
     }
-    async function check(force = false) {
-      checkedAt = Date.now();
-      try { showStatus(await api(force ? '/check' : '', force ? { method: 'POST' } : undefined)); }
-      catch (error) { showStatus({ ...status, available: false, error: error.message }); }
+    function check(force = false) {
+      // Focus, network recovery and the timer can arrive together. Share their request.
+      if (checkPromise) return checkPromise;
+      window.clearTimeout(checkTimer);
+      checkPromise = (async () => {
+        try { showStatus(await api(force ? '/check' : '', force ? { method: 'POST' } : undefined)); }
+        catch (error) { showStatus({ ...status, available: false, error: error.message }); }
+        finally {
+          checkedAt = Date.now();
+          checkPromise = null;
+          checkTimer = window.setTimeout(() => check(true), status.error ? 60 * 1000 : 5 * 60 * 1000);
+        }
+      })();
+      return checkPromise;
     }
     function renderPanel() {
       dialog.querySelector('[data-update-current]').textContent = `Установлено: ${status.currentVersion || 'локальная сборка'}`;
@@ -105,10 +115,12 @@
       sections.appendChild(button);
     }).observe(main, { childList: true, subtree: true });
     check(true);
-    window.setInterval(() => check(true), 30 * 60 * 1000);
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && Date.now() - checkedAt >= 10 * 60 * 1000) check(true);
-    });
+    function checkOnReturn() {
+      if (!document.hidden && Date.now() - checkedAt >= 60 * 1000) check(true);
+    }
+    window.addEventListener('focus', checkOnReturn);
+    window.addEventListener('online', () => check(true));
+    document.addEventListener('visibilitychange', checkOnReturn);
   }
   return { canInstall, windowCommand, mount };
 });
