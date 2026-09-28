@@ -337,7 +337,8 @@ function saveSession() {
   catch { /* Browser storage may be unavailable. */ }
   fetch('/api/client-state', { method: 'POST', keepalive: true,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session, recent, searchHistory: getSearchHistory(),
+    body: JSON.stringify({ session, themePreference: globalThis.DartTheme?.preference || 'system',
+      recent, searchHistory: getSearchHistory(),
       mediaDuplicatePairs: detailImageDeduper.duplicates.entries() })
   }).catch(() => {});
 }
@@ -374,6 +375,8 @@ async function loadClientState() {
   try {
     const state = CatalogLogic.cleanClientState(await request('/api/client-state'));
     detailImageDeduper.duplicates.restore(state.mediaDuplicatePairs);
+    if (['system', 'light', 'dark', 'list'].includes(state.themePreference))
+      globalThis.DartTheme?.setPreference(state.themePreference);
     if (state.session?.tabs?.length)
       localStorage.setItem('artcatalog-session', JSON.stringify(state.session));
     if (Array.isArray(state.recent)) {
@@ -425,7 +428,7 @@ function restoreSession() {
       feed: 'illustrations',
       item: saved.item?.key ? rememberItem(saved.item) : saved.item,
       profileRef: saved.profileRef,
-      settingsSection: ['content', 'authors', 'sources', 'tabs', 'language'].includes(saved.settingsSection)
+      settingsSection: ['content', 'authors', 'sources', 'tabs', 'appearance', 'language'].includes(saved.settingsSection)
         ? saved.settingsSection : 'content',
       items: [], errors: {}, page: 0,
       loading: false, started: false,
@@ -3058,8 +3061,9 @@ function formatDate(value) {
 }
 
 function renderSettings() {
-  const section = ['content', 'authors', 'sources', 'tabs', 'language'].includes(currentTab()?.settingsSection)
+  const section = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language'].includes(currentTab()?.settingsSection)
     ? currentTab().settingsSection : 'content';
+  const themePreference = globalThis.DartTheme?.preference || 'system';
   const hideGenerated = contentPreferences.aiMode !== 'all';
   const hideAssisted = contentPreferences.aiMode === 'generated-and-assisted';
   const excluded = contentPreferences.excludedTags || [];
@@ -3071,9 +3075,19 @@ function renderSettings() {
         <button type="button" id="settings-tab-authors" role="tab" aria-selected="${section === 'authors'}" aria-controls="settings-panel" class="settings-section ${section === 'authors' ? 'active' : ''}" data-action="settings-section" data-section="authors">Авторы<span>Автор, источник и загрузчик</span></button>
         <button type="button" id="settings-tab-sources" role="tab" aria-selected="${section === 'sources'}" aria-controls="settings-panel" class="settings-section ${section === 'sources' ? 'active' : ''}" data-action="settings-section" data-section="sources">Источники<span>Подключения и ключи</span></button>
         <button type="button" id="settings-tab-tabs" role="tab" aria-selected="${section === 'tabs'}" aria-controls="settings-panel" class="settings-section ${section === 'tabs' ? 'active' : ''}" data-action="settings-section" data-section="tabs">Вкладки<span>Просмотр и закрепление</span></button>
+        <button type="button" id="settings-tab-appearance" role="tab" aria-selected="${section === 'appearance'}" aria-controls="settings-panel" class="settings-section ${section === 'appearance' ? 'active' : ''}" data-action="settings-section" data-section="appearance">Оформление<span>Цвет и тема</span></button>
         <button type="button" id="settings-tab-language" role="tab" aria-selected="${section === 'language'}" aria-controls="settings-panel" class="settings-section settings-language-section ${section === 'language' ? 'active' : ''}" data-action="settings-section" data-section="language">Язык<span data-no-i18n>English · Русский · Deutsch</span></button>
       </nav>
       <div class="settings-view" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${section}">
+        ${section === 'appearance' ? `<div class="settings-card"><h2>Тема оформления</h2><p>Системный режим автоматически выбирает светлую или тёмную тему по настройке Windows. Можно выбрать постоянную тему вручную.</p>
+          <div class="theme-choices" role="group" aria-label="Тема оформления">
+            ${[
+              ['system', 'Системная', 'Следует цвету Windows'],
+              ['light', 'Светлая', 'Светлый стандарт DART'],
+              ['dark', 'Тёмная', 'Тёмный стандарт DART'],
+              ['list', 'Лист', 'Графит, холодный голубой и полутоновые точки']
+            ].map(([value, label, description]) => `<button type="button" class="theme-choice" data-action="theme-choice" data-theme-choice="${value}" aria-pressed="${themePreference === value}"><span class="theme-swatch theme-swatch-${value}" aria-hidden="true"></span><span class="theme-choice-copy"><strong>${label}</strong><small>${description}</small></span></button>`).join('')}
+          </div><p class="settings-hint">Выбор применяется сразу и сохраняется на этом компьютере.</p></div>` : ''}
         ${section === 'language' ? `<div class="settings-card"><h2>Язык интерфейса</h2><p>Выберите язык интерфейса. Названия работ, имена авторов и поисковые теги остаются на языке источника.</p>
           <label class="language-picker">Язык<select name="interfaceLanguage" aria-label="Язык интерфейса">
             <option value="en" ${contentPreferences.language === 'en' ? 'selected' : ''}>English</option>
@@ -4060,9 +4074,14 @@ main.addEventListener('click', event => {
     if (artwork) openQuickPreview(artwork);
   }
   else if (action === 'settings-section' && tab?.kind === 'settings') {
-    tab.settingsSection = ['content', 'authors', 'sources', 'tabs', 'language'].includes(control.dataset.section)
+    tab.settingsSection = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language'].includes(control.dataset.section)
       ? control.dataset.section : 'content';
     saveSession(); render();
+  }
+  else if (action === 'theme-choice' && tab?.kind === 'settings') {
+    if (globalThis.DartTheme?.setPreference(control.dataset.themeChoice)) {
+      saveSession(); render();
+    }
   }
   else if (action === 'content-settings') openSettings('content');
   else if (action === 'remove-excluded-tag' && tab?.kind === 'settings')

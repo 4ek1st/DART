@@ -4,6 +4,19 @@
   const rows = `
 Home|Главная|Startseite
 Settings|Настройки|Einstellungen
+Appearance|Оформление|Darstellung
+Color and theme|Цвет и тема|Farben und Design
+Appearance theme|Тема оформления|Darstellungsdesign
+System mode automatically uses the Windows light or dark setting. You can also choose a fixed theme.|Системный режим автоматически выбирает светлую или тёмную тему по настройке Windows. Можно выбрать постоянную тему вручную.|Der Systemmodus übernimmt automatisch die helle oder dunkle Einstellung von Windows. Sie können auch ein festes Design wählen.
+System|Системная|System
+Follows Windows appearance|Следует цвету Windows|Übernimmt das Windows-Design
+Light|Светлая|Hell
+Light DART default|Светлый стандарт DART|Helles DART-Standarddesign
+Dark|Тёмная|Dunkel
+Dark DART default|Тёмный стандарт DART|Dunkles DART-Standarddesign
+List|Лист|List
+Graphite, cool blue and halftone dots|Графит, холодный голубой и полутоновые точки|Graphit, kühles Blau und Rasterpunkte
+The choice takes effect immediately and is saved on this computer.|Выбор применяется сразу и сохраняется на этом компьютере.|Die Auswahl wird sofort angewendet und auf diesem Computer gespeichert.
 Language|Язык|Sprache
 Interface language|Язык интерфейса|Sprache der Benutzeroberfläche
 Choose the interface language. Artwork titles, artist names and search tags stay in their original language.|Выберите язык интерфейса. Названия работ, имена авторов и поисковые теги остаются на языке источника.|Wählen Sie die Sprache der Benutzeroberfläche. Werktitel, Künstlernamen und Such-Tags bleiben in der Originalsprache.
