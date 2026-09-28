@@ -1593,6 +1593,7 @@ function mergeRelatedWorks(item, existing, incoming) {
 }
 
 async function loadProfile(tab, append = false) {
+  if (!append) tab.profileBanner = '';
   if (tab.profileRef?.source === 'artist') {
     tab.query = tab.profileRef.artist;
     tab.feed = 'illustrations';
@@ -1913,6 +1914,7 @@ function render() {
   main.dataset.tabId = String(tab.id);
   main.scrollTop = scrollTop;
   measureVirtualGrids(tab);
+  if (tab.kind === 'profile') scheduleProfileBanner(tab);
   autoFeed.mount();
   if (typeof scheduleRule34Recovery === 'function') scheduleRule34Recovery(tab);
 }
@@ -2200,6 +2202,56 @@ function renderFollows(tab) {
   </div>`;
 }
 
+function selectLoadedProfileImage(root, viewport, random = Math.random) {
+  const bounds = viewport.getBoundingClientRect();
+  const images = [...root.querySelectorAll('.grid .card img[data-image-url]')].filter(img => {
+    if (!img.complete || !img.naturalWidth || !img.naturalHeight || !img.currentSrc ||
+        img.closest('.card-art')?.classList.contains('failed')) return false;
+    const rect = img.getBoundingClientRect();
+    return rect.bottom > bounds.top && rect.top < bounds.bottom &&
+      rect.right > bounds.left && rect.left < bounds.right;
+  });
+  return images.length ? images[Math.min(images.length - 1,
+    Math.floor(random() * images.length))] : null;
+}
+
+function createProfileBannerThumbnail(image, banner) {
+  const canvas = document.createElement('canvas');
+  const bounds = banner.getBoundingClientRect();
+  canvas.width = 320;
+  canvas.height = Math.max(40, Math.min(120,
+    Math.round(canvas.width * bounds.height / Math.max(1, bounds.width))));
+  const context = canvas.getContext('2d');
+  if (!context) return '';
+  const scale = Math.max(canvas.width / image.naturalWidth,
+    canvas.height / image.naturalHeight);
+  const width = canvas.width / scale;
+  const height = canvas.height / scale;
+  context.drawImage(image, (image.naturalWidth - width) / 2,
+    (image.naturalHeight - height) / 2, width, height,
+    0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/webp', 0.42);
+}
+
+function scheduleProfileBanner(tab) {
+  if (tab.profileBanner || tab.profileBannerPending || currentTab() !== tab ||
+      !tab.items?.length) return;
+  tab.profileBannerPending = true;
+  setTimeout(() => {
+    tab.profileBannerPending = false;
+    if (currentTab() !== tab || tab.profileBanner) return;
+    const page = main.querySelector('.profile-page');
+    const banner = page?.querySelector('.profile-banner');
+    if (!banner) return;
+    const image = selectLoadedProfileImage(page, main);
+    if (!image) return;
+    try {
+      tab.profileBanner = createProfileBannerThumbnail(image, banner);
+      if (tab.profileBanner) render();
+    } catch { /* A damaged preview keeps the original gradient. */ }
+  }, 140);
+}
+
 function renderProfile(tab) {
   const profile = tab.profile;
   const ref = tab.profileRef;
@@ -2209,7 +2261,7 @@ function renderProfile(tab) {
     .flatMap(CatalogLogic.workSources).map(record => names[record.source]))].join(' · ') :
     names[ref.source] || ref.source;
   return `<div class="content profile-page">
-    <div class="profile-banner"><span class="profile-avatar">${escapeHtml((name || '?')[0].toUpperCase())}</span>
+    <div class="profile-banner">${tab.profileBanner ? `<img class="profile-banner-art" src="${escapeHtml(tab.profileBanner)}" alt="" aria-hidden="true">` : ''}<span class="profile-avatar">${escapeHtml((name || '?')[0].toUpperCase())}</span>
       <div><h1>${escapeHtml(name)}</h1><p class="section-sub">${escapeHtml(profile?.role || (['gelbooru', 'rule34', 'sankaku'].includes(ref.source) ? 'Загрузчик' : 'Художник'))}${sourceLabel ? ` · ${escapeHtml(sourceLabel)}` : ''}</p></div>
       <div class="profile-actions">${followButton({ source: artistProfile ? 'danbooru' : ref.source, artistId: ref.artist,
         service: ref.service, name })}${profile?.url ? `<button class="secondary-button" data-action="profile-external">Открыть на сайте ↗</button>` : ''}</div></div>
@@ -2871,7 +2923,13 @@ const autoFeed = {
 };
 
 let virtualScrollPending = false;
-main.addEventListener('load', event => rememberImageDimensions(event.target), true);
+main.addEventListener('load', event => {
+  rememberImageDimensions(event.target);
+  if (event.target.matches?.('.profile-page .grid .card img[data-image-url]')) {
+    const tab = currentTab();
+    if (tab?.kind === 'profile') scheduleProfileBanner(tab);
+  }
+}, true);
 main.addEventListener('error', event => {
   if (event.target.matches?.('video[data-video-url]'))
     event.target.parentElement.classList.add('failed');
@@ -2888,6 +2946,7 @@ main.addEventListener('scroll', () => {
   const tab = currentTab();
   if (!tab || main.dataset.tabId !== String(tab.id)) return;
   tab.scrollTop = main.scrollTop;
+  if (tab.kind === 'profile') scheduleProfileBanner(tab);
   if (virtualScrollPending) return;
   virtualScrollPending = true;
   requestAnimationFrame(() => {

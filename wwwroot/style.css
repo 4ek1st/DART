@@ -340,7 +340,11 @@ h3 { font-size: 15px; }
 .creator-panel dl { border-top: 1px solid #343434; padding-top: 16px; margin-top: 20px; }
 .creator-panel dt { color: #919191; font-size: 12px; margin: 12px 0 3px; }
 .creator-panel dd { margin: 0; color: #dedede; overflow-wrap: anywhere; }
-.profile-banner { min-height: 205px; border-radius: 11px; background: linear-gradient(115deg, #202f3e, #292539 65%, #252525); display: flex; align-items: end; gap: 20px; padding: 28px; margin-bottom: 30px; }
+.profile-banner { position: relative; isolation: isolate; overflow: hidden; min-height: 205px; border-radius: 11px; background: linear-gradient(115deg, #202f3e, #292539 65%, #252525); display: flex; align-items: end; gap: 20px; padding: 28px; margin-bottom: 30px; }
+.profile-banner-art { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: blur(16px) saturate(.85); pointer-events: none; }
+.profile-banner::before { content: ''; position: absolute; z-index: 1; inset: 0; background: linear-gradient(90deg, #101922a0, #11131c80 60%, #111111b3); pointer-events: none; }
+.profile-banner > :not(.profile-banner-art) { position: relative; z-index: 2; }
+.profile-banner h1, .profile-banner .section-sub { text-shadow: 0 1px 8px #000b; }
 .profile-banner .secondary-button { margin-left: auto; }
 .profile-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 9px; }
 .profile-banner .profile-actions .secondary-button { margin-left: 0; }
