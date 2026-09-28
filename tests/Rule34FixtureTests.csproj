@@ -10,6 +10,7 @@
     <Compile Remove="transport\**\*.cs" />
     <Compile Remove="updates\**\*.cs" />
     <Compile Remove="chrome\**\*.cs" />
+    <Compile Remove="privacy\**\*.cs" />
     <ProjectReference Include="..\ArtCatalog.csproj" />
   </ItemGroup>
 </Project>
