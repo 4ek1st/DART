@@ -167,7 +167,8 @@ internal sealed partial class CatalogService
                 String(post, "has_children") == "True" ? "sankaku:parent:" + id : pixiv,
             Published = published, PopularityCount = Number(post, "total_score") ?? Number(post, "fav_count"),
             Rating = String(post, "rating") == "s" ? "g" : String(post, "rating"),
-            Tags = tags, CharacterTags = characters.Distinct().ToList(), RelatedQuery = related,
+            Tags = tags, CharacterTags = characters.Distinct().ToList(),
+            CopyrightTags = copyrights.Distinct().ToList(), RelatedQuery = related,
             RequiresAuthentication = full.Length == 0,
             AccessMessage = full.Length == 0 ? "Для просмотра этой работы авторизуйтесь в Sankaku." : ""
         };

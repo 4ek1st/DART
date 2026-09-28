@@ -46,6 +46,7 @@ public sealed class CatalogItem
     public List<string> Tags { get; set; } = [];
     public List<string> AllTags { get; set; } = [];
     public List<string> CharacterTags { get; set; } = [];
+    public List<string> CopyrightTags { get; set; } = [];
     public bool RequiresAuthentication { get; set; }
     public string AccessMessage { get; set; } = "";
 }
@@ -790,7 +791,9 @@ internal sealed partial class CatalogService(LocalStore store)
             if (item is not null)
             {
                 await TryEnrichArtistTagsAsync([item], cancellationToken);
-                ApplyCharacterTags(item, await GetGelbooruCharacterTagsAsync(item, cancellationToken));
+                var (characters, copyrights) = await GetGelbooruTagCategoriesAsync(item, cancellationToken);
+                ApplyCharacterTags(item, characters);
+                ApplyCopyrightTags(item, copyrights);
             }
             return item;
         }
@@ -800,7 +803,9 @@ internal sealed partial class CatalogService(LocalStore store)
                 .Items.FirstOrDefault();
             if (item is not null)
             {
-                ApplyCharacterTags(item, await GetRule34CharacterTagsAsync(item, cancellationToken));
+                var (characters, copyrights) = await GetRule34TagCategoriesAsync(item, cancellationToken);
+                ApplyCharacterTags(item, characters);
+                ApplyCopyrightTags(item, copyrights);
                 await TryEnrichArtistTagsAsync([item], cancellationToken);
             }
             return item;
@@ -820,13 +825,21 @@ internal sealed partial class CatalogService(LocalStore store)
         item.RelatedQuery = item.CharacterTags[0];
     }
 
-    private async Task<List<string>> GetGelbooruCharacterTagsAsync(CatalogItem item,
+    private static void ApplyCopyrightTags(CatalogItem item, List<string> copyrights)
+    {
+        var available = item.Tags.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        item.CopyrightTags = copyrights.Where(available.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private async Task<(List<string> Characters, List<string> Copyrights)> GetGelbooruTagCategoriesAsync(CatalogItem item,
         CancellationToken cancellationToken)
     {
         var credentials = store.GetGelbooruCredentials();
         if (string.IsNullOrWhiteSpace(credentials.UserId) ||
-            string.IsNullOrWhiteSpace(credentials.ApiKey)) return [];
+            string.IsNullOrWhiteSpace(credentials.ApiKey)) return ([], []);
         var result = new List<string>();
+        var copyrights = new List<string>();
         var artists = new List<string>();
         try
         {
@@ -838,6 +851,7 @@ internal sealed partial class CatalogService(LocalStore store)
                     "&api_key=" + Uri.EscapeDataString(credentials.ApiKey);
                 using var json = await GetJsonAsync(uri, cancellationToken);
                 result.AddRange(ExtractGelbooruCharacterTags(json.RootElement, item.Tags));
+                copyrights.AddRange(ExtractGelbooruTags(json.RootElement, item.Tags, "3"));
                 artists.AddRange(ExtractGelbooruTags(json.RootElement, item.Tags, "1"));
             }
         }
@@ -847,7 +861,8 @@ internal sealed partial class CatalogService(LocalStore store)
             // Missing category metadata must not hide an otherwise valid post.
         }
         if (artists.Count > 0) CatalogCredits.Apply(item, artists);
-        return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return (result.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            copyrights.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
     }
 
     private static List<string> ExtractGelbooruCharacterTags(JsonElement root,
@@ -866,21 +881,22 @@ internal sealed partial class CatalogService(LocalStore store)
             .ToList();
     }
 
-    private static async Task<List<string>> GetRule34CharacterTagsAsync(CatalogItem item,
+    private static async Task<(List<string> Characters, List<string> Copyrights)> GetRule34TagCategoriesAsync(CatalogItem item,
         CancellationToken cancellationToken)
     {
-        if (item.Rule34TagInfoKnown) return item.CharacterTags;
+        if (item.Rule34TagInfoKnown) return (item.CharacterTags, item.CopyrightTags);
         try
         {
             var html = await GetHtmlAsync(item.SourceUrl, cancellationToken);
             var artists = ExtractRule34Tags(html, item.Tags, "artist");
             if (artists.Count > 0) CatalogCredits.Apply(item, artists);
-            return ExtractRule34CharacterTags(html, item.Tags);
+            return (ExtractRule34CharacterTags(html, item.Tags),
+                ExtractRule34Tags(html, item.Tags, "copyright"));
         }
         catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException or InvalidOperationException) &&
                                    !cancellationToken.IsCancellationRequested)
         {
-            return [];
+            return ([], []);
         }
     }
 
@@ -1051,9 +1067,9 @@ internal sealed partial class CatalogService(LocalStore store)
         var characterTags = String(post, "tag_string_character")
             .Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
         var character = characterTags.FirstOrDefault() ?? "";
-        var copyright = String(post, "tag_string_copyright").Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault() ?? "";
-        var related = character.Length > 0 ? character : copyright;
+        var copyrightTags = String(post, "tag_string_copyright")
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        var related = character.Length > 0 ? character : (copyrightTags.FirstOrDefault() ?? "");
         if (related.Length == 0) related = PickRelatedTag(tags);
         var title = character.Length > 0 ? character.Replace('_', ' ') : $"Работа #{id}";
         var parentId = String(post, "parent_id");
@@ -1080,6 +1096,7 @@ internal sealed partial class CatalogService(LocalStore store)
             Published = NormalizeDate(String(post, "created_at")),
             PopularityCount = Number(post, "score"),
             Rating = String(post, "rating"), Tags = tags, CharacterTags = characterTags,
+            CopyrightTags = copyrightTags,
             Images = ValidImageUrl(full) ? [full] : []
         };
         CatalogCredits.Apply(item, artistTags);

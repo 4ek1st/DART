@@ -11,6 +11,7 @@ internal sealed partial class CatalogService
         var available = item.Tags.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var artists = new List<string>();
         var characters = new List<string>();
+        var copyrights = new List<string>();
         foreach (var entry in entries.EnumerateArray())
         {
             if (entry.ValueKind != JsonValueKind.Object) continue;
@@ -20,10 +21,12 @@ internal sealed partial class CatalogService
             {
                 case "artist": artists.Add(name); break;
                 case "character": characters.Add(name); break;
+                case "copyright": copyrights.Add(name); break;
             }
         }
         item.Rule34TagInfoKnown = true;
         CatalogCredits.Apply(item, artists);
         ApplyCharacterTags(item, characters);
+        ApplyCopyrightTags(item, copyrights);
     }
 }

@@ -450,8 +450,9 @@
       const creator = workAttribution({ ...preferred, participants }).creator;
       const original = members.find(item => item.originalUrl)?.originalUrl || '';
       const characterTags = [...new Set(members.flatMap(item => item.characterTags || []))];
+      const copyrightTags = [...new Set(members.flatMap(item => item.copyrightTags || []))];
       return { ...preferred, images, imageRecords, allTags: [...allTags], groupCount: count,
-        characterTags, title: titleFromCharacters(preferred.title, characterTags),
+        characterTags, copyrightTags, title: titleFromCharacters(preferred.title, characterTags),
         participants, creatorTag: creator?.follow.artistId || '',
         creatorName: creator?.name || (participants.length ? '' : preferred.creatorName || ''),
         originalUrl: preferred.originalUrl || original,
@@ -488,6 +489,8 @@
     const characters = [...new Set(incoming.characterTags?.length
       ? incoming.characterTags : previous.characterTags || [])];
     merged.characterTags = characters.filter(tag => normalizeFilterTag(tag) !== 'original character');
+    merged.copyrightTags = [...new Set(incoming.copyrightTags?.length
+      ? incoming.copyrightTags : previous.copyrightTags || [])];
     merged.title = titleFromCharacters(merged.title, characters);
     // Search and grouped mirrors may omit an artist already confirmed by a detail response.
     // Preserve the identifier/name pair; a new confirmed artist replaces both together.
@@ -513,13 +516,15 @@
     const images = [...new Set([...(grouped.images || []), ...(detail.images || [])])].slice(0, 100);
     const characterTags = [...new Set([...(grouped.characterTags || []),
       ...(detail.characterTags || [])])];
+    const copyrightTags = [...new Set([...(grouped.copyrightTags || []),
+      ...(detail.copyrightTags || [])])];
     const participants = memberKeys.length > 1 ? mergeParticipants([detail, grouped])
       : detail.participants?.length ? workParticipants(detail) : mergeParticipants([detail, grouped]);
     const creator = workAttribution({ ...detail, participants }).creator;
     const media = detail.source === 'sankaku' ? refreshSankakuMedia(grouped, detail, images)
       : artworkMedia({ images, imageRecords: [...itemImageRecords(grouped), ...itemImageRecords(detail)] });
     return { ...detail, ...media, groupCount: Math.max(1, media.images.length),
-      characterTags, title: titleFromCharacters(detail.title, characterTags),
+      characterTags, copyrightTags, title: titleFromCharacters(detail.title, characterTags),
       participants, creatorTag: creator?.follow.artistId || '',
       creatorName: creator?.name || (participants.length ? '' : detail.creatorName || grouped.creatorName || ''),
       originalUrl: detail.originalUrl || grouped.originalUrl || '',
@@ -560,6 +565,8 @@
     const normalized = normalizeFilterTag(tag);
     if (normalized !== 'original character' && (item?.characterTags || []).some(character =>
       normalizeFilterTag(character) === normalized)) return 'character';
+    if ((item?.copyrightTags || []).some(copyright =>
+      normalizeFilterTag(copyright) === normalized)) return 'copyright';
     if (normalized === 'original') return 'original';
     return '';
   }
@@ -568,7 +575,7 @@
     const seen = new Set();
     const tags = [];
     for (const tag of [...(item?.tags || []), ...(item?.allTags || []),
-      ...(item?.characterTags || [])]) {
+      ...(item?.characterTags || []), ...(item?.copyrightTags || [])]) {
       const exact = String(tag || '').normalize('NFKC').toLowerCase().trim();
       if (!exact || seen.has(exact)) continue;
       seen.add(exact);
@@ -578,7 +585,8 @@
       .map(normalizeFilterTag).filter(Boolean);
     const rank = tag => {
       const kind = artworkTagKind(item, tag);
-      if (kind === 'character') return -2;
+      if (kind === 'character') return -3;
+      if (kind === 'copyright') return -2;
       if (kind === 'original') return -1;
       const index = requested.indexOf(normalizeFilterTag(tag));
       return index < 0 ? requested.length : index;

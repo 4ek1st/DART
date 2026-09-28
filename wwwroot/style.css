@@ -307,6 +307,8 @@ h3 { font-size: 15px; }
 .tag-link:hover { background: #3c3c3c; }
 .tag-link-character { color: #b9e8cc; outline: 1px solid #4cb77d; outline-offset: -1px; background: #22372e; }
 .tag-link-character:hover { background: #2a4938; }
+.tag-link-copyright { color: #e1c2ff; outline: 1px solid #a65ce3; outline-offset: -1px; background: #39234a; }
+.tag-link-copyright:hover { background: #503062; }
 .tag-link-original { color: #dec9f6; outline: 1px solid #a177d4; outline-offset: -1px; background: #342a40; }
 .tag-link-original:hover { background: #443553; }
 .tag-selection-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-height: 30px; margin-top: 20px; color: var(--muted); font-size: 12px; }

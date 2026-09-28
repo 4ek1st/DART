@@ -100,6 +100,7 @@ internal static class SankakuFixtureTests
         Expect(item.Id == "Alpha123" && item.Rating == "q", "identity/rating mapping");
         Expect(item.CreatorTag == "real_artist" && item.UploaderName == "uploader", "artist replaced by uploader");
         Expect(item.CharacterTags.SequenceEqual(["character"]), "tag categories lost");
+        Expect(item.CopyrightTags.SequenceEqual(["original"]), "copyright category lost");
         Expect(item.Title == "character" && item.GroupKey == "sankaku:parent:Parent123", "title/group mapping");
         Expect(item.Images.Single().Contains("test.mp4") && item.Published.StartsWith("2023-11-14"), "media/date mapping");
         Expect(item.PopularityCount == 17 && item.PixivGroupKey == "pixiv:456", "popularity and source identity");

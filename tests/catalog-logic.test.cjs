@@ -4,7 +4,7 @@ const { normalizeSearch, completeTag, pickRelatedAnchor, rankRelated,
   removeNavigationEntry, groupWorks, recommendationTags,
   recommendationTagGroups, orderRecommendationOtherTags, recommendationQueryGroups, mergeRecommendations,
   rankRecommendations, followKey, followFeedRequests, buildFollowFeed,
-  artworkTags } = require('../wwwroot/catalog-logic.js');
+  artworkTags, artworkTagKind, mergeWorkMetadata } = require('../wwwroot/catalog-logic.js');
 
 test('grouping preserves confirmed character names from every source', () => {
   const characters = ['cecilia_immergreen', 'gigi_murin', 'mori_calliope'];
@@ -41,6 +41,28 @@ test('character tags and original precede search matches and remain unique', () 
 test('a descriptive tag is not treated as a character without source metadata', () => {
   assert.deepEqual(artworkTags({ tags: ['sex', 'original', '1girl'],
     characterTags: [] }), ['original', 'sex', '1girl']);
+});
+
+test('confirmed copyright tags are purple category tags before ordinary content tags', () => {
+  const item = { tags: ['1girl', 'goddess_of_victory:_nikke', 'original', 'riding'],
+    copyrightTags: ['goddess_of_victory:_nikke'] };
+  assert.equal(artworkTagKind(item, 'goddess_of_victory:_nikke'), 'copyright');
+  assert.deepEqual(artworkTags(item, 'riding').slice(0, 2),
+    ['goddess_of_victory:_nikke', 'original']);
+  assert.equal(artworkTagKind({ tags: item.tags }, 'goddess_of_victory:_nikke'), '');
+});
+
+test('copyright categories survive grouped mirrors and partial detail refreshes', () => {
+  const hash = 'b'.repeat(32);
+  const [grouped] = groupWorks([
+    { key: 'danbooru:1', source: 'danbooru', contentHash: hash,
+      tags: ['goddess_of_victory:_nikke'], copyrightTags: [] },
+    { key: 'sankaku:2', source: 'sankaku', contentHash: hash,
+      tags: ['goddess_of_victory:_nikke'], copyrightTags: ['goddess_of_victory:_nikke'] }
+  ]);
+  assert.deepEqual(grouped.copyrightTags, ['goddess_of_victory:_nikke']);
+  const refreshed = mergeWorkMetadata(grouped, { ...grouped, copyrightTags: [] });
+  assert.deepEqual(refreshed.copyrightTags, ['goddess_of_victory:_nikke']);
 });
 
 test('linked Danbooru variants form one card even across result pages', () => {

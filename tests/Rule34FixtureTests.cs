@@ -199,11 +199,14 @@ Expect(danbooruPixivImage?.GroupKey == "danbooru:parent:99" &&
 var characterPost = Map("MapDanbooru", """
     {"id":101,"preview_file_url":"https://cdn.donmai.us/preview/b.jpg",
      "large_file_url":"https://cdn.donmai.us/sample/b.jpg",
-     "tag_string":"1girl eris_greyrat original",
-     "tag_string_character":"eris_greyrat"}
+     "tag_string":"1girl eris_greyrat goddess_of_victory:_nikke original",
+     "tag_string_character":"eris_greyrat",
+     "tag_string_copyright":"goddess_of_victory:_nikke original"}
     """);
 Expect(characterPost?.CharacterTags.SequenceEqual(["eris_greyrat"]) == true,
     "Danbooru character category was lost");
+Expect(characterPost!.CopyrightTags.SequenceEqual(["goddess_of_victory:_nikke", "original"]),
+    "Danbooru must keep every confirmed copyright tag");
 
 var collaborativePost = Map("MapDanbooru", """
     {"id":12069561,"preview_file_url":"https://cdn.donmai.us/preview/c.jpg",
@@ -291,6 +294,7 @@ Expect((string?)CallCatalog("OriginalPostIdentity",
 
 using var characterMetadata = JsonDocument.Parse("""
     {"tag":[{"name":"eris_greyrat","type":4},
+             {"name":"goddess_of_victory:_nikke","type":3},
              {"name":"original","type":3},
              {"name":"unrelated_character","type":4}]}
     """);
@@ -298,6 +302,11 @@ var gelCharacters = (List<string>)CallCatalog("ExtractGelbooruCharacterTags",
     characterMetadata.RootElement, new List<string> { "eris_greyrat", "original" })!;
 Expect(gelCharacters.SequenceEqual(["eris_greyrat"]),
     "Gelbooru metadata must mark only actual character tags in the post");
+var gelCopyrights = (List<string>)CallCatalog("ExtractGelbooruTags",
+    characterMetadata.RootElement,
+    new List<string> { "eris_greyrat", "goddess_of_victory:_nikke" }, "3")!;
+Expect(gelCopyrights.SequenceEqual(["goddess_of_victory:_nikke"]),
+    "Gelbooru metadata must confirm copyright tags actually on the post");
 var ruleHtml = """
     <li class="tag-type-character tag"><a href="index.php?page=post&amp;s=list&amp;tags=neferpitou">Neferpitou</a></li>
     <li class="tag-type-character tag"><a href="index.php?page=post&amp;s=list&amp;tags=unrelated">Unrelated</a></li>
@@ -306,6 +315,11 @@ var ruleCharacters = (List<string>)CallCatalog("ExtractRule34CharacterTags", rul
     new List<string> { "neferpitou", "original" })!;
 Expect(ruleCharacters.SequenceEqual(["neferpitou"]),
     "Rule34 HTML categories must mark only actual character tags in the post");
+var ruleCopyrights = (List<string>)CallCatalog("ExtractRule34Tags",
+    ruleHtml + "<li class=\"tag-type-copyright tag\"><a href=\"index.php?page=post&amp;tags=goddess_of_victory%3A_nikke\">Nikke</a></li>",
+    new List<string> { "neferpitou", "goddess_of_victory:_nikke" }, "copyright")!;
+Expect(ruleCopyrights.SequenceEqual(["goddess_of_victory:_nikke"]),
+    "Rule34 HTML categories must confirm copyright tags actually on the post");
 
 var aishaHtml = """
     <li><h6>Character</h6></li><li class="tag-type-character tag">
@@ -541,9 +555,10 @@ Console.WriteLine("Rule34 mapping and cross-source identity: PASS");
 var typedRule34 = Map("MapRule34", """
     {"id":18006569,"preview_url":"https://us-cdn.rule34.xxx/preview/a.jpg",
      "file_url":"https://us-cdn.rule34.xxx/images/a.png","rating":"e","owner":"reposter",
-     "tags":"aisha_belka original_character zuharu lilith_(voice_actor) breasts",
+     "tags":"aisha_belka original_character goddess_of_victory:_nikke zuharu lilith_(voice_actor) breasts",
      "tag_info":[{"tag":"aisha_belka","type":"character","count":186},
        {"tag":"original_character","type":"character","count":562508},
+       {"tag":"goddess_of_victory:_nikke","type":"copyright","count":15},
        {"tag":"lilith_(voice_actor)","type":"artist","count":5},
        {"tag":"zuharu","type":"artist","count":586},
        {"tag":"breasts","type":"tag","count":123},
@@ -555,6 +570,8 @@ Expect(typedRule34.CreatorTag == "zuharu" && typedRule34.Participants.Count == 2
 Expect(typedRule34.CharacterTags.SequenceEqual(new[] { "aisha_belka" }) &&
     typedRule34.Title == "aisha belka" && typedRule34.RelatedQuery == "aisha_belka",
     "Rule34's native categories must identify the character and exclude original_character");
+Expect(typedRule34.CopyrightTags.SequenceEqual(["goddess_of_victory:_nikke"]),
+    "Rule34's native tag_info must preserve the confirmed copyright category");
 Expect(typedRule34.UploaderName == "reposter", "Native tag categories replaced the uploader identity");
 Console.WriteLine("Rule34 native tag categories: PASS");
 await SankakuFixtureTests.Run();
