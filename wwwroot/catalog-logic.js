@@ -772,15 +772,36 @@
     markers.has(tag) || (markers === generatedTags ? generatedPrefixes : assistedPrefixes)
       .some(prefix => tag.startsWith(prefix));
 
+  // Explicit content tags only. Animal ears, tails, fur clothing and artist names
+  // do not establish furry content. Keep aliases and known implication tags exact.
+  const furryTags = new Set([
+    'furry', 'anthro', 'anthropomorphic', 'furrification', 'furry character',
+    'furry female', 'furry male', 'furry boy', 'furry girl', 'furry futa',
+    'furry intersex', 'furry only', 'furry female only', 'furry male only',
+    'furry with furry', 'furry with non furry', 'furry with nonfurry', 'furry and animal',
+    'furry (japanese)', 'furry on furry', 'human on furry', 'male on furry',
+    'human male on female furry', 'anthropomorphic animal', 'anthropomorphic furry',
+    // Sankaku also returns these explicit anthro tags without the parent marker.
+    'anthro on anthro', 'muscular anthro', 'anthro penetrating anthro',
+    'human on anthro', 'young anthro', 'overweight anthro', 'mature anthro',
+    'female anthro', 'male anthro', 'male on anthro', 'human penetrating anthro',
+    'larger anthro', 'nude anthro', 'semi anthro', 'athletic anthro', 'smaller anthro',
+    'male penetrating anthro', 'female on anthro', 'obese anthro', 'clothed anthro',
+    'humanoid on anthro', 'submissive anthro', 'dominant anthro',
+    'feral penetrating anthro', 'pregnant anthro', 'bottomless anthro',
+    'slightly chubby anthro', 'human to anthro', 'topless anthro', 'younger anthro'
+  ]);
+
   function isWorkHidden(item, preferences = {}) {
     if (isAuthorHidden(item, preferences)) return true;
     const aiMode = preferences.aiMode || 'all';
     const blocked = preferences.excludedTagSet ||
       new Set(normalizeExcludedTags(preferences.excludedTags));
-    if (aiMode === 'all' && !blocked.size) return false;
+    const hideFurry = preferences.hideFurry === true;
+    if (aiMode === 'all' && !blocked.size && !hideFurry) return false;
     const tags = [...new Set([...(item?.tags || []), ...(item?.allTags || [])]
       .map(normalizeFilterTag).filter(Boolean))];
-    return tags.some(tag => blocked.has(tag) ||
+    return tags.some(tag => blocked.has(tag) || hideFurry && furryTags.has(tag) ||
       aiMode !== 'all' && matchesMarker(tag, generatedTags) ||
       aiMode === 'generated-and-assisted' && matchesMarker(tag, assistedTags));
   }
@@ -788,11 +809,13 @@
   function filterWorks(items, preferences) {
     if (!items?.length) return items || [];
     if ((!preferences?.aiMode || preferences.aiMode === 'all') &&
-        !preferences?.excludedTags?.length && !preferences?.hiddenAuthors?.length) return items;
+        preferences?.hideFurry !== true && !preferences?.excludedTags?.length &&
+        !preferences?.hiddenAuthors?.length) return items;
     const compiled = { ...preferences,
       excludedTagSet: new Set(normalizeExcludedTags(preferences?.excludedTags)),
       hiddenAuthorSet: new Set((preferences?.hiddenAuthors || []).map(hiddenAuthorKey).filter(Boolean)) };
-    if (compiled.aiMode === 'all' && !compiled.excludedTagSet.size && !compiled.hiddenAuthorSet.size) return items;
+    if (compiled.aiMode === 'all' && compiled.hideFurry !== true &&
+        !compiled.excludedTagSet.size && !compiled.hiddenAuthorSet.size) return items;
     return items.filter(item => !isWorkHidden(item, compiled));
   }
 

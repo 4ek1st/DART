@@ -88,6 +88,23 @@ the tab or select **Refresh**; there are no background system notifications.
 You can expand the artist list with **Manage subscriptions**, and more posts
 load as you scroll.
 
+## Content filters
+
+In **Settings → Content**, enable **Hide furry content** to hide tagged furry
+works across Danbooru, Gelbooru, Rule34 and Sankaku. The filter applies to search,
+the home feed, recommendations, Following, artist profiles, related works,
+Liked, Bookmarks, browsing history and open artwork pages.
+
+It recognizes explicit tags such as `furry`, `anthro`, `anthropomorphic`,
+`furry_female` and Sankaku's `muscular_anthro` and `female_anthro`.
+Tags from every merged copy or version are checked. Animal ears, tails or fur
+clothing alone do not trigger the filter; untagged works cannot be identified.
+
+The switch is off by default and persists in your profile. Turning it on does
+not delete likes, bookmarks or subscriptions. Turning it off restores works
+that are allowed by your other filters. Manually excluded tags and AI filters
+continue to apply independently.
+
 ## Updates and your data
 
 An installed copy checks for updates on startup and every five minutes while

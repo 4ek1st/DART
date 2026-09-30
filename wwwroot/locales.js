@@ -63,6 +63,7 @@ Recently opened|Недавно открытое|Zuletzt geöffnet
 Sources and settings|Источники и настройки|Quellen und Einstellungen
 Content|Контент|Inhalte
 AI and excluded tags|AI и исключённые теги|KI und ausgeschlossene Tags
+AI, furry and excluded tags|AI, фурри и исключённые теги|KI, Furry und ausgeschlossene Tags
 Creators|Авторы|Urheber
 Hide|Скрыть|Ausblenden
 Unhide|Показать|Einblenden
@@ -91,6 +92,12 @@ Also hide AI-assisted|Скрывать также AI-assisted|Auch KI-unterstüt
 When disabled, works created with AI assistance remain visible.|Если выключено, работы с участием AI остаются видимыми.|Wenn deaktiviert, bleiben KI-unterstützte Werke sichtbar.
 Recognizes tags such as #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai and #ai-assisted. Works without these tags are not automatically classified as AI.|Учитываются метки вроде #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai и #ai-assisted. Работа без такой метки не определяется автоматически как AI.|Berücksichtigt Tags wie #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai und #ai-assisted. Werke ohne diese Tags werden nicht automatisch als KI-Inhalte eingestuft.
 Previously viewed|Уже просмотренное|Bereits angesehen
+Furry content|Фурри-контент|Furry-Inhalte
+Hide furry works across all catalogs and pages. Liked works and bookmarks are kept and become visible again when this filter is off.|Скрывать фурри-работы во всех каталогах и разделах. Лайки и закладки сохраняются и снова появятся после отключения фильтра.|Furry-Werke in allen Katalogen und Bereichen ausblenden. Gefällt-mir-Werke und Lesezeichen bleiben gespeichert und werden nach dem Ausschalten wieder sichtbar.
+Hide furry content|Скрывать фурри-контент|Furry-Inhalte ausblenden
+Includes #furry, #anthro, #anthropomorphic and related furry tags in every grouped copy.|Учитываются #furry, #anthro, #anthropomorphic и связанные фурри-теги всех объединённых копий.|Berücksichtigt #furry, #anthro, #anthropomorphic und verwandte Furry-Tags aller zusammengefassten Kopien.
+Animal ears or a tail alone do not count as furry. Works without explicit furry tags cannot be identified by this filter.|Одни лишь уши или хвост не считаются фурри. Без явных фурри-тегов этот фильтр не может распознать работу.|Tierohren oder ein Schwanz allein gelten nicht als Furry. Werke ohne eindeutige Furry-Tags kann dieser Filter nicht erkennen.
+Excluded tags still apply independently when this switch is off.|Исключённые теги продолжают действовать отдельно, даже если этот переключатель выключен.|Ausgeschlossene Tags gelten unabhängig davon auch bei ausgeschaltetem Schalter.
 Optionally hide familiar works from illustrations, recommendations and related works. Liked works, bookmarks and browsing history remain available in their own tabs.|По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Понравившиеся, закладки и история просмотра останутся доступны в своих вкладках.|Blenden Sie auf Wunsch bekannte Werke in Illustrationen, Empfehlungen und ähnlichen Werken aus. Gefällt-mir-Werke, Lesezeichen und Verlauf bleiben in ihren eigenen Tabs verfügbar.
 Hide viewed and saved works|Скрывать просмотренные и сохранённые работы|Angesehene und gespeicherte Werke ausblenden
 Includes grouped copies of a work from different sources. Disabled by default.|Учитываются также объединённые копии одной работы из разных источников. Изначально выключено.|Berücksichtigt auch zusammengefasste Kopien aus verschiedenen Quellen. Standardmäßig deaktiviert.

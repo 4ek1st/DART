@@ -75,7 +75,7 @@ let savedKeys = new Set();
 let follows = [];
 let followedKeys = new Set();
 let settings = { userId: '', hasApiKey: false, rule34UserId: '', hasRule34ApiKey: false };
-let contentPreferences = { language: globalThis.DartI18n?.language || 'en', aiMode: 'all', excludedTags: [], attributionPriority: 'creator',
+let contentPreferences = { language: globalThis.DartI18n?.language || 'en', aiMode: 'all', hideFurry: false, excludedTags: [], attributionPriority: 'creator',
   hideViewedAndSaved: false, hiddenAuthors: [] };
 let contentPreferencesSaving = false;
 let contentPreferencesRevision = 0;
@@ -1525,6 +1525,7 @@ async function loadContentPreferences() {
       language: ['en', 'ru', 'de'].includes(saved.language) ? saved.language : 'en',
       aiMode: ['all', 'generated', 'generated-and-assisted'].includes(saved.aiMode)
         ? saved.aiMode : 'all',
+      hideFurry: saved.hideFurry === true,
       excludedTags: CatalogLogic.normalizeExcludedTags(saved.excludedTags),
       hiddenAuthors: (Array.isArray(saved.hiddenAuthors) ? saved.hiddenAuthors : [])
         .filter(author => CatalogLogic.hiddenAuthorKey(author)),
@@ -1539,9 +1540,9 @@ async function loadContentPreferences() {
 
 function applyContentPreferences(saved) {
   const before = contentPreferences;
-  contentPreferences = { ...saved, hiddenAuthors: saved.hiddenAuthors || [] };
+  contentPreferences = { ...saved, hideFurry: saved.hideFurry === true, hiddenAuthors: saved.hiddenAuthors || [] };
   globalThis.DartI18n?.setLanguage(contentPreferences.language);
-  const contentChanged = ['aiMode', 'excludedTags', 'hideViewedAndSaved', 'hiddenAuthors']
+  const contentChanged = ['aiMode', 'hideFurry', 'excludedTags', 'hideViewedAndSaved', 'hiddenAuthors']
     .some(key => JSON.stringify(before[key]) !== JSON.stringify(contentPreferences[key]));
   if (!contentChanged) return;
   for (const tab of tabs) {
@@ -1579,10 +1580,13 @@ async function saveContentPreferences(next) {
   if (contentPreferencesSaving) return;
   contentPreferencesSaving = true;
   ++contentPreferencesRevision;
+  main.querySelectorAll('.settings-panel input, .settings-panel select')
+    .forEach(input => { input.disabled = true; });
   try {
     const saved = await request('/api/content-preferences', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ language: next.language || globalThis.DartI18n?.language || 'en', aiMode: next.aiMode,
+        hideFurry: next.hideFurry === true,
         excludedTags: CatalogLogic.normalizeExcludedTags(next.excludedTags),
         attributionPriority: next.attributionPriority,
         hideViewedAndSaved: next.hideViewedAndSaved })
@@ -2816,7 +2820,8 @@ function renderFeedTail(tab, profile = false) {
 
 function queryBlockedByFilters(query) {
   return !!query && CatalogLogic.isWorkHidden(
-    { tags: CatalogLogic.normalizeSearch(query).split(/\s+/) }, contentPreferences);
+    { tags: CatalogLogic.normalizeSearch(query).split(/\s+/).filter(tag => !tag.startsWith('-')) },
+    contentPreferences);
 }
 
 function renderRelatedTail(tab) {
@@ -3261,7 +3266,7 @@ function renderSettings() {
   return `<div class="content settings-panel"><h1>Настройки</h1><p class="section-sub">Фильтры и подключения хранятся на этом компьютере.</p>
     <div class="settings-layout">
       <nav class="settings-sections" aria-label="Разделы настроек" role="tablist">
-        <button type="button" id="settings-tab-content" role="tab" aria-selected="${section === 'content'}" aria-controls="settings-panel" class="settings-section ${section === 'content' ? 'active' : ''}" data-action="settings-section" data-section="content">Контент<span>AI и исключённые теги</span></button>
+        <button type="button" id="settings-tab-content" role="tab" aria-selected="${section === 'content'}" aria-controls="settings-panel" class="settings-section ${section === 'content' ? 'active' : ''}" data-action="settings-section" data-section="content">Контент<span>AI, фурри и исключённые теги</span></button>
         <button type="button" id="settings-tab-authors" role="tab" aria-selected="${section === 'authors'}" aria-controls="settings-panel" class="settings-section ${section === 'authors' ? 'active' : ''}" data-action="settings-section" data-section="authors">Авторы<span>Автор, источник и загрузчик</span></button>
         <button type="button" id="settings-tab-sources" role="tab" aria-selected="${section === 'sources'}" aria-controls="settings-panel" class="settings-section ${section === 'sources' ? 'active' : ''}" data-action="settings-section" data-section="sources">Источники<span>Подключения и ключи</span></button>
         <button type="button" id="settings-tab-tabs" role="tab" aria-selected="${section === 'tabs'}" aria-controls="settings-panel" class="settings-section ${section === 'tabs' ? 'active' : ''}" data-action="settings-section" data-section="tabs">Вкладки<span>Просмотр и закрепление</span></button>
@@ -3294,6 +3299,11 @@ function renderSettings() {
           <label class="settings-toggle"><input type="checkbox" name="hideGenerated" ${hideGenerated ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать AI-generated</strong><small>Работы с метками AI генерации и известных генераторов.</small></span></label>
           <label class="settings-toggle settings-toggle-child"><input type="checkbox" name="hideAssisted" ${hideAssisted ? 'checked' : ''} ${!hideGenerated || contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать также AI-assisted</strong><small>Если выключено, работы с участием AI остаются видимыми.</small></span></label>
           <p class="settings-hint">Учитываются метки вроде #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai и #ai-assisted. Работа без такой метки не определяется автоматически как AI.</p>
+        </div>
+        <div class="settings-card"><h2>Furry content</h2><p>Hide furry works across all catalogs and pages. Liked works and bookmarks are kept and become visible again when this filter is off.</p>
+          <label class="settings-toggle"><input type="checkbox" name="hideFurry" aria-describedby="furry-filter-hint" ${contentPreferences.hideFurry ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Hide furry content</strong><small>Includes #furry, #anthro, #anthropomorphic and related furry tags in every grouped copy.</small></span></label>
+          <p class="settings-hint" id="furry-filter-hint">Animal ears or a tail alone do not count as furry. Works without explicit furry tags cannot be identified by this filter.</p>
+          <p class="settings-hint">Excluded tags still apply independently when this switch is off.</p>
         </div>
         <div class="settings-card"><h2>Уже просмотренное</h2><p>По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Понравившиеся, закладки и история просмотра останутся доступны в своих вкладках.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideViewedAndSaved" ${contentPreferences.hideViewedAndSaved ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать просмотренные и сохранённые работы</strong><small>Учитываются также объединённые копии одной работы из разных источников. Изначально выключено.</small></span></label>
@@ -4175,6 +4185,10 @@ main.addEventListener('change', event => {
   }
   if (name === 'hideViewedAndSaved') {
     saveContentPreferences({ ...contentPreferences, hideViewedAndSaved: event.target.checked });
+    return;
+  }
+  if (name === 'hideFurry') {
+    saveContentPreferences({ ...contentPreferences, hideFurry: event.target.checked });
     return;
   }
   if (name !== 'hideGenerated' && name !== 'hideAssisted') return;

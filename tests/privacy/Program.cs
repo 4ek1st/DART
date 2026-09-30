@@ -60,7 +60,7 @@ internal static class Program
             Expect(GetWindowDisplayAffinity(window.Handle, out var affinity) && affinity == 0x11,
                 "Windows must report WDA_EXCLUDEFROMCAPTURE for the test window");
 
-            Call(store, "UpdateContentPreferences", new ContentPreferences());
+            Call(store, "UpdateContentPreferences", new ContentPreferencesUpdate());
 
             var restartedStore = Store();
             var restartedProtection = Protection(restartedStore);

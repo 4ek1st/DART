@@ -353,8 +353,8 @@ internal static class Program
         {
             if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
             if (context.Request.ContentLength is > 20_000) return Results.StatusCode(413);
-            ContentPreferences? preferences;
-            try { preferences = await context.Request.ReadFromJsonAsync<ContentPreferences>(
+            ContentPreferencesUpdate? preferences;
+            try { preferences = await context.Request.ReadFromJsonAsync<ContentPreferencesUpdate>(
                 context.RequestAborted); }
             catch (System.Text.Json.JsonException) { return Results.BadRequest(); }
             if (preferences?.AiMode is not ("all" or "generated" or "generated-and-assisted") ||

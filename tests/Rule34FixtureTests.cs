@@ -448,18 +448,26 @@ try
         "A partial detail refresh must not erase visual grouping or grouped AI tags");
     var getPreferences = storeType.GetMethod("GetContentPreferences")!;
     var updatePreferences = storeType.GetMethod("UpdateContentPreferences")!;
-    Expect(((ContentPreferences)getPreferences.Invoke(metadataStore, null)!).Language == "en",
+    var legacyPreferences = (ContentPreferences)getPreferences.Invoke(metadataStore, null)!;
+    Expect(legacyPreferences.Language == "en" && !legacyPreferences.HideFurry,
         "An existing profile without a saved interface language must default to English");
     foreach (var language in new[] { "en", "ru", "de" })
     {
-        updatePreferences.Invoke(metadataStore, [new ContentPreferences { Language = language,
+        updatePreferences.Invoke(metadataStore, [new ContentPreferencesUpdate { Language = language,
             AiMode = "generated-and-assisted", ExcludedTags = ["blocked_tag"],
-            AttributionPriority = "creator", HideViewedAndSaved = true }]);
+            AttributionPriority = "creator", HideViewedAndSaved = true, HideFurry = true }]);
         var storedPreferences = (ContentPreferences)getPreferences.Invoke(metadataStore, null)!;
         Expect(storedPreferences.Language == language && storedPreferences.AiMode == "generated-and-assisted" &&
-            storedPreferences.ExcludedTags.SequenceEqual(["blocked_tag"]) && storedPreferences.HideViewedAndSaved,
+            storedPreferences.ExcludedTags.SequenceEqual(["blocked_tag"]) && storedPreferences.HideViewedAndSaved &&
+            storedPreferences.HideFurry,
             "Language preferences must survive a file round-trip without changing content filters");
     }
+    updatePreferences.Invoke(metadataStore, [new ContentPreferencesUpdate { Language = "de" }]);
+    Expect(((ContentPreferences)getPreferences.Invoke(metadataStore, null)!).HideFurry,
+        "A preferences update from an older client must preserve the saved furry switch");
+    updatePreferences.Invoke(metadataStore, [new ContentPreferencesUpdate { HideFurry = false }]);
+    Expect(!((ContentPreferences)getPreferences.Invoke(metadataStore, null)!).HideFurry,
+        "The user must be able to explicitly disable the furry filter");
 }
 finally
 {

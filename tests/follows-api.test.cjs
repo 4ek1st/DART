@@ -257,30 +257,32 @@ test('content preferences save separately from API credentials and survive a res
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', excludedTags: [], hiddenAuthors: [],
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', hideFurry: false, excludedTags: [], hiddenAuthors: [],
       attributionPriority: 'creator', hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] }, 'https://other.example')).status, 403);
     assert.equal((await post({ aiMode: 'invalid', excludedTags: [] })).status, 400);
+    assert.equal((await post({ aiMode: 'all', hideFurry: 'false', excludedTags: [] })).status, 400);
     assert.equal((await post({ aiMode: 'generated', excludedTags: ['a'.repeat(101)] })).status, 400);
-    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', excludedTags: [], hiddenAuthors: [],
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'all', hideFurry: false, excludedTags: [], hiddenAuthors: [],
       attributionPriority: 'creator', hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] })).status, 200);
-    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hiddenAuthors: [],
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hideFurry: false, hiddenAuthors: [],
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: false });
     assert.ok(fs.existsSync(path.join(dataDirectory, 'content-preferences.json')));
     assert.equal(fs.existsSync(path.join(dataDirectory, 'settings.bin')), false);
     await stopServer(server);
     server = await startServer(dataDirectory);
-    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hiddenAuthors: [],
+    assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hideFurry: false, hiddenAuthors: [],
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: false });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
-      hideViewedAndSaved: true })).status, 200);
+      hideViewedAndSaved: true, hideFurry: true })).status, 200);
     assert.equal((await get()).hideViewedAndSaved, true);
+    assert.equal((await get()).hideFurry, true);
     for (const language of ['de', 'ru', 'en']) {
       const previous = await get();
       assert.equal((await post({ ...previous, language })).status, 200);
@@ -290,6 +292,10 @@ test('content preferences save separately from API credentials and survive a res
       assert.deepEqual(await get(), { ...previous, language });
     }
     const savedPreferences = await get();
+    const { hideFurry, ...olderPreferences } = savedPreferences;
+    assert.equal((await post(olderPreferences)).status, 200);
+    assert.deepEqual(await get(), savedPreferences,
+      'an older preferences form must not turn off the furry filter');
     const hiddenPost = (body, origin = server.origin) => fetch(server.origin + '/api/hidden-authors', {
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -332,6 +338,12 @@ test('content preferences save separately from API credentials and survive a res
     await stopServer(server);
     server = await startServer(dataDirectory);
     assert.equal((await get()).hideViewedAndSaved, true);
+    assert.equal((await get()).hideFurry, true);
+    const beforeFurryDisabled = await get();
+    assert.equal((await post({ ...beforeFurryDisabled, hideFurry: false })).status, 200);
+    await stopServer(server);
+    server = await startServer(dataDirectory);
+    assert.deepEqual(await get(), { ...beforeFurryDisabled, hideFurry: false });
     const viewedResponse = await fetch(server.origin + '/api/viewed-identities');
     assert.equal(viewedResponse.status, 200);
     assert.deepEqual(await viewedResponse.json(), ['key:danbooru:12',

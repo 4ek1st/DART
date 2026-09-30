@@ -29,10 +29,21 @@ public sealed class ContentPreferences
 {
     public string Language { get; set; } = "en";
     public string AiMode { get; set; } = "all";
+    public bool HideFurry { get; set; }
     public List<string> ExcludedTags { get; set; } = [];
     public string AttributionPriority { get; set; } = "creator";
     public bool HideViewedAndSaved { get; set; }
     public List<HiddenAuthor> HiddenAuthors { get; set; } = [];
+}
+
+public sealed class ContentPreferencesUpdate
+{
+    public string Language { get; set; } = "en";
+    public string AiMode { get; set; } = "all";
+    public bool? HideFurry { get; set; }
+    public List<string> ExcludedTags { get; set; } = [];
+    public string AttributionPriority { get; set; } = "creator";
+    public bool HideViewedAndSaved { get; set; }
 }
 
 public sealed class PrivacyPreferences
@@ -507,19 +518,22 @@ internal sealed class LocalStore : ISankakuSessionStore
         }
     }
 
-    public ContentPreferences UpdateContentPreferences(ContentPreferences update)
+    public ContentPreferences UpdateContentPreferences(ContentPreferencesUpdate update)
     {
         lock (sync)
         {
             using var fileLock = AcquireFileLock(contentPreferencesLockFile);
+            var previous = ReadContentPreferencesFile(contentPreferencesFile);
             var preferences = new ContentPreferences
             {
                 Language = update.Language is "en" or "ru" or "de" ? update.Language : "en",
                 AiMode = update.AiMode,
+                // A preferences form from an older window must not reset the new switch.
+                HideFurry = update.HideFurry ?? previous.HideFurry,
                 AttributionPriority = update.AttributionPriority,
                 HideViewedAndSaved = update.HideViewedAndSaved,
                 // Older windows do not send this field. Only the dedicated mutation changes it.
-                HiddenAuthors = ReadContentPreferencesFile(contentPreferencesFile).HiddenAuthors ?? [],
+                HiddenAuthors = previous.HiddenAuthors ?? [],
                 ExcludedTags = update.ExcludedTags.Select(tag => tag.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
             };
