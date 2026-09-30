@@ -55,7 +55,8 @@ test('tag choices survive restart and unrelated session writes', async () => {
     assert.equal((await post('/api/recommendation-tag-preferences', {
       tag: 'Group_Sex', mode: 'disabled' })).status, 200);
     assert.equal((await post('/api/client-state', {
-      session: { tabs: [] }, recommendationTagPreferences: {}
+      session: { tabs: [] }, recommendationTagPreferences: {},
+      recommendationExposure: ['danbooru:123','rule34:456']
     })).status, 200);
     assert.deepEqual(await get(), { preferences: {
       holo: 'priority', 'group sex': 'disabled' }, initialized: true });
@@ -64,6 +65,8 @@ test('tag choices survive restart and unrelated session writes', async () => {
     }, 'http://elsewhere.invalid')).status, 403);
     await stop(server);
     server = await start(dataDirectory);
+    assert.deepEqual((await (await fetch(server.origin+'/api/client-state')).json()).recommendationExposure,
+      ['danbooru:123','rule34:456']);
     assert.deepEqual(await get(), { preferences: {
       holo: 'priority', 'group sex': 'disabled' }, initialized: true });
     assert.equal((await post('/api/recommendation-tag-preferences', {

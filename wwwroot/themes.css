@@ -112,6 +112,8 @@
 :root[data-theme='light'] .filter-button.adult-filter.active { background: #b44969; border-color: #b44969; color: #fff; }
 :root[data-theme='light'] .recommendation-tag-priority { background: #fff1c1; color: #6c4b00; border-color: #d6a829; }
 :root[data-theme='light'] .recommendation-tag-disabled { background: #fbe3e5; color: #862e38; border-color: #be646a; }
+:root[data-theme='light'] .recommendation-tag-character.recommendation-tag-normal { color: #28613c; border-color: #549169; }
+:root[data-theme='light'] .recommendation-tag-copyright.recommendation-tag-normal { color: #6d438f; border-color: #9974b6; }
 :root[data-theme='light'] .recommendation-other-heading,
 :root[data-theme='light'] .follow-add-form label,
 :root[data-theme='light'] .follow-tag-form label,

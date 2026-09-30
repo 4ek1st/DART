@@ -792,11 +792,19 @@
     'slightly chubby anthro', 'human to anthro', 'topless anthro', 'younger anthro'
   ]);
 
+  function excludedContentTags(tags) {
+    const blocked = new Set(normalizeExcludedTags(tags));
+    // These sites name the same content category differently. Expand only
+    // explicit markers, never substrings of artist names or animal-ear tags.
+    if (['furry', 'anthro', 'anthropomorphic'].some(tag => blocked.has(tag)))
+      for (const tag of furryTags) blocked.add(tag);
+    return blocked;
+  }
+
   function isWorkHidden(item, preferences = {}) {
     if (isAuthorHidden(item, preferences)) return true;
     const aiMode = preferences.aiMode || 'all';
-    const blocked = preferences.excludedTagSet ||
-      new Set(normalizeExcludedTags(preferences.excludedTags));
+    const blocked = preferences.excludedTagSet || excludedContentTags(preferences.excludedTags);
     const hideFurry = preferences.hideFurry === true;
     if (aiMode === 'all' && !blocked.size && !hideFurry) return false;
     const tags = [...new Set([...(item?.tags || []), ...(item?.allTags || [])]
@@ -812,7 +820,7 @@
         preferences?.hideFurry !== true && !preferences?.excludedTags?.length &&
         !preferences?.hiddenAuthors?.length) return items;
     const compiled = { ...preferences,
-      excludedTagSet: new Set(normalizeExcludedTags(preferences?.excludedTags)),
+      excludedTagSet: excludedContentTags(preferences?.excludedTags),
       hiddenAuthorSet: new Set((preferences?.hiddenAuthors || []).map(hiddenAuthorKey).filter(Boolean)) };
     if (compiled.aiMode === 'all' && compiled.hideFurry !== true &&
         !compiled.excludedTagSet.size && !compiled.hiddenAuthorSet.size) return items;
@@ -934,19 +942,54 @@
   }
 
   const recommendationProfiles = new WeakMap();
+  function recommendationRawTags(item) {
+    return [...(item?.tags || []), ...(item?.allTags || []),
+      ...(item?.characterTags || []), ...(item?.copyrightTags || [])];
+  }
+
+  function recommendationWorkTags(item) {
+    const authors = new Set(workParticipants(item).map(person => normalizeTag(person.tag)));
+    return meaningfulTags(recommendationRawTags(item)).filter(tag => !authors.has(tag) &&
+      !/^(?:.* commentary|commission|translated|translation request|tagme|artist name|signature|watermark)$/.test(tag));
+  }
+
+  function recommendationAuthor(item) {
+    const artist = workParticipants(item).find(person => person.role === 'artist')?.tag;
+    return artist ? normalizeTag(artist) : '';
+  }
+
   function recommendationProfile(liked) {
     const cached = recommendationProfiles.get(liked);
     if (cached) return cached.profile;
     const profile = new Map();
     const names = new Set();
-    for (const item of liked || []) {
+    const typedNames = new Set();
+    const copyrights = new Set();
+    const authorTotals = new Map();
+    // Snapshot once before grouping: metadata consumers must share one scan,
+    // including saved-work objects whose tag arrays are exposed through getters.
+    const works = groupWorks((liked || []).map(item => ({ ...item })));
+    for (const item of works) {
       const subject = normalizeTag(item.relatedQuery);
       const title = normalizeTag(item.title);
-      const tags = meaningfulTags(item.tags);
-      if (item.source === 'danbooru' && tags.includes(title)) names.add(title);
+      const raw = recommendationRawTags(item);
+      const tags = recommendationWorkTags(item);
+      for (const tag of item.characterTags || []) { names.add(normalizeTag(tag)); typedNames.add(normalizeTag(tag)); }
+      for (const tag of item.copyrightTags || []) copyrights.add(normalizeTag(tag));
+      // Legacy saved works may lack typed metadata. Keep the existing subject
+      // fallback, but authoritative character/Copyright metadata takes precedence.
+      if (!item.characterTags?.length && !copyrights.has(title) && tags.includes(title) &&
+          (item.source === 'danbooru' || !item.source && subject === title)) names.add(title);
+      const author = recommendationAuthor(item) || item.key;
+      authorTotals.set(author, (authorTotals.get(author) || 0) + 1);
       for (const tag of tags) {
-        const entry = profile.get(tag) || { tag, count: 0, weight: 0, subjectCount: 0 };
+        const query = String(raw.find(value => normalizeTag(value) === tag) || tag)
+          .normalize('NFKC').toLowerCase().trim().replace(/\s+/g, '_');
+        const entry = profile.get(tag) || { tag, query, count: 0, weight: 0, subjectCount: 0, authors: new Map() };
+        // Prefer a spelling that retains canonical punctuation over a saved label.
+        if (query.includes(':')) entry.query = query;
         entry.count++;
+        entry.authors.set(author, (entry.authors.get(author) || 0) + 1);
         entry.weight += 1 + (tag === subject ? 4 : 0) + (tag === title ? 3 : 0);
         if (tag === subject) entry.subjectCount++;
         profile.set(tag, entry);
@@ -955,7 +998,11 @@
     const ordered = [...profile.values()].sort((a, b) =>
       Number(b.subjectCount >= 2) - Number(a.subjectCount >= 2) ||
       b.weight - a.weight || b.count - a.count);
-    if (Array.isArray(liked)) recommendationProfiles.set(liked, { profile: ordered, names });
+    for (const tag of copyrights) if (!typedNames.has(tag)) names.delete(tag);
+    for (const entry of ordered) entry.support = [...entry.authors.values()]
+      .reduce((sum, count) => sum + Math.sqrt(count), 0);
+    if (Array.isArray(liked)) recommendationProfiles.set(liked, { profile: ordered, names, copyrights,
+      total: works.length, supportTotal: [...authorTotals.values()].reduce((sum, count) => sum + Math.sqrt(count), 0) });
     return ordered;
   }
 
@@ -964,40 +1011,52 @@
       .map(({ tag, count }) => ({ tag, count }));
   }
 
-  function recommendationTagGroups(liked, minCount = 2) {
+  function recommendationTagGroups(liked, minCount = 2, preferences = {}) {
     const profile = recommendationProfile(liked);
     const names = recommendationProfiles.get(liked)?.names || new Set();
-    const groups = { names: [], other: [] };
-    for (const { tag, count } of profile) {
-      if (count < minCount) continue;
-      (names.has(tag) ? groups.names : groups.other).push({ tag, count });
+    const copyrights = recommendationProfiles.get(liked)?.copyrights || new Set();
+    const groups = { names: [], copyright: [], other: [] };
+    for (const { tag, count, query } of profile) {
+      if (count < minCount && !preferences[tag]) continue;
+      const entry = { tag, count };
+      if (query !== tag.replaceAll(' ', '_')) entry.query = query;
+      (names.has(tag) ? groups.names : copyrights.has(tag) ? groups.copyright : groups.other).push(entry);
     }
+    for (const [tag, mode] of Object.entries(preferences))
+      if (['priority', 'disabled'].includes(mode) && !profile.some(entry => entry.tag === tag))
+        groups.other.push({ tag, count: 0 });
     groups.other.sort((a, b) =>
       Number(isBroadRecommendationTag(a.tag)) - Number(isBroadRecommendationTag(b.tag)) ||
       b.count - a.count);
     return groups;
   }
 
-  function recommendationQueryGroups(liked, preferences = {}) {
-    let groups = recommendationTagGroups(liked);
+  function recommendationQueryGroups(liked, preferences = {}, background = []) {
+    let groups = recommendationTagGroups(liked, 2, preferences);
     const usable = ({ tag }) => preferences[tag] !== 'disabled' &&
       (!isBroadRecommendationTag(tag) || preferences[tag] === 'priority');
-    if (![...groups.names, ...groups.other].some(usable))
-      groups = recommendationTagGroups(liked, 1);
+    if (![...groups.names, ...groups.copyright, ...groups.other].some(usable))
+      groups = recommendationTagGroups(liked, 1, preferences);
     const active = entries => entries.filter(usable);
-    const priority = [...active(groups.names), ...active(groups.other)]
+    const priority = [...active(groups.names), ...active(groups.copyright), ...active(groups.other)]
       .filter(({ tag }) => preferences[tag] === 'priority')
       .sort((a, b) => b.count - a.count);
     const minimumNameCount = Math.max(3,
       Math.ceil(Math.log2((liked || []).length + 1)) - 1);
     const names = active(groups.names).filter(({ tag, count }) =>
       preferences[tag] !== 'priority' && count >= minimumNameCount);
-    const other = active(groups.other).filter(({ tag }) => preferences[tag] !== 'priority')
-      .sort((a, b) => b.count - a.count);
-    if (!priority.length && !names.length && !other.length)
+    const minimumContentCount = Math.max(2, Math.min(8,
+      Math.ceil(Math.log2((liked || []).length + 1) / 2)));
+    const weights = recommendationWeights(liked, preferences, background);
+    const copyright = active(groups.copyright).filter(({ tag, count }) =>
+      preferences[tag] !== 'priority' && count >= minimumNameCount);
+    const other = active(groups.other).filter(({ tag, count }) => preferences[tag] !== 'priority' &&
+      count >= minimumContentCount)
+      .sort((a, b) => (weights.get(b.tag) || 0) - (weights.get(a.tag) || 0) || b.count - a.count);
+    if (!priority.length && !names.length && !copyright.length && !other.length)
       names.push(...active(groups.names).filter(({ tag }) =>
         preferences[tag] !== 'priority').slice(0, 1));
-    return { priority, names, other };
+    return { priority, names, copyright, other };
   }
 
   function matchesRating(item, rating) {
@@ -1018,62 +1077,109 @@
     return ((hash ^ hash >>> 16) >>> 0) / 0xffffffff;
   }
 
+  function recommendationWeights(liked, preferences, background = []) {
+    const profile = recommendationProfile(liked);
+    const state = recommendationProfiles.get(liked);
+    const minimumNameCount = Math.max(3, Math.ceil(Math.log2((liked || []).length + 1)) - 1);
+    const ordinary = groupWorks(background);
+    const prevalence = new Map();
+    for (const item of ordinary)
+      for (const tag of recommendationWorkTags(item)) prevalence.set(tag, (prevalence.get(tag) || 0) + 1);
+    const weights = new Map();
+    for (const { tag, count, support } of profile) {
+      if (preferences[tag] === 'disabled' || isBroadRecommendationTag(tag) && preferences[tag] !== 'priority') continue;
+      // Repeated versions by one creator provide less independent evidence than
+      // matching interests across many artists. Smooth small samples strongly.
+      let weight = Math.max(0.25, Math.log2(support + 1) - 0.75) * (support / (support + 1)) ** 2;
+      if (state?.names.has(tag) || state?.copyrights.has(tag))
+        weight *= count < minimumNameCount ? 0.35 : 0.9;
+      else weight *= 1.45;
+      if (ordinary.length >= 24 && preferences[tag] !== 'priority') {
+        // This is a fresh, unpersonalized local sample, not a claim about the
+        // entire site's frequency. Smoothing prevents zero-count overconfidence.
+        const likedRate = (support + 1) / ((state?.supportTotal || liked.length) + 2);
+        const ordinaryRate = ((prevalence.get(tag) || 0) + 1) / (ordinary.length + 2);
+        const lift = likedRate / ordinaryRate;
+        const specificity = Math.max(0.08, Math.min(2.4, Math.log2(1 + lift) - 0.8));
+        const confidence = ordinary.length / (ordinary.length + 80);
+        weight *= 1 + (specificity - 1) * confidence;
+      }
+      weights.set(tag, preferences[tag] === 'priority' ? Math.max(2.5, weight) : weight);
+    }
+    // An explicit choice keeps working after the last matching like disappears.
+    for (const [tag, mode] of Object.entries(preferences))
+      if (mode === 'priority' && !weights.has(tag)) weights.set(tag, 2.5);
+    return weights;
+  }
+
+  function recommendationCandidateTags(item, preferences) {
+    return [...new Set([...recommendationWorkTags(item), ...recommendationRawTags(item)
+      .map(normalizeTag).filter(tag => preferences[tag] === 'priority')])];
+  }
+
   function rankRecommendations(liked, candidates, rating = 'general', limit = 96,
-    preferences = {}, varietySeed = 0) {
-    const savedKeys = new Set((liked || []).map(item => item.key));
-    const disabledTags = new Set(Object.entries(preferences)
-      .filter(([, mode]) => mode === 'disabled').map(([tag]) => normalizeTag(tag)));
+    preferences = {}, varietySeed = 0, context = {}) {
+    const savedKeys = new Set((liked || []).flatMap(item => item.memberKeys || [item.key]));
+    const existingKeys = new Set((context.existingWorks || []).flatMap(item => item.memberKeys || [item.key]));
+    const disabledTags = Object.entries(preferences)
+      .filter(([, mode]) => mode === 'disabled').map(([tag]) => tag);
+    const disabledNormalized = new Set(disabledTags.map(normalizeTag));
     const disabledCandidateKeys = new Set((candidates || [])
-      .filter(item => (item.tags || []).some(tag =>
-        disabledTags.has(normalizeTag(tag))))
+      .filter(item => isWorkHidden(item, { excludedTags: disabledTags }) ||
+        recommendationRawTags(item).some(tag => disabledNormalized.has(normalizeTag(tag))))
       .flatMap(item => item.memberKeys || [item.key]));
     const excludedKeys = new Set(groupWorks([...(liked || []), ...(candidates || [])])
       .filter(group => group.memberKeys.some(key => savedKeys.has(key)))
       .flatMap(group => group.memberKeys));
-    const profile = recommendationProfile(liked);
     const nameTags = new Set(recommendationTagGroups(liked, 1).names.map(({ tag }) => tag));
-    const minimumNameCount = Math.max(3,
-      Math.ceil(Math.log2((liked || []).length + 1)) - 1);
-    const weights = new Map(profile.filter(({ tag }) =>
-      preferences[tag] !== 'disabled' &&
-      (!isBroadRecommendationTag(tag) || preferences[tag] === 'priority'))
-      .map(({ tag, count }) => [tag,
-        Math.max(0.25, Math.log2(count + 1) - 0.75) *
-          (nameTags.has(tag) ? count < minimumNameCount ? 0.35 : 0.9 : 1.45)]));
+    const weights = recommendationWeights(liked, preferences, context.background);
+    const recentKeys = new Set(context.recentKeys || []);
     const seen = new Set();
     const scored = groupWorks(candidates || []).map((item, index) => {
       if (!item?.key || excludedKeys.has(item.key) || seen.has(item.key) ||
+          item.memberKeys.some(key => existingKeys.has(key)) ||
           item.memberKeys.some(key => disabledCandidateKeys.has(key)) ||
           !matchesRating(item, rating)) return null;
       seen.add(item.key);
-      const tags = meaningfulTags(item.tags);
-      const score = tags.reduce((sum, tag) => sum + (weights.get(tag) || 0), 0);
+      const tags = recommendationCandidateTags(item, preferences);
+      const contributions = tags.map(tag => weights.get(tag) || 0).filter(Boolean).sort((a,b) => b-a);
+      // Long tag lists must not beat a few strong matches by summing noise.
+      const score = contributions.reduce((sum, value, index) => sum + value * (index < 6 ? 1 : 0.1), 0);
       const priorityScore = tags.reduce((sum, tag) =>
         sum + (preferences[tag] === 'priority' ? weights.get(tag) || 0 : 0), 0);
       const characters = tags.filter(tag => nameTags.has(tag) &&
         preferences[tag] !== 'priority');
-      return score ? { item, index, score, priorityScore, characters,
-        variedScore: varietySeed ? score * (0.85 +
-          recommendationVariety(item.key, varietySeed) * 0.3) : score,
+      const seenBefore = item.memberKeys.some(key => recentKeys.has(key));
+      return score ? { item, index, score, priorityScore, characters, author: recommendationAuthor(item),
+        variedScore: score * (seenBefore ? 0.2 : 1) * (varietySeed ? 0.6 +
+          recommendationVariety(item.key, varietySeed) * 0.8 : 1),
         variety: varietySeed ? recommendationVariety(item.key, varietySeed) : 0 } : null;
     }).filter(Boolean).sort((a, b) =>
-      b.priorityScore - a.priorityScore ||
+      Number(b.priorityScore > 0) - Number(a.priorityScore > 0) ||
       b.variedScore - a.variedScore || b.variety - a.variety || a.index - b.index)
     const displayedCharacters = new Map();
+    const displayedAuthors = new Map();
+    for (const item of context.existingWorks || []) {
+      for (const tag of recommendationCandidateTags(item, preferences).filter(tag => nameTags.has(tag)))
+        displayedCharacters.set(tag, (displayedCharacters.get(tag) || 0) + 1);
+      const author = recommendationAuthor(item);
+      if (author) displayedAuthors.set(author, (displayedAuthors.get(author) || 0) + 1);
+    }
     const diversified = [];
     while (scored.length && diversified.length < limit) {
       let best = 0;
       let bestPriority = -1;
       let bestScore = -1;
-      for (let index = 0; index < Math.min(scored.length, 64); index++) {
+      for (let index = 0; index < Math.min(scored.length, 256); index++) {
         const entry = scored[index];
         const repetitions = Math.max(0, ...entry.characters.map(tag =>
           displayedCharacters.get(tag) || 0));
-        const adjusted = entry.variedScore / (1 + repetitions * 1.8);
-        if (entry.priorityScore > bestPriority ||
-            entry.priorityScore === bestPriority && adjusted > bestScore) {
+        const authorRepetitions = entry.author ? displayedAuthors.get(entry.author) || 0 : 0;
+        const adjusted = entry.variedScore / (1 + repetitions * 1.8) / (1 + authorRepetitions * 0.65);
+        const priority = Number(entry.priorityScore > 0);
+        if (priority > bestPriority || priority === bestPriority && adjusted > bestScore) {
           best = index;
-          bestPriority = entry.priorityScore;
+          bestPriority = priority;
           bestScore = adjusted;
         }
       }
@@ -1081,35 +1187,26 @@
       diversified.push(selected.item);
       for (const tag of selected.characters)
         displayedCharacters.set(tag, (displayedCharacters.get(tag) || 0) + 1);
+      if (selected.author) displayedAuthors.set(selected.author, (displayedAuthors.get(selected.author) || 0) + 1);
     }
     return diversified;
   }
 
   function mergeRecommendations(liked, existing, groups, rating = 'general',
-    preferences = {}, varietySeed = 0) {
-    const existingKeys = new Set((existing || []).flatMap(item =>
-      item.memberKeys || [item.key]));
-    const kinds = new Map();
-    for (const group of groups || [])
-      for (const item of group.items || []) kinds.set(item.key, group.kind);
+    preferences = {}, varietySeed = 0, context = {}) {
     const ranked = rankRecommendations(liked,
       [...(existing || []), ...(groups || []).flatMap(group => group.items || [])],
-      rating, Number.MAX_SAFE_INTEGER, preferences, varietySeed);
-    const buckets = { priority: [], other: [], names: [] };
-    for (const item of ranked) {
-      const keys = item.memberKeys || [item.key];
-      if (keys.some(key => existingKeys.has(key))) continue;
-      const kindsForItem = keys.map(key => kinds.get(key));
-      const kind = kindsForItem.includes('priority') ? 'priority' :
-        kindsForItem.includes('other') ? 'other' : 'names';
-      buckets[kind].push(item);
-    }
+      rating, Number.MAX_SAFE_INTEGER, preferences, varietySeed, { ...context, existingWorks: existing });
+    const preferred = [], discovery = [];
+    for (const item of ranked)
+      (recommendationCandidateTags(item, preferences).some(tag => preferences[tag] === 'priority')
+        ? preferred : discovery).push(item);
     const fresh = [];
-    while (buckets.priority.length || buckets.other.length || buckets.names.length) {
-      if (buckets.priority.length) fresh.push(buckets.priority.shift());
-      for (let index = 0; index < 3; index++)
-        if (buckets.other.length) fresh.push(buckets.other.shift());
-      if (buckets.names.length) fresh.push(buckets.names.shift());
+    // Match the user's choices regardless of which query found the artwork,
+    // while leaving room for other learned interests. Existing cards stay put.
+    while (preferred.length || discovery.length) {
+      for (let index = 0; index < 3 && preferred.length; index++) fresh.push(preferred.shift());
+      if (discovery.length) fresh.push(discovery.shift());
     }
     return [...(existing || []), ...fresh];
   }

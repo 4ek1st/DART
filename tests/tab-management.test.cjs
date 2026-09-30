@@ -13,7 +13,7 @@ function fixture() {
     main: { scrollTop: 0, dataset: {}, querySelectorAll: () => [] },
     defaultSources: ['danbooru', 'gelbooru', 'rule34'],
     names: { danbooru: 'Danbooru', gelbooru: 'Gelbooru', rule34: 'Rule34' },
-    tabPreferences: { artworkTabs: 'preview' }, recent: [],
+    tabPreferences: { artworkTabs: 'preview' }, recent: [], recommendationExposure: [],
     detailImageDeduper: { duplicates: { entries: () => [] } },
     localStorage: { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value) },
     fetch: async (url, options) => { writes.push(JSON.parse(options.body)); return {}; },

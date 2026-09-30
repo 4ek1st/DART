@@ -77,6 +77,27 @@ Right-click a tag to adjust it:
 These preferences persist across restarts. **Other** contains content tags;
 prioritized and disabled tags stay at the top of the list.
 
+Character tags appear with a green outline. **Copyright** tags, such as the
+franchise or series, appear separately in purple. Their original spelling is
+kept when searching, including punctuation. Yellow and red choices override
+these category colors and remain available even if no current likes match.
+
+Recommendations use the full available tag list. Repeated likes from one
+artist contribute less than the same interest across several artists. A tag
+appearing in just two liked works does not start its own search in a large
+collection; you can still give it an explicit yellow priority.
+
+For larger collections, DART compares recurring tags with a small recent,
+unpersonalized sample from the selected catalogs. Common tags carry less
+weight when they are also common in that sample. This is a local estimate,
+not a measurement of the entire catalog. If the sample is unavailable,
+recommendations continue using the likes and your explicit choices.
+
+Refresh rotates through the eligible interests and favors similarly relevant
+works that have not been suggested recently. This short suggestion history
+persists across restarts and does not mark works as viewed or permanently
+hide them. Loading more appends cards without changing the existing order.
+
 ## Following artists
 
 Open an artist profile or a post and select **Follow**. Following a confirmed
@@ -104,6 +125,10 @@ The switch is off by default and persists in your profile. Turning it on does
 not delete likes, bookmarks or subscriptions. Turning it off restores works
 that are allowed by your other filters. Manually excluded tags and AI filters
 continue to apply independently.
+
+Manually excluding `furry`, `anthro` or `anthropomorphic` also covers their
+explicit equivalents across sources. Animal ears, tails and artist names
+alone do not trigger this exclusion.
 
 ## Updates and your data
 

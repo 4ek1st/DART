@@ -101,6 +101,7 @@ let renderedTabsMarkup = '';
 let recommendationTagPreferences = {};
 let recommendationPreferenceSaveQueue = Promise.resolve();
 let recommendationVisitCount = 0;
+let recommendationExposure = [];
 const visualHashCache = new Map();
 
 try { recent = CatalogLogic.filterCatalogItems(JSON.parse(localStorage.getItem('artcatalog-recent') || '[]')); }
@@ -133,6 +134,13 @@ catch { recommendationTagPreferences = Object.create(null); }
 try { recommendationVisitCount = Math.max(0, Number.parseInt(
   localStorage.getItem('artcatalog-recommendation-visit-count') || '0', 10) || 0); }
 catch { recommendationVisitCount = 0; }
+
+function cleanRecommendationExposure(value) {
+  return [...new Set((Array.isArray(value) ? value : []).filter(key =>
+    typeof key === 'string' && /^(danbooru|gelbooru|rule34|sankaku):[A-Za-z0-9]{1,64}$/.test(key)))].slice(-512);
+}
+try { recommendationExposure = cleanRecommendationExposure(JSON.parse(
+  localStorage.getItem('dart-recommendation-exposure') || '[]')); } catch { /* Empty history is valid. */ }
 
 async function request(path, options = {}) {
   const fetchOptions = options;
@@ -343,7 +351,7 @@ function saveSession() {
   fetch('/api/client-state', { method: 'POST', keepalive: true,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session, themePreference: globalThis.DartTheme?.preference || 'system',
-      recent, searchHistory: getSearchHistory(),
+      recent, searchHistory: getSearchHistory(), recommendationExposure,
       mediaDuplicatePairs: detailImageDeduper.duplicates.entries() })
   }).catch(() => {});
 }
@@ -379,6 +387,10 @@ async function loadRecommendationTagPreferences() {
 async function loadClientState() {
   try {
     const state = CatalogLogic.cleanClientState(await request('/api/client-state'));
+    if (Array.isArray(state.recommendationExposure)) {
+      recommendationExposure = cleanRecommendationExposure(state.recommendationExposure);
+      localStorage.setItem('dart-recommendation-exposure', JSON.stringify(recommendationExposure));
+    }
     detailImageDeduper.duplicates.restore(state.mediaDuplicatePairs);
     if (['system', 'light', 'dark', 'list'].includes(state.themePreference))
       globalThis.DartTheme?.setPreference(state.themePreference);
@@ -913,11 +925,11 @@ async function refreshFollows() {
   }
 }
 
-function createRecommendationPools(liked, sources, preferences) {
-  const selected = CatalogLogic.recommendationQueryGroups(liked, preferences);
+function createRecommendationPools(liked, sources, preferences, background = []) {
+  const selected = CatalogLogic.recommendationQueryGroups(liked, preferences, background);
   const selectedSources = sources.filter(source => CatalogLogic.supportedSources.includes(source));
-  return Object.fromEntries(['priority', 'names', 'other'].map(kind => [kind,
-    selected[kind].map(({ tag }) => ({ tag, kind, streams: [
+  return Object.fromEntries(['priority', 'names', 'copyright', 'other'].map(kind => [kind,
+    selected[kind].map(({ tag, query }) => ({ tag, query: query || tag.replaceAll(' ', '_'), kind, streams: [
       ...(selectedSources.length ? [{ nextPage: 0, sources: [...selectedSources] }] : [])
     ] })).filter(group => group.streams.length)]));
 }
@@ -925,6 +937,41 @@ function createRecommendationPools(liked, sources, preferences) {
 function recommendationPoolsHaveMore(pools) {
   return Object.values(pools || {}).some(pool => pool.some(group =>
     group.streams.some(stream => stream.sources.length)));
+}
+
+async function loadRecommendationBackground(tab, signal) {
+  const key = `${tab.rating}:${[...tab.selectedSources].sort().join(',')}`;
+  if (tab.recommendationBackgroundKey === key && Date.now() - tab.recommendationBackgroundAt < 600000)
+    return tab.recommendationBackground || [];
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener('abort', abort, { once: true });
+  const timeout = setTimeout(abort, 2500);
+  try {
+    const params = new URLSearchParams({ q: '', page: '0', sources: tab.selectedSources.join(','),
+      rating: tab.rating, sort: 'recent', kind: 'illustrations' });
+    const result = await request(`/api/search?${params}`, { signal: controller.signal });
+    if (signal.aborted) return [];
+    tab.recommendationBackground = result.items || [];
+    tab.recommendationBackgroundKey = key;
+    tab.recommendationBackgroundAt = Date.now();
+    return tab.recommendationBackground;
+  } catch { return tab.recommendationBackgroundKey === key ? tab.recommendationBackground || [] : []; }
+  finally { clearTimeout(timeout); signal.removeEventListener('abort', abort); }
+}
+
+function rememberRecommendationExposure(tab) {
+  const keys = tab.items.slice(0, 48).flatMap(item => item.memberKeys || [item.key]);
+  tab.recommendationExposure = [...new Set([...(tab.recommendationExposure || []), ...keys])].slice(-512);
+  if (typeof recommendationExposure === 'undefined') return;
+  // Soft ranking history is separate from opened/viewed works. Never mark an
+  // artwork as viewed merely because it was suggested.
+  const fresh = new Set(keys);
+  recommendationExposure = cleanRecommendationExposure([
+    ...recommendationExposure.filter(key => !fresh.has(key)), ...keys]);
+  try { localStorage.setItem('dart-recommendation-exposure', JSON.stringify(recommendationExposure)); }
+  catch { /* Server session persistence remains available. */ }
+  saveSession();
 }
 
 function nextRecommendationGroup(tab, kind, excluded = new Set()) {
@@ -951,12 +998,12 @@ function selectRecommendationGroups(tab) {
     return !!group;
   };
   if (add('priority')) {
-    const second = (tab.recommendationRound++ % 3 === 2) ? 'names' : 'other';
-    if (!add(second)) add(second === 'other' ? 'names' : 'other');
+    const second = ['other', 'other', 'names', 'copyright'][tab.recommendationRound++ % 4];
+    if (!add(second)) for (const kind of ['other', 'names', 'copyright']) if (add(kind)) break;
   } else {
     add('other');
-    const second = (tab.recommendationRound++ % 3 === 2) ? 'names' : 'other';
-    if (!add(second)) add(second === 'other' ? 'names' : 'other');
+    const second = ['other', 'other', 'names', 'copyright'][tab.recommendationRound++ % 4];
+    if (!add(second)) for (const kind of ['other', 'names', 'copyright']) if (add(kind)) break;
   }
   return chosen;
 }
@@ -971,17 +1018,21 @@ function prepareRecommendationProfile(tab, liked = CatalogLogic.filterWorks(
     recommendationVisitCount) >>> 0 || 1;
   if (tab.recommendationSeed === previousSeed)
     tab.recommendationSeed = (tab.recommendationSeed + 1) >>> 0 || 1;
+  tab.recommendationRecentKeys = typeof recommendationExposure === 'undefined'
+    ? [...(tab.recommendationExposure || [])] : [...recommendationExposure];
   tab.recommendationTags = CatalogLogic.recommendationTags(liked, 6);
-  tab.recommendationTagGroups = CatalogLogic.recommendationTagGroups(liked);
+  tab.recommendationTagGroups = CatalogLogic.recommendationTagGroups(liked, 2, recommendationTagPreferences);
   tab.emptyRecommendationRounds = 0;
   tab.recommendationPaused = false;
   tab.recommendationPools = createRecommendationPools(liked,
-    tab.selectedSources, recommendationTagPreferences);
+    tab.selectedSources, recommendationTagPreferences,
+    tab.recommendationBackgroundKey === `${tab.rating}:${[...tab.selectedSources].sort().join(',')}`
+      ? tab.recommendationBackground || [] : []);
   const start = kind => {
-    const count = Math.min(tab.recommendationPools[kind].length, 8);
+    const count = tab.recommendationPools[kind].length;
     return count ? recommendationVisitCount % count : 0;
   };
-  tab.recommendationCursors = { priority: start('priority'), names: start('names'),
+  tab.recommendationCursors = { priority: start('priority'), names: start('names'), copyright: start('copyright'),
     other: start('other') };
   tab.recommendationRound = 0;
   tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
@@ -1056,12 +1107,14 @@ async function loadRecommendations(tab, append = false) {
   tab.loading = true;
   if (activeId === tab.id) render();
   try {
+    const backgroundTask = visibleLikes.length >= 24
+      ? loadRecommendationBackground(tab, controller.signal) : Promise.resolve([]);
     const jobs = groups.flatMap(group => group.streams.filter(stream =>
       stream.sources.length && (!stream.retryAt || stream.retryAt <= Date.now()))
       .map(stream => ({ group, stream })));
     const results = await Promise.all(jobs.map(async ({ group, stream }) => {
       const params = new URLSearchParams({
-        q: group.tag.replaceAll(' ', '_'),
+        q: group.query,
         page: String(stream.nextPage), sources: stream.sources.join(','),
         rating: tab.rating, sort: 'recent', kind: 'illustrations' });
       try {
@@ -1099,13 +1152,17 @@ async function loadRecommendations(tab, append = false) {
       }
     }
     const previousCount = tab.items.length;
+    const background = await backgroundTask;
+    if (version !== tab.recommendationVersion || controller.signal.aborted) return;
     const ranked = await mergeRecommendationsAsync(visibleLikes, tab.items,
-      candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed);
+      candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed,
+      { background, recentKeys: tab.recommendationRecentKeys });
     if (!findTab(tab.id) || version !== tab.recommendationVersion || controller.signal.aborted) return;
     tab.items = CatalogLogic.filterWorks(ranked, contentPreferences);
     if (contentPreferences.hideViewedAndSaved)
       tab.items = tab.items.filter(item => !CatalogLogic.workHistoryTokens(item)
         .some(token => viewedTokens.has(token)) || isRetainedFeedWork(tab, item));
+    rememberRecommendationExposure(tab);
     tab.emptyRecommendationRounds = tab.items.length === previousCount
       ? (tab.emptyRecommendationRounds || 0) + 1 : 0;
     tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
@@ -2530,15 +2587,16 @@ function renderSearchSummary(tab) {
   return `<div class="search-result-summary" role="status"><span>${escapeHtml(parts.join(' · '))}</span>${sourceNotes.length ? `<span class="muted">${escapeHtml(sourceNotes.join(' · '))}</span>` : ''}</div>`;
 }
 
-function renderRecommendationTagChips(tags) {
-  return tags.map(({ tag, count }) => {
+function renderRecommendationTagChips(tags, kind = '') {
+  return tags.map(({ tag, count, query }) => {
     const mode = recommendationTagPreferences[tag] || 'normal';
     const common = mode === 'normal' && CatalogLogic.isBroadRecommendationTag(tag);
     const hint = mode === 'priority' ? 'Показывать чаще' :
       mode === 'disabled' ? 'Выключен для рекомендаций' :
         common ? 'Общий тег: включите жёлтый приоритет, чтобы он влиял на подбор' :
           'Правая кнопка — настроить рекомендации';
-    return `<button class="filter-button recommendation-tag recommendation-tag-${mode}${common ? ' recommendation-tag-common' : ''}" data-action="query" data-recommendation-tag="${escapeHtml(tag)}" data-query="${escapeHtml(tag.replaceAll(' ', '_'))}" title="${hint}"><span data-no-i18n>#${escapeHtml(tag)}</span> <small>×${count}</small></button>`;
+    const canonical = query || tag.replaceAll(' ', '_');
+    return `<button class="filter-button recommendation-tag recommendation-tag-${mode}${kind ? ` recommendation-tag-${kind}` : ''}${common ? ' recommendation-tag-common' : ''}" data-action="query" data-recommendation-tag="${escapeHtml(tag)}" data-query="${escapeHtml(canonical)}" title="${hint}"><span data-no-i18n>#${escapeHtml(canonical.replaceAll('_', ' '))}</span> <small>×${count}</small></button>`;
   }).join('');
 }
 
@@ -2625,14 +2683,19 @@ function renderRecommendations(tab) {
   const tags = tab.recommendationTags || [];
   const visibleLikes = CatalogLogic.filterWorks(
     CatalogLogic.groupWorks(likes), contentPreferences);
-  const groups = tab.recommendationTagGroups || { names: [], other: [] };
+  const hasChoices = Object.keys(recommendationTagPreferences).length > 0;
+  const groups = tab.recommendationTagGroups || { names: [], copyright: [], other: [] };
   const visibleNames = tab.showMoreRecommendationNames
     ? groups.names : groups.names.slice(0, 6);
   const hiddenNameCount = Math.max(0, groups.names.length - 6);
+  const copyrights = groups.copyright || [];
+  const visibleCopyrights = tab.showMoreRecommendationCopyright ? copyrights : copyrights.slice(0, 3);
+  const hiddenCopyrightCount = Math.max(0, copyrights.length - 3);
   return `<div class="content"><h1>Рекомендации</h1>
     <p class="section-sub">Подборка по тегам изображений, которые вы отметили сердечком. Понравившиеся работы не повторяются.</p>
-    ${!likes.length ? '<div class="empty feature-empty">Поставьте лайк сердечком, и здесь появятся рекомендации.</div>' : !visibleLikes.length ? '<div class="empty feature-empty">Все понравившиеся работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.</div>' : !tags.length ? '<div class="empty feature-empty">У понравившихся работ пока нет подходящих тегов для подбора.</div>' : `
-      <div class="recommendation-tags"><span>Ваши частые теги</span>${renderRecommendationTagChips(visibleNames)}${hiddenNameCount ? `<button class="filter-button" data-action="recommendation-tags-more" aria-expanded="${!!tab.showMoreRecommendationNames}">${tab.showMoreRecommendationNames ? 'Свернуть' : `Ещё +${hiddenNameCount}`}</button>` : ''}<button class="filter-button recommendation-other-toggle" data-action="recommendation-other" aria-expanded="${!!tab.otherTagsOpen}" aria-controls="recommendation-other-panel">Other</button></div>
+    ${!likes.length && !hasChoices ? '<div class="empty feature-empty">Поставьте лайк сердечком, и здесь появятся рекомендации.</div>' : !visibleLikes.length && !hasChoices ? '<div class="empty feature-empty">Все понравившиеся работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.</div>' : !tags.length && !hasChoices ? '<div class="empty feature-empty">У понравившихся работ пока нет подходящих тегов для подбора.</div>' : `
+      <div class="recommendation-tags"><span>Ваши частые теги</span>${renderRecommendationTagChips(visibleNames, 'character')}${hiddenNameCount ? `<button class="filter-button" data-action="recommendation-tags-more" aria-expanded="${!!tab.showMoreRecommendationNames}">${tab.showMoreRecommendationNames ? 'Свернуть' : `Ещё +${hiddenNameCount}`}</button>` : ''}<button class="filter-button recommendation-other-toggle" data-action="recommendation-other" aria-expanded="${!!tab.otherTagsOpen}" aria-controls="recommendation-other-panel">Other</button></div>
+      ${copyrights.length ? `<div class="recommendation-tags recommendation-copyright-tags"><span>Copyright</span>${renderRecommendationTagChips(visibleCopyrights, 'copyright')}${hiddenCopyrightCount ? `<button class="filter-button" data-action="recommendation-copyright-more" aria-expanded="${!!tab.showMoreRecommendationCopyright}">${tab.showMoreRecommendationCopyright ? 'Свернуть' : `Ещё +${hiddenCopyrightCount}`}</button>` : ''}</div>` : ''}
       ${tab.otherTagsOpen ? `<div class="recommendation-other-panel" id="recommendation-other-panel"><div class="recommendation-other-heading"><strong>Теги содержания</strong><span class="recommendation-other-count">${filteredRecommendationOtherTags(tab).length} из ${groups.other.length}</span></div><p class="recommendation-other-note">Частые необычные теги влияют на подбор. Приглушённые общие теги учитываются только с жёлтым приоритетом. Настройка — правой кнопкой мыши.</p><input class="recommendation-other-filter" type="search" data-recommendation-other-filter value="${escapeHtml(tab.otherTagFilter || '')}" placeholder="Найти тег, например group_sex" aria-label="Найти тег содержания"><div class="recommendation-other-list">${renderRecommendationOtherList(tab)}</div></div>` : ''}
       <div class="search-tools">
         <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="recommendation-rating" data-rating="${rating}">${label}</button>`).join('')}</div>
@@ -4396,6 +4459,10 @@ main.addEventListener('click', event => {
   }
   else if (action === 'recommendation-refresh' && tab?.kind === 'recommendations')
     loadRecommendations(tab);
+  else if (action === 'recommendation-copyright-more' && tab?.kind === 'recommendations') {
+    tab.showMoreRecommendationCopyright = !tab.showMoreRecommendationCopyright;
+    render();
+  }
   else if (action === 'recommendation-more-retry' && tab?.kind === 'recommendations') {
     tab.loadError = false; loadRecommendations(tab, true);
   }

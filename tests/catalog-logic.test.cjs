@@ -393,6 +393,7 @@ test('recommendation tag groups keep recurring character names apart from conten
   ];
   assert.deepEqual(recommendationTagGroups(liked), {
     names: [{ tag: 'holo', count: 2 }],
+    copyright: [],
     other: [{ tag: 'group sex', count: 3 }, { tag: 'cum', count: 2 }]
   });
 });
@@ -556,7 +557,8 @@ test('new recommendation pages keep old cards and mix name and content results b
   assert.equal(result.length, 131);
   assert.equal(result[0].key, 'd:old');
   assert.equal(result[1].key, 'd:content0');
-  assert.equal(result[4].key, 'd:name0');
+  assert.ok(result.some(item => item.key === 'd:name0'));
+  assert.ok(result.some(item => item.key === 'd:content64'));
   assert.equal(result.some(item => item.key === 'g:copy'), false);
 });
 

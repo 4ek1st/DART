@@ -165,6 +165,9 @@ h3 { font-size: 15px; }
 .feature-empty { margin-top: 28px; }
 .recommendation-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 25px 0 8px; }
 .recommendation-tags > span { color: var(--muted); margin-right: 5px; }
+.recommendation-copyright-tags { margin-top: 8px; }
+.filter-button.recommendation-tag-character.recommendation-tag-normal { border-color: #66ac84; color: #a9e0be; }
+.filter-button.recommendation-tag-copyright.recommendation-tag-normal { border-color: #9473b8; color: #d5b6f5; }
 .recommendation-tags .filter-button small { color: var(--muted); margin-left: 5px; }
 .filter-button.recommendation-tag-priority { border-color: #d5a72d; background: #574719; color: #ffe082; }
 .filter-button.recommendation-tag-disabled { border-color: #a84c51; background: #4b292d; color: #ffacb0; }
