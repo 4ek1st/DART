@@ -56,6 +56,7 @@ let quickPreviewPointer = null;
 let quickPreviewGeneration = 0;
 let quickPreviewView = { scale: 1, x: 0, y: 0 };
 let quickPreviewDrag = null;
+let quickPreviewZoomTimer = null;
 const tabs = [];
 const itemIndex = new Map();
 let nextId = 1;
@@ -2027,7 +2028,7 @@ function paintQuickPreview(instant = false) {
   const stage = quickPreview.querySelector('.quick-preview-stage');
   const image = stage?.querySelector('.quick-preview-image');
   if (!image) return;
-  quickPreviewView = quickPreviewClampPan(quickPreviewView, stage.clientWidth, stage.clientHeight);
+  quickPreviewView = quickPreviewClampPan(quickPreviewView, image.clientWidth, image.clientHeight);
   stage.classList.toggle('zoomed', quickPreviewView.scale > 1.01);
   stage.classList.toggle('panning', !!quickPreviewDrag);
   image.style.transitionDuration = instant || quickPreviewDrag ? '0s' : '';
@@ -2036,6 +2037,17 @@ function paintQuickPreview(instant = false) {
   quickPreview.querySelector('[data-preview-action="zoom-out"]').disabled = quickPreviewView.scale <= 1;
   quickPreview.querySelector('[data-preview-action="zoom-in"]').disabled = quickPreviewView.scale >= 6;
   quickPreview.querySelector('[data-preview-action="fit"]').disabled = quickPreviewView.scale <= 1;
+}
+
+function showQuickPreviewZoom() {
+  const label = quickPreview.querySelector('.quick-preview-zoom');
+  if (!label) return;
+  clearTimeout(quickPreviewZoomTimer);
+  label.classList.add('visible');
+  quickPreviewZoomTimer = setTimeout(() => {
+    label.classList.remove('visible');
+    quickPreviewZoomTimer = null;
+  }, 1100);
 }
 
 function zoomQuickPreview(nextScale, clientX, clientY) {
@@ -2047,9 +2059,12 @@ function zoomQuickPreview(nextScale, clientX, clientY) {
     Math.min(bounds.width / 2, clientX - bounds.left - bounds.width / 2));
   const pointY = Math.max(-bounds.height / 2,
     Math.min(bounds.height / 2, clientY - bounds.top - bounds.height / 2));
+  const previousScale = quickPreviewView.scale;
+  const image = stage.querySelector('.quick-preview-image');
   quickPreviewView = quickPreviewZoomAt(quickPreviewView, nextScale,
-    pointX, pointY, bounds.width, bounds.height);
+    pointX, pointY, image?.clientWidth || bounds.width, image?.clientHeight || bounds.height);
   paintQuickPreview();
+  if (Math.abs(quickPreviewView.scale - previousScale) > 0.0001) showQuickPreviewZoom();
 }
 
 function zoomQuickPreviewFromCenter(nextScale) {
@@ -2058,8 +2073,13 @@ function zoomQuickPreviewFromCenter(nextScale) {
     bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
 }
 
-function openQuickPreview({ item, image, url }) {
+function openQuickPreview({ item, image, url }, mode = 'window') {
   if (!item || !url || quickPreview.open) return;
+  clearTimeout(quickPreviewZoomTimer);
+  quickPreviewZoomTimer = null;
+  quickPreview.classList.toggle('fullscreen', mode === 'fullscreen');
+  quickPreview.setAttribute('aria-label', mode === 'fullscreen'
+    ? 'Полноэкранный просмотр изображения' : 'Быстрый просмотр изображения');
   item = quickPreviewWork = rememberItem(item);
   retainFeedWork(currentTab(), item);
   const preview = image.currentSrc || image.getAttribute?.('src') ||
@@ -2071,10 +2091,10 @@ function openQuickPreview({ item, image, url }) {
     <img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}" draggable="false">
     <div class="quick-preview-tools" role="group" aria-label="Image zoom">
       <button type="button" data-preview-action="zoom-out" title="Zoom out" aria-label="Zoom out" disabled>−</button>
-      <span class="quick-preview-zoom" aria-live="off">100%</span>
       <button type="button" data-preview-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
       <button type="button" data-preview-action="fit" title="Fit image" aria-label="Fit image" disabled>↺</button>
     </div>
+    <span class="quick-preview-zoom" aria-live="off">100%</span>
     <button type="button" class="quick-preview-close" data-preview-action="close" title="Close preview" aria-label="Close preview">×</button>
     <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}</div>
   </div>`;
@@ -2097,6 +2117,8 @@ function openQuickPreview({ item, image, url }) {
 function closeQuickPreview() {
   if (!quickPreview.open) return;
   ++quickPreviewGeneration;
+  clearTimeout(quickPreviewZoomTimer);
+  quickPreviewZoomTimer = null;
   quickPreviewDrag = null;
   quickPreview.close();
   quickPreview.replaceChildren();
@@ -3849,6 +3871,9 @@ quickPreview.addEventListener('click', event => {
     const bounds = quickPreview.getBoundingClientRect();
     if (event.clientX < bounds.left || event.clientX > bounds.right ||
         event.clientY < bounds.top || event.clientY > bounds.bottom) closeQuickPreview();
+  } else if (quickPreview.classList.contains('fullscreen') && quickPreviewView.scale === 1 &&
+      event.target === quickPreview.querySelector('.quick-preview-stage')) {
+    closeQuickPreview();
   }
 });
 document.addEventListener('keydown', event => {
@@ -3880,7 +3905,7 @@ document.addEventListener('keydown', event => {
     if (artwork) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      openQuickPreview(artwork);
+      openQuickPreview(artwork, event.key === 'Enter' ? 'fullscreen' : 'window');
     }
     return;
   }
@@ -4236,7 +4261,7 @@ main.addEventListener('click', event => {
   const item = itemForControl(control);
   if (action === 'zoom-image' && tab?.kind === 'detail') {
     const artwork = quickPreviewArtworkAt(control, tab, itemIndex);
-    if (artwork) openQuickPreview(artwork);
+    if (artwork) openQuickPreview(artwork, 'fullscreen');
   }
   else if (action === 'settings-section' && tab?.kind === 'settings') {
     tab.settingsSection = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(control.dataset.section)
