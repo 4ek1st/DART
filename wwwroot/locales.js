@@ -397,6 +397,7 @@ Open|Открыть|Öffnen
 Recommended|Рекомендуется|Empfohlen
 Tags|Теги|Tags
 Video|Видео|Video
+Video · Hover for 5 preview frames|Видео · Наведите мышь для просмотра 5 кадров|Video · Mauszeiger darüber: 5 Vorschaubilder
 NSFW — explicit content|NSFW — откровенный контент|NSFW — explizite Inhalte
 Find a tab|Найти вкладку|Tab suchen
 Close tab list|Закрыть список вкладок|Tab-Liste schließen

@@ -130,6 +130,7 @@ internal sealed partial class CatalogService(LocalStore store)
     private readonly SemaphoreSlim apiGate = new(3, 3);
     private readonly SemaphoreSlim imageGate = new(4, 4);
     private readonly SemaphoreSlim videoGate = new(3, 3);
+    private readonly VideoPreviewProxy videoPreviews = new(Images);
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, SearchResponse Value)> searchCache = new();
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, List<TagSuggestion> Value)> tagCache = new();
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, bool IsArtist)> artistTagCache = new(StringComparer.OrdinalIgnoreCase);
@@ -1395,6 +1396,9 @@ internal sealed partial class CatalogService(LocalStore store)
         new[] { "donmai.us", "gelbooru.com", "rule34.xxx", "sankakucomplex.com" }
             .Any(domain => host.Equals(domain, StringComparison.OrdinalIgnoreCase) ||
                            host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
+
+    public Task WriteVideoPreviewAsync(string url, string session, HttpContext context) =>
+        videoPreviews.WriteAsync(url, session, context);
 
     public async Task WriteVideoAsync(string rawUrl, HttpContext context)
     {

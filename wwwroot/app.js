@@ -2275,6 +2275,7 @@ function renderChrome() {
 }
 
 function pauseDetailVideos() {
+  globalThis.DartVideoPreview?.stop();
   main.querySelectorAll('video[data-video-url]').forEach(video => video.pause());
 }
 
@@ -2321,6 +2322,7 @@ function render() {
   main.dataset.tabId = String(tab.id);
   main.scrollTop = scrollTop;
   restoreGridAnchor(anchor);
+  globalThis.DartVideoPreview?.refresh();
   measureVirtualGrids(tab);
   if (tab.kind === 'profile') scheduleProfileBanner(tab);
   autoFeed.mount();
@@ -2362,6 +2364,7 @@ function restoreGridAnchor(anchor) {
 
 function renderNodeKey(node) {
   if (node.nodeType !== Node.ELEMENT_NODE) return '';
+  if (node.tagName === 'IMG' && node.classList.contains('video-preview-frame')) return 'IMG:video-preview-frame';
   const value = node.getAttribute('data-work-key') ||
     node.getAttribute('data-grid-key') || node.id;
   return value ? `${node.tagName}:${value}` : '';
@@ -2372,6 +2375,9 @@ function canReconcileNode(current, next) {
   if (current.nodeType !== Node.ELEMENT_NODE) return true;
   if (current.tagName !== next.tagName) return false;
   if (current.tagName === 'IMG') {
+    const currentPreview = current.classList?.contains('video-preview-frame');
+    const nextPreview = next.classList?.contains('video-preview-frame');
+    if (currentPreview || nextPreview) return !!currentPreview && !!nextPreview;
     if (CatalogLogic.mediaCacheKey(current.dataset.imageUrl) ===
         CatalogLogic.mediaCacheKey(next.dataset.imageUrl)) return true;
     return sharesWorkMember(current.closest?.('article[data-work-key]'),
@@ -2422,6 +2428,9 @@ function reconcileNode(current, next) {
     if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
     return;
   }
+  // The hover controller owns this overlay. Keep its decoded frame across
+  // background feed updates; the normal thumbnail remains imageLoader's node.
+  if (current.classList?.contains('video-preview-frame') && next.classList?.contains('video-preview-frame')) return;
   const image = current.tagName === 'IMG' && current.dataset.imageUrl;
   const keepSrc = image && current.hasAttribute('src');
   const failedImageUrl = current.classList.contains('failed') ?
@@ -3006,7 +3015,9 @@ function measureVirtualGrids(tab) {
 
 function renderCard(item, isNew = false) {
   item = rememberItem(item);
-  const imageCount = galleryImages(item).length;
+  const media = galleryImages(item);
+  const imageCount = media.length;
+  const previewVideo = media.find(url => CatalogLogic.videoMimeType(url));
   const taggedArtist = currentTab()?.kind === 'follows' && item.followedArtistTag;
   const attribution = CatalogLogic.workAttribution(item, contentPreferences.attributionPriority);
   const primary = attribution.primary;
@@ -3022,14 +3033,15 @@ function renderCard(item, isNew = false) {
   const sourceTitle = provenance.extra
     ? `Объединено ${provenance.total} записей · ${sourceDetails}` : sourceName;
   return `<article class="card" data-work-key="${escapeHtml(item.key)}" data-work-members="${escapeHtml(JSON.stringify([item.key, ...(item.memberKeys || [])]))}"><div class="card-art ${isNew ? 'new-item' : ''}">
-    <button class="card-art" data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" aria-label="Открыть ${escapeHtml(item.title)} · ${escapeHtml(sourceTitle)}">
+    <button class="card-art" data-action="open" data-key="${escapeHtml(item.key)}"${previewVideo ? ` data-video-preview="${escapeHtml(previewVideo)}"` : ''} data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" aria-label="Открыть ${escapeHtml(item.title)} · ${escapeHtml(sourceTitle)}">
       ${item.thumbnail ? `<img data-image-url="${escapeHtml(item.thumbnail)}" alt="" decoding="async">` : `<span class="text-preview"${/^(Работа|Artwork|Werk) #/.test(item.title) ? '' : ' data-no-i18n'}>${escapeHtml(item.title.slice(0, 180))}</span>`}
+      ${previewVideo ? '<img class="video-preview-frame" alt="" aria-hidden="true" decoding="async" hidden>' : ''}
       <span class="image-fail">Изображение недоступно</span>
       <span class="source-badge" title="${escapeHtml(sourceTitle)}">${escapeHtml(sourceBadge)}</span>
       ${isNew ? '<span class="new-badge">Новое</span>' : ''}
       ${isAdultRating(item.rating) ? `<span class="rating-badge" title="${ratingLabel(item.rating) === 'Q' ? 'Questionable — пограничный контент' : 'NSFW — откровенный контент'}">${ratingLabel(item.rating)}</span>` : ''}
       ${imageCount > 1 ? `<span class="image-count">▣ ${imageCount}</span>` : ''}
-      ${item.images?.some(url => CatalogLogic.videoMimeType(url)) ? '<span class="video-badge" role="img" aria-label="Видео" title="Видео">▶</span>' : ''}
+      ${previewVideo ? '<span class="video-badge" role="img" aria-label="Видео" title="Video · Hover for 5 preview frames">▶</span>' : ''}
     </button>
     ${savedWorkButton(item, 'likes')}
   </div><button class="card-title" data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</button>
@@ -3390,6 +3402,12 @@ const sankakuMediaRecovery = {
   }
 };
 
+globalThis.DartVideoPreview?.attach(main, {
+  cacheKey: CatalogLogic.mediaCacheKey,
+  isExpired: CatalogLogic.signedMediaExpired,
+  recoverUrl: (card, url, signal) => sankakuMediaRecovery.recover([card], url, signal)
+});
+
 const imageLoader = {
   queue: [], active: 0, controllers: new Set(), cache: new Map(), bytes: 0,
   current: new Set(), visible: new Set(), activeJobs: new Map(), generation: 0,
@@ -3634,6 +3652,7 @@ const autoFeed = {
 
 let virtualScrollPending = false;
 main.addEventListener('load', event => {
+  if (!event.target.matches?.('img[data-image-url]')) return;
   rememberCardFingerprint(event.target);
   rememberImageDimensions(event.target);
   if (event.target.matches?.('.profile-page .grid .card img[data-image-url]')) {
@@ -4455,6 +4474,7 @@ main.addEventListener('click', event => {
 
 window.addEventListener('beforeunload', () => {
   saveSession();
+  globalThis.DartVideoPreview?.dispose();
   for (const entry of imageLoader.cache.values()) URL.revokeObjectURL(entry.blobUrl);
 });
 

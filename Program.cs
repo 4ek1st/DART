@@ -388,6 +388,12 @@ internal static class Program
             await catalog.WriteVideoAsync(context.Request.Query["url"].ToString(), context);
         });
 
+        app.MapMethods("/api/video-preview", ["GET", "HEAD"], async (HttpContext context, CatalogService catalog) =>
+        {
+            await catalog.WriteVideoPreviewAsync(context.Request.Query["url"].ToString(),
+                context.Request.Query["session"].ToString(), context);
+        });
+
         app.StartAsync().GetAwaiter().GetResult();
         var address = app.Services.GetRequiredService<IServer>().Features
             .Get<IServerAddressesFeature>()?.Addresses.FirstOrDefault();

@@ -230,6 +230,9 @@ h3 { font-size: 15px; }
 .feed-placeholder { visibility: hidden; pointer-events: none; }
 .card-art { width: 100%; aspect-ratio: 1; border: 0; padding: 0; border-radius: 8px; background: #282828; position: relative; overflow: hidden; display: block; }
 .card-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.card-art .video-preview-frame { position: absolute; inset: 0; pointer-events: none; }
+.card-art .video-preview-frame[hidden] { display: none; }
+.card-art.video-preview-active .image-fail { display: none; }
 .card-art .image-fail { display: none; padding: 20px; color: #929292; text-align: center; }
 .card-art.failed .image-fail { display: grid; place-items: center; position: absolute; inset: 0; }
 .card-art .source-badge { position: absolute; left: 8px; top: 8px; background: #141414d9; color: white; font-size: 10px; font-weight: 700; padding: 4px 6px; border-radius: 4px; }

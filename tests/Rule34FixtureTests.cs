@@ -3,6 +3,7 @@ using System.Text.Json;
 using ArtCatalog;
 
 SavedWorksFixtureTests.Run();
+await VideoPreviewFixtureTests.RunAsync();
 
 static CatalogItem? Map(string method, string payload)
 {

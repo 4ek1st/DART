@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.2.16</Version>
+    <Version>0.2.17</Version>
     <AssemblyName>DART</AssemblyName>
     <Product>DART — Discover Art</Product>
   </PropertyGroup>

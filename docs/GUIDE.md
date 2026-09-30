@@ -42,6 +42,13 @@ a connection. A post's details can link to its entries on other sources.
 Videos open in the built-in player with seeking, sound, and full-screen mode.
 Format support depends on the codecs available to WebView2.
 
+Hover over a video thumbnail to cycle through five still frames from across
+the clip. Moving the pointer away restores its normal thumbnail. Preview frames
+are prepared after a short hover delay and reused from a bounded memory cache;
+the card does not play the video or its audio. Keyboard focus works too.
+Windows' reduced-motion preference keeps thumbnails still. If a source is slow
+or cannot provide a bounded preview, its normal thumbnail stays visible.
+
 ## Likes and recommendations
 
 Click the heart to like a post. Recommendations use the tags of your liked
