@@ -143,8 +143,50 @@ try { recommendationExposure = cleanRecommendationExposure(JSON.parse(
   localStorage.getItem('dart-recommendation-exposure') || '[]')); } catch { /* Empty history is valid. */ }
 
 async function request(path, options = {}) {
-  const fetchOptions = options;
-  const response = await fetch(path, fetchOptions);
+  const changesSources = options.method === 'POST' && /^\/api\/(settings|sankaku\/)/.test(path);
+  if (changesSources) clearCatalogResponses();
+  const catalog = (!options.method || options.method === 'GET') &&
+    /^\/api\/(search|profile|detail)\?/.test(path);
+  if (!catalog) {
+    const result = await requestJson(path, options);
+    if (changesSources) clearCatalogResponses();
+    return result;
+  }
+  request.catalogCache ||= DartResourceCache.create({
+    load: (url, signal) => requestJson(url, { signal }),
+    ttl: 45000, maxEntries: 60, maxBytes: 8 * 1024 * 1024, timeout: 90000,
+    size: value => JSON.stringify(value).length * 2,
+    keep: value => value && !Object.keys(value.errors || {}).length &&
+      !Object.keys(value.notices || {}).length,
+    key: catalogRequestKey
+  });
+  if (options.cache === 'reload') request.catalogCache.invalidate(path);
+  const result = options.cache === 'reload' ? await requestJson(path, options) :
+    structuredClone(await request.catalogCache.get(path, options.signal));
+  if (!options.signal?.aborted && (path.startsWith('/api/search?') || path.startsWith('/api/profile?')))
+    await addCatalogVisualHashes(result.items || [], options.signal);
+  return result;
+}
+
+function catalogRequestKey(path) {
+  const [route, query] = path.split('?');
+  const params = new URLSearchParams(query);
+  if (route === '/api/search') {
+    const sources = (params.get('sources') || '').split(',').filter(Boolean).sort();
+    if (sources.length) params.set('sources', sources.join(','));
+    const pages = (params.get('pages') || '').split(',').filter(Boolean).sort();
+    if (pages.length && pages.every(value => value.split(':')[1] === (params.get('page') || '0')))
+      params.delete('pages');
+    else if (pages.length) params.set('pages', pages.join(','));
+  }
+  params.sort();
+  return `${route}?${params}`;
+}
+
+function clearCatalogResponses() { request.catalogCache?.clear(); }
+
+async function requestJson(path, options = {}) {
+  const response = await fetch(path, options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw Object.assign(new Error(body.error || `HTTP ${response.status}`),
@@ -152,10 +194,21 @@ async function request(path, options = {}) {
   }
   const result = await response.json();
   if (Array.isArray(result?.items)) result.items = CatalogLogic.filterCatalogItems(result.items);
-  if (!fetchOptions.signal?.aborted &&
-      (path.startsWith('/api/search?') || path.startsWith('/api/profile?')))
-    await addCatalogVisualHashes(result.items || [], fetchOptions.signal);
   return result;
+}
+
+function readMediaBlob(url, signal) {
+  readMediaBlob.cache ||= DartResourceCache.create({
+    key: CatalogLogic.mediaCacheKey, ttl: 5 * 60 * 1000,
+    maxEntries: 256, maxBytes: 16 * 1024 * 1024, size: blob => blob.size,
+    timeout: 25000,
+    load: async (url, signal) => {
+      const response = await fetch(`/api/image?url=${encodeURIComponent(url)}`, { signal });
+      if (!response.ok) throw new Error('Image unavailable');
+      return response.blob();
+    }
+  });
+  return readMediaBlob.cache.get(url, signal);
 }
 
 const visualHashJobs = [];
@@ -202,15 +255,17 @@ function catalogBitmapFingerprint(bitmap) {
     aspectRatio: (bitmap.naturalWidth || bitmap.width) / (bitmap.naturalHeight || bitmap.height) };
 }
 
-async function catalogThumbnailFingerprint(url, loadedUrl = '') {
+async function catalogThumbnailFingerprint(url) {
   const key = CatalogLogic.mediaCacheKey(url);
   if (!visualHashCache.has(key)) {
     const pending = runVisualHashJob(async () => {
-      const response = await fetch(loadedUrl.startsWith('blob:') ? loadedUrl : `/api/image?url=${encodeURIComponent(url)}`,
-        { signal: AbortSignal.timeout(5000) });
-      if (!response.ok) throw new Error('Thumbnail unavailable');
-      const bitmap = await createImageBitmap(await response.blob());
-      try { return catalogBitmapFingerprint(bitmap); }
+      const blob = typeof imageLoader !== 'undefined' && imageLoader.cached(url)?.blob ||
+        await readMediaBlob(url, AbortSignal.timeout(5000));
+      const bitmap = await createImageBitmap(blob);
+      try {
+        if (typeof imageLoader !== 'undefined') imageLoader.rememberBlob(url, blob);
+        return catalogBitmapFingerprint(bitmap);
+      }
       finally { bitmap.close(); }
     }).then(hash => { if (!hash) visualHashCache.delete(key); return hash; });
     visualHashCache.set(key, pending);
@@ -228,7 +283,7 @@ async function rememberCardFingerprint(img) {
   img.dataset.fingerprintPending = 'true';
   // Always decode through the same ImageBitmap path: DOM image downscaling
   // can produce different hashes even from identical cached bytes.
-  const fingerprint = await catalogThumbnailFingerprint(item.thumbnail, img.src);
+  const fingerprint = await catalogThumbnailFingerprint(item.thumbnail);
   delete img.dataset.fingerprintPending;
   if (!fingerprint) return;
   const update = { visualHash: fingerprint.hash, visualPHash: fingerprint.perceptualHash,
@@ -539,11 +594,8 @@ function activate(id, record = true, view = null) {
     tabs[tabs.findIndex(tab => tab.id === id)] = view;
     main.dataset.tabId = '';
   }
-  if (previous?.kind === 'follows' && previous.loading) {
-    previous.followController?.abort();
-    previous.lastLoadedAt = 0;
-  }
   activeId = id;
+  if (currentTab()?.started) currentTab().resumePrefetchAt = currentTab().scrollTop || 0;
   if (record) {
     navigation = navigation.slice(0, navPosition + 1);
     navigation.push(navigationEntry(currentTab()));
@@ -555,9 +607,11 @@ function activate(id, record = true, view = null) {
   if (selected?.kind === 'detail') recordDetailVisit(selected);
   const wasStarted = selected?.started;
   startTab(selected);
-  if (wasStarted && selected?.kind === 'follows' &&
-      Date.now() - (selected.lastLoadedAt || 0) > 60000) loadFollowFeed(selected);
-  else if (selected?.kind === 'follows') scheduleFollowRetry(selected);
+  if (selected?.kind === 'follows') {
+    scheduleFollowRetry(selected);
+    if (wasStarted && !selected.loading && selected.followGroups?.length)
+      void markFollowItemsSeen(selected, selected.followGroups, selected.followVersion);
+  }
   if (wasStarted && selected?.kind === 'detail') {
     if (!selected.creatorStarted) loadCreatorWorks(selected);
     if (selected.relatedInterrupted) {
@@ -580,6 +634,7 @@ function closeTab(id) {
   if (wasActive) {
     activeId = tabs[Math.max(0, index - 1)]?.id || tabs[0]?.id || null;
     if (!activeId) { createTab('home', 'Главная'); return; }
+    if (currentTab()?.started) currentTab().resumePrefetchAt = currentTab().scrollTop || 0;
     if (navigation[navPosition]?.id !== activeId) {
       navigation = navigation.slice(0, navPosition + 1);
       navigation.push(navigationEntry(currentTab()));
@@ -767,6 +822,7 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   const version = tab.requestVersion = (tab.requestVersion || 0) + 1;
   tab.loading = true;
   if (!append) {
+    delete tab.resumePrefetchAt;
     tab.page = 0; tab.items = []; tab.errors = {}; tab.hasMore = true;
     tab.loadError = false;
     tab.virtualState = {};
@@ -853,6 +909,10 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
 }
 
 function setSavedWorks(collection, items) {
+  const state = refreshSavedWorks.states ||= {};
+  state[collection] ||= { revision: 0 };
+  state[collection].loaded = true;
+  state[collection].revision++;
   const keys = new Set(items.flatMap(item => [item.key, ...(item.memberKeys || [])]));
   if (collection === 'likes') { likes = items; likedKeys = keys; }
   else { bookmarks = items; savedKeys = keys; }
@@ -860,11 +920,41 @@ function setSavedWorks(collection, items) {
   for (const tab of tabs.filter(tab => tab.kind === collection)) tab.items = items;
 }
 
-async function refreshSavedWorks(collection) {
-  try {
-    setSavedWorks(collection, CatalogLogic.filterCatalogItems(await request(`/api/${collection}`)));
-    return true;
-  } catch { toast(collection === 'likes' ? 'Не удалось прочитать лайки' : 'Закладки не удалось прочитать'); return false; }
+async function refreshSavedWorks(collection, force = false) {
+  const states = refreshSavedWorks.states ||= {};
+  const state = states[collection] ||= { revision: 0 };
+  if (state.loaded && !force) return true;
+  if (state.pending) {
+    const available = await state.pending;
+    return available && force && state.syncedRevision !== state.revision
+      ? refreshSavedWorks(collection, true) : available;
+  }
+  const revision = state.revision;
+  state.pending = (async () => {
+    try {
+      const items = CatalogLogic.filterCatalogItems(await request(`/api/${collection}`));
+      if (revision === state.revision) {
+        setSavedWorks(collection, items);
+        state.syncedRevision = state.revision;
+      }
+      return true;
+    } catch { toast(collection === 'likes' ? 'Не удалось прочитать лайки' : 'Закладки не удалось прочитать'); return false; }
+    finally { state.pending = null; }
+  })();
+  return state.pending;
+}
+
+function refreshSavedDetail(detail) {
+  const keys = new Set([detail.key, ...(detail.memberKeys || [])]);
+  for (const [collection, items] of [['likes', likes], ['bookmarks', bookmarks]]) {
+    let changed = false;
+    const merged = items.map(item => {
+      if (![item.key, ...(item.memberKeys || [])].some(key => keys.has(key))) return item;
+      changed = true;
+      return CatalogLogic.mergeDetailPages(item, detail);
+    });
+    if (changed) setSavedWorks(collection, merged);
+  }
 }
 
 async function refreshBookmarks() { return refreshSavedWorks('bookmarks'); }
@@ -1009,17 +1099,20 @@ function selectRecommendationGroups(tab) {
 }
 
 function prepareRecommendationProfile(tab, liked = CatalogLogic.filterWorks(
-  CatalogLogic.groupWorks(likes), contentPreferences)) {
-  recommendationVisitCount = (recommendationVisitCount + 1) % 1000000;
-  try { localStorage.setItem('artcatalog-recommendation-visit-count',
-    String(recommendationVisitCount)); } catch { /* Storage may be unavailable. */ }
-  const previousSeed = tab.recommendationSeed || 0;
-  tab.recommendationSeed = (Math.floor(Math.random() * 0xffffffff) ^
-    recommendationVisitCount) >>> 0 || 1;
-  if (tab.recommendationSeed === previousSeed)
-    tab.recommendationSeed = (tab.recommendationSeed + 1) >>> 0 || 1;
-  tab.recommendationRecentKeys = typeof recommendationExposure === 'undefined'
-    ? [...(tab.recommendationExposure || [])] : [...recommendationExposure];
+  CatalogLogic.groupWorks(likes), contentPreferences), newVisit = true) {
+  const previousPools = tab.recommendationPools;
+  if (newVisit) {
+    recommendationVisitCount = (recommendationVisitCount + 1) % 1000000;
+    try { localStorage.setItem('artcatalog-recommendation-visit-count',
+      String(recommendationVisitCount)); } catch { /* Storage may be unavailable. */ }
+    const previousSeed = tab.recommendationSeed || 0;
+    tab.recommendationSeed = (Math.floor(Math.random() * 0xffffffff) ^
+      recommendationVisitCount) >>> 0 || 1;
+    if (tab.recommendationSeed === previousSeed)
+      tab.recommendationSeed = (tab.recommendationSeed + 1) >>> 0 || 1;
+    tab.recommendationRecentKeys = typeof recommendationExposure === 'undefined'
+      ? [...(tab.recommendationExposure || [])] : [...recommendationExposure];
+  }
   tab.recommendationTags = CatalogLogic.recommendationTags(liked, 6);
   tab.recommendationTagGroups = CatalogLogic.recommendationTagGroups(liked, 2, recommendationTagPreferences);
   tab.emptyRecommendationRounds = 0;
@@ -1028,6 +1121,14 @@ function prepareRecommendationProfile(tab, liked = CatalogLogic.filterWorks(
     tab.selectedSources, recommendationTagPreferences,
     tab.recommendationBackgroundKey === `${tab.rating}:${[...tab.selectedSources].sort().join(',')}`
       ? tab.recommendationBackground || [] : []);
+  if (!newVisit) {
+    const previous = new Map(Object.values(previousPools || {}).flat()
+      .map(group => [`${group.kind}:${group.query}`, group]));
+    for (const group of Object.values(tab.recommendationPools).flat()) {
+      const old = previous.get(`${group.kind}:${group.query}`);
+      if (old) group.streams = old.streams;
+    }
+  }
   const start = kind => {
     const count = tab.recommendationPools[kind].length;
     return count ? recommendationVisitCount % count : 0;
@@ -1088,12 +1189,17 @@ async function loadRecommendations(tab, append = false) {
   const visibleLikes = CatalogLogic.filterWorks(
     CatalogLogic.groupWorks(likes), contentPreferences);
   if (!append) {
+    delete tab.resumePrefetchAt;
     tab.items = []; tab.errors = {}; tab.loadError = false;
     tab.retainedFeedWorks = new Map();
     delete tab.retainedFeedHeights;
     delete tab.expiredFeedWorks;
     delete tab.expiredFeedTokens;
     prepareRecommendationProfile(tab, visibleLikes);
+  }
+  if (tab.recommendationProfileDirty) {
+    if (append) prepareRecommendationProfile(tab, visibleLikes, false);
+    tab.recommendationProfileDirty = false;
   }
   const groups = selectRecommendationGroups(tab);
   tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
@@ -1327,12 +1433,15 @@ function saveFollowPreview(tab, version) {
 
 async function markFollowItemsSeen(tab, groups, version) {
   if (activeId !== tab.id || !groups.length) return;
+  const seen = tab.followSeenKeys ||= new Set();
+  const token = (key, work) => `${tab.rating}:${key}:${work}`;
   const displayedKeys = new Set(tab.items.flatMap(item => item.memberKeys || [item.key]));
   const workKeys = new Map();
   for (const { follow, items } of groups) {
     if (!workKeys.has(follow.key)) workKeys.set(follow.key, new Set());
     for (const item of items)
-      if (displayedKeys.has(item.key)) workKeys.get(follow.key).add(item.key);
+      if (displayedKeys.has(item.key) && !seen.has(token(follow.key, item.key)))
+        workKeys.get(follow.key).add(item.key);
   }
   const entries = [...workKeys].filter(([, keys]) => keys.size);
   for (let i = 0; i < entries.length; i += 100) {
@@ -1345,18 +1454,22 @@ async function markFollowItemsSeen(tab, groups, version) {
           workKeys: Object.fromEntries(batch.map(([key, keys]) =>
             [key, [...keys].slice(0, 100)])) }) });
       followedKeys = new Set(follows.map(CatalogLogic.followKey));
+      for (const [key, keys] of batch) for (const work of [...keys].slice(0, 100))
+        seen.add(token(key, work));
     } catch { tab.seenError = true; }
   }
 }
 
 async function loadFollowFeed(tab) {
   if (!findTab(tab.id)) return;
+  delete tab.resumePrefetchAt;
   tab.followController?.abort();
   if (tab.followUpdateTimer) clearTimeout(tab.followUpdateTimer);
   tab.followUpdateTimer = null;
   if (tab.followCacheTimer) clearTimeout(tab.followCacheTimer);
   tab.followCacheTimer = null;
   tab.followPublished = !!tab.items?.length;
+  tab.followSeenKeys = new Set();
   if (tab.followRetryTimer) clearTimeout(tab.followRetryTimer);
   const controller = new AbortController();
   tab.followController = controller;
@@ -1510,18 +1623,20 @@ async function loadMoreFollows(tab) {
 }
 
 async function loadBookmarks(tab) {
-  tab.loading = true;
+  tab.items = bookmarks;
+  tab.loading = !refreshSavedWorks.states?.bookmarks?.loaded;
   render();
-  await refreshBookmarks();
+  if (tab.loading && !await refreshBookmarks()) tab.started = false;
   tab.items = bookmarks;
   tab.loading = false;
   if (activeId === tab.id) render();
 }
 
 async function loadLikes(tab) {
-  tab.loading = true;
+  tab.items = likes;
+  tab.loading = !refreshSavedWorks.states?.likes?.loaded;
   render();
-  await refreshLikes();
+  if (tab.loading && !await refreshLikes()) tab.started = false;
   tab.items = likes;
   tab.loading = false;
   if (activeId === tab.id) render();
@@ -1676,10 +1791,7 @@ async function loadDetail(tab) {
       recent = recent.map(entry => entry.key === tab.item.key
         ? CatalogLogic.mergeDetailPages(entry, detail) : entry);
       localStorage.setItem('artcatalog-recent', JSON.stringify(recent));
-      if (savedKeys.has(tab.item.key) || likedKeys.has(tab.item.key)) {
-        await Promise.all([refreshBookmarks(), refreshLikes()]);
-        if (controller.signal.aborted || findTab(tab.id) !== tab) return;
-      }
+      refreshSavedDetail(detail);
       saveSession();
     }
   } catch (error) {
@@ -1904,7 +2016,7 @@ function mergeRelatedWorks(item, existing, incoming) {
 }
 
 async function loadProfile(tab, append = false) {
-  if (!append) tab.profileBanner = '';
+  if (!append) { tab.profileBanner = ''; delete tab.resumePrefetchAt; }
   if (tab.profileRef?.source === 'artist') {
     tab.query = tab.profileRef.artist;
     tab.feed = 'illustrations';
@@ -2213,21 +2325,21 @@ async function toggleSavedWork(item, collection) {
       void recordViewedWorks([item]);
     }
     syncSavedWorkButtons();
-    await refreshSavedWorks(collection);
+    // A write can merge/remove an older mirror in the store. Reconcile only
+    // the collection actually changed; navigation and metadata reads reuse it.
+    await refreshSavedWorks(collection, true);
     syncSavedWorkButtons();
     for (const tab of tabs.filter(entry => entry.kind === 'recommendations')) {
       if (collection !== 'likes') continue;
       tab.recommendationController?.abort();
       tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
-      if (tab.id === activeId) {
-        if (!contentPreferences.hideViewedAndSaved)
-          tab.items = tab.items.filter(entry => !isSavedWork(entry, 'likes'));
-        tab.loading = false;
-        tab.loadError = false;
-        tab.errors = {};
-        prepareRecommendationProfile(tab);
-        render();
-      } else tab.started = false;
+      if (!contentPreferences.hideViewedAndSaved)
+        tab.items = tab.items.filter(entry => !isSavedWork(entry, 'likes'));
+      tab.loading = false;
+      tab.loadError = false;
+      tab.recommendationProfileDirty = true;
+      // Existing cards, pagination position and visit seed survive a like.
+      // The next page uses the new preferences without restarting this visit.
     }
     const tab = currentTab();
     if (tab?.kind === 'bookmarks' || tab?.kind === 'likes' || tab?.kind === 'recommendations') render();
@@ -2748,7 +2860,7 @@ function renderFollows(tab) {
     .join('\n') || tab.followErrors?.[0] || '';
   const sourceIcon = sourceStatus ? `<span class="follow-source-status" tabindex="0" role="img" title="${escapeHtml(sourceStatus)}" aria-label="${escapeHtml(sourceStatus)}">ⓘ</span>` : '';
   return `<div class="content"><h1>Подписки</h1>
-    <p class="section-sub">Одна подписка на тег художника показывает работы Danbooru, Gelbooru, Rule34 и Sankaku при подключённых источниках. Закрытые работы Sankaku требуют входа. Последние изображения обновляются при открытии вкладки; новые отмечены.</p>
+    <p class="section-sub">One artist-tag subscription shows works from connected catalogs. Restricted Sankaku works require sign-in. The feed refreshes on first opening or with Refresh; returning keeps your place. New works are marked.</p>
     ${follows.length ? `<button class="follow-manage-toggle" type="button" data-action="follow-manage-toggle" aria-expanded="${manageOpen}" aria-controls="follow-management">${manageOpen ? 'Скрыть список подписок' : `Управление подписками · ${follows.length}`}</button>` : ''}
     ${manageOpen ? `<div id="follow-management" class="follow-management"><form id="artist-follow-form" class="search-tools follow-add-form"><label>Добавить художника по тегу
       <input name="artistTag" maxlength="100" value="${escapeHtml(tab.artistTagDraft || '')}" placeholder="например, sample_artist" required></label>
@@ -3430,7 +3542,7 @@ const sankakuMediaRecovery = {
     // It also renews stored media in Likes/Bookmarks without toggling either.
     entry.promise = this.lanes[lane].then(() => [...entry.signals].every(signal => signal.aborted) ? null : request(
       `/api/detail?source=sankaku&id=${encodeURIComponent(id)}`,
-      { signal: AbortSignal.timeout(20000) })).catch(() => null).then(detail => {
+      { signal: AbortSignal.timeout(20000), cache: 'reload' })).catch(() => null).then(detail => {
         entry.until = [...entry.signals].every(signal => signal.aborted) ? 0 : Date.now() + 60000;
         entry.signals.clear();
         return detail;
@@ -3486,6 +3598,16 @@ const imageLoader = {
   current: new Set(), visible: new Set(), activeJobs: new Map(), generation: 0,
   key(url) { return CatalogLogic.mediaCacheKey(url); },
   cached(url) { return this.cache.get(this.key(url)); },
+  rememberBlob(url, blob) {
+    const key = this.key(url);
+    const existing = this.cache.get(key);
+    if (existing) return existing;
+    const entry = { blob, blobUrl: URL.createObjectURL(blob), size: blob.size };
+    this.cache.set(key, entry);
+    this.bytes += blob.size;
+    this.evict();
+    return entry;
+  },
   observer: new IntersectionObserver(entries => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
@@ -3592,11 +3714,12 @@ const imageLoader = {
           };
           if (CatalogLogic.signedMediaExpired(requestedUrl)) await recover();
           if (controller.signal.aborted || job.generation !== this.generation) return;
-          let response = await fetch(`/api/image?url=${encodeURIComponent(requestedUrl)}`, { signal: controller.signal });
-          if (!response.ok && !renewed && await recover())
-            response = await fetch(`/api/image?url=${encodeURIComponent(requestedUrl)}`, { signal: controller.signal });
-          if (!response.ok) throw new Error('Image unavailable');
-          const blob = await response.blob();
+          let blob;
+          try { blob = await readMediaBlob(requestedUrl, controller.signal); }
+          catch (error) {
+            if (error.name === 'AbortError' || renewed || !await recover()) throw error;
+            blob = await readMediaBlob(requestedUrl, controller.signal);
+          }
           if (job.generation !== this.generation) return;
           const blobUrl = URL.createObjectURL(blob);
           const matches = [...job.images].filter(img => img.isConnected && this.visible.has(img) &&
@@ -3615,7 +3738,7 @@ const imageLoader = {
           const old = this.cache.get(key);
           if (old) { URL.revokeObjectURL(old.blobUrl); this.bytes -= old.size; }
           this.cache.delete(key);
-          this.cache.set(key, { blobUrl, size: blob.size });
+          this.cache.set(key, { blob, blobUrl, size: blob.size });
           this.bytes += blob.size;
           for (const img of activeMatches) {
             img.src = blobUrl;
@@ -3661,6 +3784,12 @@ const autoFeed = {
     for (const entry of entries) {
       if (!entry.isIntersecting || entry.target.isConnected === false) continue;
       const tab = currentTab();
+      // Returning to the same scroll position is not a request for another
+      // page. Keep the existing buffer; resume lookahead on actual scrolling.
+      // A short/empty page still fills the visible viewport automatically.
+      if (tab?.resumePrefetchAt !== undefined &&
+          Math.abs(main.scrollTop - tab.resumePrefetchAt) < 8 &&
+          main.scrollHeight - main.scrollTop > main.clientHeight * 1.25) continue;
       if (!tab || tab.id !== Number(entry.target.dataset.tabId) ||
           (entry.target.dataset.autoLoad === 'related'
             ? tab.relatedLoading || !tab.relatedHasMore || tab.relatedError
@@ -3688,6 +3817,10 @@ const autoFeed = {
   },
   mount() {
     const tab = currentTab();
+    if (tab?.resumePrefetchAt !== undefined && Math.abs(main.scrollTop - tab.resumePrefetchAt) >= 8) {
+      delete tab.resumePrefetchAt;
+      this.marker = null;
+    }
     const now = Date.now();
     if (this.tabId !== tab?.id) {
       this.tabId = tab?.id;
@@ -4458,7 +4591,7 @@ main.addEventListener('click', event => {
     else loadSearch(tab);
   }
   else if (action === 'recommendation-refresh' && tab?.kind === 'recommendations')
-    loadRecommendations(tab);
+    { clearCatalogResponses(); loadRecommendations(tab); }
   else if (action === 'recommendation-copyright-more' && tab?.kind === 'recommendations') {
     tab.showMoreRecommendationCopyright = !tab.showMoreRecommendationCopyright;
     render();
@@ -4472,6 +4605,7 @@ main.addEventListener('click', event => {
     loadRecommendations(tab, true);
   }
   else if (action === 'recommendation-rating' && tab?.kind === 'recommendations') {
+    if (tab.rating === control.dataset.rating) return;
     tab.rating = control.dataset.rating;
     saveSession(); loadRecommendations(tab);
   }
@@ -4484,7 +4618,9 @@ main.addEventListener('click', event => {
     tab.selectedSources = selected;
     saveSession(); loadRecommendations(tab);
   }
-  else if (action === 'follow-refresh' && tab?.kind === 'follows') loadFollowFeed(tab);
+  else if (action === 'follow-refresh' && tab?.kind === 'follows') {
+    clearCatalogResponses(); loadFollowFeed(tab);
+  }
   else if (action === 'follow-manage-toggle' && tab?.kind === 'follows') {
     tab.followManageOpen = !tab.followManageOpen;
     render();
@@ -4494,6 +4630,7 @@ main.addEventListener('click', event => {
     loadMoreFollows(tab);
   }
   else if (action === 'follow-rating' && tab?.kind === 'follows') {
+    if (tab.rating === control.dataset.rating) return;
     tab.rating = control.dataset.rating;
     saveSession(); loadFollowFeed(tab);
   }
@@ -4528,6 +4665,7 @@ main.addEventListener('click', event => {
   }
   else if (action === 'category' && tab) {
     const category = control.dataset.category;
+    if (tab.rating === category) return;
     tab.feed = 'illustrations';
     if (tab.feed === 'illustrations') tab.rating = category;
     saveSession();
@@ -4540,6 +4678,7 @@ main.addEventListener('click', event => {
   }
   else if (action === 'mode' && tab) {
     const mode = control.dataset.mode;
+    if (tab.rating === mode) return;
     tab.feed = 'illustrations';
     if (tab.feed === 'illustrations') tab.rating = mode;
     tab.selectedSources = [...defaultSources];
@@ -4548,6 +4687,7 @@ main.addEventListener('click', event => {
     loadSearch(tab);
   }
   else if (action === 'profile-rating' && tab?.kind === 'profile') {
+    if (tab.rating === control.dataset.rating) return;
     tab.rating = control.dataset.rating;
     saveSession(); loadProfile(tab);
   }

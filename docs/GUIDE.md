@@ -115,10 +115,17 @@ Open an artist profile or a post and select **Follow**. Following a confirmed
 artist tag brings together available work from supported sources. Following
 an uploader is separate.
 
-New posts in the Following tab are marked **New**. DART checks when you open
-the tab or select **Refresh**; there are no background system notifications.
+New posts in the Following tab are marked **New**. DART checks on the first
+opening of the tab or when you select **Refresh**. Returning to an existing
+tab keeps its loaded feed and scroll position. A pending initial check can
+finish while you browse elsewhere; there are no background system notifications.
 You can expand the artist list with **Manage subscriptions**, and more posts
 load as you scroll.
+
+Search, artist profiles and recommendations also retain their loaded pages
+when you return. Scrolling resumes the next-page lookahead; returning to a
+page that already has enough content does not start it again. Liking a work
+keeps the current recommendation visit and updates subsequent suggestions.
 
 ## Content filters
 

@@ -98,7 +98,8 @@ function requestFixture(items, pauseImages = false) {
   let active = 0, maximum = 0;
   const imageRequests = [];
   const context = vm.createContext({ CatalogLogic, visualHashCache: new Map(),
-    AbortSignal, AbortController, setTimeout, clearTimeout, URL, console,
+    AbortSignal, AbortController, setTimeout, clearTimeout, URL, URLSearchParams, console, structuredClone,
+    DartResourceCache: require('../wwwroot/resource-cache.js'),
     document: { createElement: () => ({ getContext: () => ({ drawImage() {},
       getImageData: (_x, _y, width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }) }) }) },
     createImageBitmap: async () => ({ width: 160, height: 240, close() {} }),

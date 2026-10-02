@@ -55,6 +55,7 @@ function harness({ expired = true, failDetail = false, source = 'sankaku', count
   const context = vm.createContext({ CatalogLogic: logic, likes, bookmarks: [], recent: [], tabs: [tab],
     itemIndex: new Map([[item.key, item]]), currentTab: () => tab, quickPreviewWork: null,
     main, URL: FixtureURL, URLSearchParams, AbortController, AbortSignal, setTimeout, clearTimeout,
+    DartResourceCache: require('../wwwroot/resource-cache.js'),
     IntersectionObserver: class { observe() {} disconnect() {} },
     request: async url => { requests.push(url); await new Promise(r => setTimeout(r, 5));
       if (failDetail) throw new Error('Temporarily unavailable');
@@ -64,6 +65,7 @@ function harness({ expired = true, failDetail = false, source = 'sankaku', count
       return { ok, blob: async () => ({ size: 10 }) }; }
   });
   const app = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
+  vm.runInContext(app.slice(app.indexOf('function readMediaBlob('), app.indexOf('\nconst visualHashJobs')), context);
   const start = app.indexOf('const sankakuMediaRecovery = {');
   const end = app.indexOf('\nconst autoFeed = {', start);
   assert(start >= 0 && end > start, 'Shared image recovery must exist');

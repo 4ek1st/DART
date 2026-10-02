@@ -28,7 +28,7 @@ test('a visible thumbnail loads ahead of queued offscreen previews', async () =>
   const end = source.indexOf('\nconst autoFeed = {', start);
   const loader = vm.runInNewContext(source.slice(start, end) + '\nimageLoader', {
     IntersectionObserver, main: root, URL, AbortController, CatalogLogic,
-    fetch: url => { started.push(new URL(url, 'http://local').searchParams.get('url')); return new Promise(() => {}); }
+    readMediaBlob: url => { started.push(url); return new Promise(() => {}); }
   });
   const image = (url, top) => ({ dataset: { imageUrl: url }, isConnected: true,
     getBoundingClientRect: () => ({ top, bottom: top + 200 }) });

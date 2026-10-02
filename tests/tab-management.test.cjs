@@ -128,3 +128,19 @@ test('late detail response cannot overwrite a replacement preview', async () => 
   assert.equal(f.run('currentTab().item.key'), 'gelbooru:2');
   assert.equal(f.run('currentTab().title'), 'Two');
 });
+
+test('leaving Following preserves its bounded pending load and returning does not restart it', () => {
+  const f=fixture();let reloads=0;f.context.loadFollowFeed=()=>reloads++;
+  f.run('createTab("follows", "Following"); currentTab().loading = true; currentTab().followController = new AbortController();');
+  const tab=f.run('currentTab()');
+  f.run('createTab("home", "Home"); activate(tabs[0].id);');
+  assert.equal(tab.followController.signal.aborted,false);assert.equal(reloads,0);
+  f.run('closeTab(tabs[0].id)');assert.equal(tab.followController.signal.aborted,true);
+});
+
+test('returning to a minute-old Following snapshot keeps its content and scroll without reloading', () => {
+  const f=fixture();let reloads=0;f.context.loadFollowFeed=()=>reloads++;
+  f.run('createTab("follows", "Following"); currentTab().items = [{key:"work:1"}]; currentTab().lastLoadedAt = Date.now()-61000; main.scrollTop = 730; createTab("home", "Home"); activate(tabs[0].id);');
+  assert.equal(reloads,0);assert.equal(f.context.main.scrollTop,730);
+  assert.equal(f.run('currentTab().items.length'),1);assert.equal(f.run('currentTab().resumePrefetchAt'),730);
+});

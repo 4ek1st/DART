@@ -63,3 +63,17 @@ test('lookahead grows for fast scrolling and stays bounded after a slow response
   assert(bottom()>2660);
   f.main.clientHeight=900;f.feed.mount();assert(bottom()<=5400);
 });
+
+test('returning to a buffered page does not prefetch again until the user scrolls',async()=>{
+  const f=fixture();f.main.scrollHeight=5000;f.tab.resumePrefetchAt=0;
+  f.intersect();assert.equal(f.requests.length,0);
+  f.main.scrollTop=20;f.feed.mount();f.intersect();
+  assert.equal(f.requests.length,1);assert.equal(f.tab.resumePrefetchAt,undefined);
+  f.finish();await Promise.resolve();
+});
+
+test('returning to an underfilled page still loads enough content for the viewport',async()=>{
+  const f=fixture();f.main.scrollHeight=1400;f.tab.resumePrefetchAt=0;
+  f.intersect();assert.equal(f.requests.length,1);
+  f.finish();await Promise.resolve();
+});
