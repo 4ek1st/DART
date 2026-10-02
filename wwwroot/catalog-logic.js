@@ -966,6 +966,7 @@
     const typedNames = new Set();
     const copyrights = new Set();
     const authorTotals = new Map();
+    const records = [];
     // Snapshot once before grouping: metadata consumers must share one scan,
     // including saved-work objects whose tag arrays are exposed through getters.
     const works = groupWorks((liked || []).map(item => ({ ...item })));
@@ -982,6 +983,7 @@
           (item.source === 'danbooru' || !item.source && subject === title)) names.add(title);
       const author = recommendationAuthor(item) || item.key;
       authorTotals.set(author, (authorTotals.get(author) || 0) + 1);
+      records.push({ tags, author });
       for (const tag of tags) {
         const query = String(raw.find(value => normalizeTag(value) === tag) || tag)
           .normalize('NFKC').toLowerCase().trim().replace(/\s+/g, '_');
@@ -1001,7 +1003,7 @@
     for (const tag of copyrights) if (!typedNames.has(tag)) names.delete(tag);
     for (const entry of ordered) entry.support = [...entry.authors.values()]
       .reduce((sum, count) => sum + Math.sqrt(count), 0);
-    if (Array.isArray(liked)) recommendationProfiles.set(liked, { profile: ordered, names, copyrights,
+    if (Array.isArray(liked)) recommendationProfiles.set(liked, { profile: ordered, names, copyrights, records,
       total: works.length, supportTotal: [...authorTotals.values()].reduce((sum, count) => sum + Math.sqrt(count), 0) });
     return ordered;
   }
@@ -1056,7 +1058,20 @@
     if (!priority.length && !names.length && !copyright.length && !other.length)
       names.push(...active(groups.names).filter(({ tag }) =>
         preferences[tag] !== 'priority').slice(0, 1));
-    return { priority, names, copyright, other };
+    const pending = [...recommendationCombinations(liked, preferences, background)];
+    const combinations = [], usedTags = new Map();
+    while (pending.length && combinations.length < 24) {
+      let best = 0, bestScore = -1;
+      pending.forEach((pair, index) => {
+        const repetitions = pair.tags.reduce((sum, tag) => sum + (usedTags.get(tag) || 0), 0);
+        const adjusted = pair.weight / (1 + repetitions * 1.5);
+        if (adjusted > bestScore) { best = index; bestScore = adjusted; }
+      });
+      const [pair] = pending.splice(best, 1);
+      combinations.push({ tag: pair.tags.join('\u0000'), query: pair.query, count: pair.count });
+      for (const tag of pair.tags) usedTags.set(tag, (usedTags.get(tag) || 0) + 1);
+    }
+    return { priority, names, copyright, other, combinations };
   }
 
   function matchesRating(item, rating) {
@@ -1117,6 +1132,82 @@
       .map(normalizeTag).filter(tag => preferences[tag] === 'priority')])];
   }
 
+  function recommendationCombinations(liked, preferences = {}, background = []) {
+    const profile = recommendationProfile(liked);
+    const state = recommendationProfiles.get(liked);
+    if (!state || state.total < 6) return [];
+    const weights = recommendationWeights(liked, preferences, background);
+    const byTag = new Map(profile.map(entry => [entry.tag, entry]));
+    const preferenceKey = JSON.stringify(Object.entries(preferences).sort(([a], [b]) => a.localeCompare(b)));
+    if (state.combinationPreferenceKey !== preferenceKey) {
+      const minimum = Math.max(3, Math.min(6, Math.ceil(Math.log2(state.total + 1) / 2)));
+      const blocked = new Set([...excludedContentTags(Object.entries(preferences)
+        .filter(([, mode]) => mode === 'disabled').map(([tag]) => tag))].map(normalizeTag));
+      const technical = tag => /^(?:(?:very|extremely|ultra) )?(?:low|high|absurd|huge|original) resolution$/.test(tag);
+      const usable = profile.filter(entry => entry.count >= minimum && !blocked.has(entry.tag) &&
+        (!(isBroadRecommendationTag(entry.tag) || technical(entry.tag)) || preferences[entry.tag] === 'priority'));
+      const identity = tag => state.names.has(tag) || state.copyrights.has(tag);
+      const strongest = entries => entries.sort((a, b) => b.support - a.support || a.tag.localeCompare(b.tag));
+      const focused = new Set([
+        ...strongest(usable.filter(entry => !identity(entry.tag))).slice(0, 128),
+        ...strongest(usable.filter(entry => state.names.has(entry.tag))).slice(0, 64),
+        ...strongest(usable.filter(entry => state.copyrights.has(entry.tag))).slice(0, 32),
+        ...usable.filter(entry => preferences[entry.tag] === 'priority')
+      ].map(entry => entry.tag));
+      const pairs = new Map();
+      for (const record of state.records) {
+        const tags = record.tags.filter(tag => focused.has(tag)).sort((a, b) =>
+          Number(preferences[b] === 'priority') - Number(preferences[a] === 'priority') ||
+          Number(identity(b)) - Number(identity(a)) || byTag.get(b).support - byTag.get(a).support ||
+          a.localeCompare(b)).slice(0, 20);
+        for (let a = 0; a < tags.length; a++) for (let b = a + 1; b < tags.length; b++) {
+          // Character + series is usually the same identity described twice.
+          if (identity(tags[a]) && identity(tags[b])) continue;
+          if (` ${tags[a]} `.includes(` ${tags[b]} `) || ` ${tags[b]} `.includes(` ${tags[a]} `)) continue;
+          const tagPair = [tags[a], tags[b]].sort();
+          const key = tagPair.join('\u0000');
+          const pair = pairs.get(key) || { tags: tagPair, count: 0, authors: new Map() };
+          pair.count++;
+          pair.authors.set(record.author, (pair.authors.get(record.author) || 0) + 1);
+          pairs.set(key, pair);
+        }
+      }
+      state.combinationProfile = [...pairs.values()].filter(pair => pair.count >= minimum && pair.authors.size >= 2)
+        .map(pair => ({ tags: pair.tags, count: pair.count,
+          support: [...pair.authors.values()].reduce((sum, count) => sum + Math.sqrt(count), 0) }))
+        .sort((a, b) => b.support - a.support || a.tags.join('\u0000').localeCompare(b.tags.join('\u0000')))
+        .slice(0, 512);
+      state.combinationPreferenceKey = preferenceKey;
+    }
+    const ordinary = groupWorks(background).map(item => new Set(recommendationWorkTags(item)));
+    const prevalence = new Map();
+    for (const tags of ordinary) for (const tag of tags) prevalence.set(tag, (prevalence.get(tag) || 0) + 1);
+    const result = [];
+    for (const pair of state.combinationProfile) {
+      const [a, b] = pair.tags;
+      if (!weights.has(a) || !weights.has(b)) continue;
+      const expected = byTag.get(a).support * byTag.get(b).support / state.supportTotal;
+      let association = Math.log2((pair.support + 1) / (expected + 1));
+      if (ordinary.length >= 24 && (prevalence.get(a) || 0) >= 3 && (prevalence.get(b) || 0) >= 3) {
+        const together = ordinary.filter(tags => tags.has(a) && tags.has(b)).length;
+        const expectedOrdinary = prevalence.get(a) * prevalence.get(b) / ordinary.length;
+        const ordinaryAssociation = Math.max(0, Math.log2((together + 1) / (expectedOrdinary + 1)));
+        association -= ordinaryAssociation * ordinary.length / (ordinary.length + 80);
+      }
+      // Co-occurrence must add evidence beyond the two marginal frequencies.
+      if (association <= 0.2) continue;
+      // Nearly predictable pairs add less evidence than a distinct context,
+      // including series and attributes which occur together by definition.
+      const predictability = pair.count / Math.min(byTag.get(a).count, byTag.get(b).count);
+      const extraEvidence = Math.max(0.2, Math.min(1, (1 - predictability) * 2));
+      const weight = extraEvidence * Math.sqrt(weights.get(a) * weights.get(b)) * Math.min(2, association) *
+        pair.support / (pair.support + 4) * 0.55;
+      const query = pair.tags.map(tag => byTag.get(tag).query).join(' ');
+      if (query.length <= 200) result.push({ ...pair, query, weight });
+    }
+    return result.sort((a, b) => b.weight - a.weight || b.count - a.count || a.query.localeCompare(b.query)).slice(0, 256);
+  }
+
   function rankRecommendations(liked, candidates, rating = 'general', limit = 96,
     preferences = {}, varietySeed = 0, context = {}) {
     const savedKeys = new Set((liked || []).flatMap(item => item.memberKeys || [item.key]));
@@ -1133,6 +1224,7 @@
       .flatMap(group => group.memberKeys));
     const nameTags = new Set(recommendationTagGroups(liked, 1).names.map(({ tag }) => tag));
     const weights = recommendationWeights(liked, preferences, context.background);
+    const combinations = recommendationCombinations(liked, preferences, context.background);
     const recentKeys = new Set(context.recentKeys || []);
     const seen = new Set();
     const scored = groupWorks(candidates || []).map((item, index) => {
@@ -1144,7 +1236,19 @@
       const tags = recommendationCandidateTags(item, preferences);
       const contributions = tags.map(tag => weights.get(tag) || 0).filter(Boolean).sort((a,b) => b-a);
       // Long tag lists must not beat a few strong matches by summing noise.
-      const score = contributions.reduce((sum, value, index) => sum + value * (index < 6 ? 1 : 0.1), 0);
+      const singleScore = contributions.reduce((sum, value, index) => sum + value * (index < 6 ? 1 : 0.1), 0);
+      const tagSet = new Set(tags);
+      const pairedTags = new Set();
+      let pairScore = 0, pairMatches = 0;
+      for (const pair of combinations) {
+        if (!pair.tags.every(tag => tagSet.has(tag)) || pair.tags.some(tag => pairedTags.has(tag))) continue;
+        pairScore += pair.weight * (pairMatches ? 0.35 : 1);
+        pair.tags.forEach(tag => pairedTags.add(tag));
+        if (++pairMatches === 3) break;
+      }
+      // Pairs refine relevance without overwhelming explicit priorities or
+      // letting a long list of correlated attributes multiply the score.
+      const score = singleScore + Math.min(singleScore * 0.05, pairScore);
       const priorityScore = tags.reduce((sum, tag) =>
         sum + (preferences[tag] === 'priority' ? weights.get(tag) || 0 : 0), 0);
       const characters = tags.filter(tag => nameTags.has(tag) &&
@@ -1373,7 +1477,7 @@
     supportedSources, filterCatalogItems, cleanClientState,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,
-    recommendationQueryGroups, rankRecommendations, mergeRecommendations,
+    recommendationQueryGroups, recommendationCombinations, rankRecommendations, mergeRecommendations,
     followKey, followFeedRequests, buildFollowFeed, stableFeedItems };
   root.CatalogLogic = api;
   if (typeof module !== 'undefined') module.exports = api;

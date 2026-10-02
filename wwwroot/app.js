@@ -928,7 +928,7 @@ async function refreshFollows() {
 function createRecommendationPools(liked, sources, preferences, background = []) {
   const selected = CatalogLogic.recommendationQueryGroups(liked, preferences, background);
   const selectedSources = sources.filter(source => CatalogLogic.supportedSources.includes(source));
-  return Object.fromEntries(['priority', 'names', 'copyright', 'other'].map(kind => [kind,
+  return Object.fromEntries(['priority', 'names', 'copyright', 'other', 'combinations'].map(kind => [kind,
     selected[kind].map(({ tag, query }) => ({ tag, query: query || tag.replaceAll(' ', '_'), kind, streams: [
       ...(selectedSources.length ? [{ nextPage: 0, sources: [...selectedSources] }] : [])
     ] })).filter(group => group.streams.length)]));
@@ -998,12 +998,12 @@ function selectRecommendationGroups(tab) {
     return !!group;
   };
   if (add('priority')) {
-    const second = ['other', 'other', 'names', 'copyright'][tab.recommendationRound++ % 4];
-    if (!add(second)) for (const kind of ['other', 'names', 'copyright']) if (add(kind)) break;
+    const second = ['combinations', 'other', 'names', 'copyright'][tab.recommendationRound++ % 4];
+    if (!add(second)) for (const kind of ['other', 'names', 'copyright', 'combinations']) if (add(kind)) break;
   } else {
     add('other');
-    const second = ['other', 'other', 'names', 'copyright'][tab.recommendationRound++ % 4];
-    if (!add(second)) for (const kind of ['other', 'names', 'copyright']) if (add(kind)) break;
+    const second = ['combinations', 'other', 'names', 'copyright'][tab.recommendationRound++ % 4];
+    if (!add(second)) for (const kind of ['other', 'names', 'copyright', 'combinations']) if (add(kind)) break;
   }
   return chosen;
 }
@@ -1033,7 +1033,7 @@ function prepareRecommendationProfile(tab, liked = CatalogLogic.filterWorks(
     return count ? recommendationVisitCount % count : 0;
   };
   tab.recommendationCursors = { priority: start('priority'), names: start('names'), copyright: start('copyright'),
-    other: start('other') };
+    other: start('other'), combinations: start('combinations') };
   tab.recommendationRound = 0;
   tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
 }

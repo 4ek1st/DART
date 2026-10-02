@@ -93,6 +93,17 @@ weight when they are also common in that sample. This is a local estimate,
 not a measurement of the entire catalog. If the sample is unavailable,
 recommendations continue using the likes and your explicit choices.
 
+DART also learns recurring pairs, such as a character with an outfit or two
+content tags. A pair needs several distinct liked works and evidence beyond
+the frequency of each tag alone. Mirrored copies count once; repeated work
+from one known artist cannot establish a pair by itself.
+
+The feed periodically searches for both tags together, while keeping searches
+for individual interests. Pair matches add a small ranking bonus of at most
+5%, and yellow priorities and red exclusions still apply. Common descriptive
+tags and resolution labels do not establish pairs automatically. If there is
+too little evidence, recommendations continue using individual tags.
+
 Refresh rotates through the eligible interests and favors similarly relevant
 works that have not been suggested recently. This short suggestion history
 persists across restarts and does not mark works as viewed or permanently
