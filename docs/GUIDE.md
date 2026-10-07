@@ -174,9 +174,18 @@ internet access to the source.
 | --- | --- |
 | Ctrl + K | Focus search. |
 | Ctrl + click tags, then Enter | Search for the selected tag combination. |
+| ← / → while viewing an artwork | Open the previous / next work in the originating feed. Also works in quick and full-screen image preview. |
+| F while viewing an artwork | Like / unlike the current work, including with a non-English keyboard layout. |
 | Esc | Close search suggestions. |
 | Arrow keys when the tab bar is focused | Switch tabs. |
 | Delete when the tab bar is focused | Close the selected tab. |
+
+Artwork navigation follows the order of the list you opened, including grouped
+copies and variants. Near the end, it prepares the next page and neighboring
+media. Returning left remains possible after liking a work or hiding viewed
+works. A temporary source failure keeps the current artwork available; press
+the right arrow again to retry. Text fields and focused video controls keep
+their normal keyboard behavior.
 
 If something goes wrong, [open an issue](https://github.com/4ek1st/DART/issues)
 with your app version, the source name, and steps to reproduce it.

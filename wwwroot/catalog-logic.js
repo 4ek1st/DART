@@ -414,7 +414,11 @@
   }
 
   const groupedCache = new WeakMap();
-  function invalidateGrouping(items) { if (Array.isArray(items)) groupedCache.delete(items); }
+  function invalidateGrouping(items) {
+    if (!Array.isArray(items)) return;
+    groupedCache.delete(items);
+    for (const item of items) if (item && typeof item === 'object') groupingEvidenceCache.delete(item);
+  }
   function groupWorks(items) {
     if (Array.isArray(items) && groupedCache.has(items)) return groupedCache.get(items);
     const works = (items || []).filter(item => item?.key);
@@ -607,6 +611,50 @@
     });
     if (Array.isArray(items)) groupedCache.set(items, result);
     return result;
+  }
+
+  const groupingEvidenceCache = new WeakMap();
+  function groupingEvidence(item) {
+    if (groupingEvidenceCache.has(item)) return groupingEvidenceCache.get(item);
+    // Every inferred series/visual match shares a creator or sample owner;
+    // exact copies and explicit relationships share an identity token.
+    const creator = visualCreator(item);
+    const evidence = [...new Set([...itemIdentities(item),
+      ...(creator ? [`bucket:creator:${creator}`] : []),
+      ...itemVisualSamples(item).map(sample => `bucket:${sample.owner}`)])];
+    groupingEvidenceCache.set(item, evidence);
+    return evidence;
+  }
+
+  function mergeGroupedWorks(previous, incoming) {
+    incoming = (incoming || []).filter(item => item?.key);
+    if (!incoming?.length) return previous || [];
+    if (!previous?.length) return groupWorks(incoming);
+    const known = new Set(previous);
+    if (incoming.every(item => known.has(item))) return previous;
+    const buckets = new Map();
+    previous.forEach((item, index) => {
+      for (const evidence of groupingEvidence(item)) {
+        if (!buckets.has(evidence)) buckets.set(evidence, []);
+        buckets.get(evidence).push(index);
+      }
+    });
+    const affected = new Set(), visited = new Set(), pending = [...incoming];
+    for (let position = 0; position < pending.length; position++) {
+      for (const evidence of groupingEvidence(pending[position])) {
+        if (visited.has(evidence)) continue;
+        visited.add(evidence);
+        for (const index of buckets.get(evidence) || []) {
+          if (affected.has(index)) continue;
+          affected.add(index); pending.push(previous[index]);
+        }
+      }
+    }
+    // Keep unrelated works intact. Regroup the complete connected component
+    // with the same rules as a full catalog pass, then retain feed order.
+    const changed = groupWorks([...previous.filter((_, index) => affected.has(index)), ...incoming]);
+    return stableFeedItems(previous,
+      [...previous.filter((_, index) => !affected.has(index)), ...changed]);
   }
 
   function titleFromCharacters(title, characters) {
@@ -1468,7 +1516,7 @@
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks,
-    removeNavigationEntry, groupWorks, invalidateGrouping,
+    removeNavigationEntry, groupWorks, mergeGroupedWorks, invalidateGrouping,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind,
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,

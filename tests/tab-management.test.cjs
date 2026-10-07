@@ -22,6 +22,7 @@ function fixture() {
     hideTabPanels() {}, closeQuickPreview() {}, pauseDetailVideos() {}, loadFollowFeed() {}, scheduleFollowRetry() {},
     renderChrome() {}, loadCreatorWorks() {}, loadRelated() {},
     clearTimeout, setTimeout, toast() {}, startTab(tab) { if (tab) tab.started = true; },
+    createArtworkRoute: () => null, pruneArtworkRoutes() {}, warmArtworkRoute() {},
     render() { this.main.dataset.tabId = String(this.activeId); }
   });
   vm.runInContext('function findTab(id) { return tabs.find(tab => tab.id === id); } function currentTab() { return findTab(activeId); }', context);

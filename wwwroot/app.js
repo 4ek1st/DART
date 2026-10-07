@@ -578,12 +578,14 @@ function abortTab(tab) {
   if (tab.rule34RecoveryTimer) clearTimeout(tab.rule34RecoveryTimer);
 }
 
-function activate(id, record = true, view = null) {
+function activate(id, record = true, view = null, keepQuickPreview = false) {
   if (!findTab(id)) return;
   if (activeId === id && (!view || view === currentTab())) return;
-  closeQuickPreview();
+  if (!keepQuickPreview) closeQuickPreview();
   hideTabPanels();
   const previous = currentTab();
+  previous?.artworkRoute?.engine.cancel();
+  previous?.artworkRoute?.warmController?.abort();
   if (previous) {
     previous.scrollTop = main.scrollTop;
     delete previous.expiredFeedWorks;
@@ -604,6 +606,11 @@ function activate(id, record = true, view = null) {
   render();
   main.scrollTop = currentTab()?.scrollTop || 0;
   const selected = currentTab();
+  if (selected?.artworkRoute) {
+    selected.artworkRoute.engine.select(selected.item);
+    if (selected.artworkRoute.list !== 'related' || selected.artworkRoute.source !== selected)
+      warmArtworkRoute(selected.artworkRoute);
+  }
   if (selected?.kind === 'detail') recordDetailVisit(selected);
   const wasStarted = selected?.started;
   startTab(selected);
@@ -645,6 +652,7 @@ function closeTab(id) {
   if (wasActive) main.scrollTop = currentTab()?.scrollTop || 0;
   startTab(currentTab());
   saveSession();
+  pruneArtworkRoutes();
 }
 
 function travel(direction) {
@@ -683,6 +691,7 @@ function clearTabs() {
   navPosition = -1;
   activeId = null;
   createTab('home', 'Главная');
+  pruneArtworkRoutes();
 }
 
 function changeTabsFromList(change, clearQuery = false) {
@@ -814,7 +823,8 @@ function scheduleRule34Recovery(tab) {
 }
 
 async function loadSearch(tab, append = false, retryFailed = false, retrySources = null) {
-  if (!findTab(tab.id) || append && (tab.loading || !retryFailed &&
+  const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
+  if (!alive() || append && (tab.loading || !retryFailed &&
       (tab.hasMore === false || tab.loadError))) return;
   if (!append) tab.searchController?.abort();
   const controller = new AbortController();
@@ -847,7 +857,7 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
     sources.length > 1;
   let published = append;
   const receive = (response, batch) => {
-    if (!findTab(tab.id) || version !== tab.requestVersion || controller.signal.aborted) return;
+    if (!alive() || version !== tab.requestVersion || controller.signal.aborted) return;
     const merged = published ? [...tab.items, ...(response.items || [])] : response.items || [];
     published = true;
     tab.items = [...new Map(merged.map(item => [item.key, item])).values()];
@@ -1181,7 +1191,8 @@ async function mergeRecommendationsAsync(...args) {
 }
 
 async function loadRecommendations(tab, append = false) {
-  if (!findTab(tab.id) || append && (tab.loading || !tab.hasMore || tab.loadError)) return;
+  const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
+  if (!alive() || append && (tab.loading || !tab.hasMore || tab.loadError)) return;
   if (!append) tab.recommendationController?.abort();
   const controller = new AbortController();
   tab.recommendationController = controller;
@@ -1228,7 +1239,7 @@ async function loadRecommendations(tab, append = false) {
           { signal: controller.signal }) };
       } catch (error) { return { group, stream, error }; }
     }));
-    if (!findTab(tab.id) || version !== tab.recommendationVersion ||
+    if (!alive() || version !== tab.recommendationVersion ||
         controller.signal.aborted) return;
     const candidateGroups = groups.map(group => ({ kind: group.kind, items: [] }));
     tab.loadError = false;
@@ -1263,7 +1274,7 @@ async function loadRecommendations(tab, append = false) {
     const ranked = await mergeRecommendationsAsync(visibleLikes, tab.items,
       candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed,
       { background, recentKeys: tab.recommendationRecentKeys });
-    if (!findTab(tab.id) || version !== tab.recommendationVersion || controller.signal.aborted) return;
+    if (!alive() || version !== tab.recommendationVersion || controller.signal.aborted) return;
     tab.items = CatalogLogic.filterWorks(ranked, contentPreferences);
     if (contentPreferences.hideViewedAndSaved)
       tab.items = tab.items.filter(item => !CatalogLogic.workHistoryTokens(item)
@@ -1461,7 +1472,8 @@ async function markFollowItemsSeen(tab, groups, version) {
 }
 
 async function loadFollowFeed(tab) {
-  if (!findTab(tab.id)) return;
+  const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
+  if (!alive()) return;
   delete tab.resumePrefetchAt;
   tab.followController?.abort();
   if (tab.followUpdateTimer) clearTimeout(tab.followUpdateTimer);
@@ -1485,7 +1497,7 @@ async function loadFollowFeed(tab) {
   try {
     const [available, cache] = await Promise.all([refreshFollows(),
       request(`/api/follows/cache?rating=${tab.rating}`).catch(() => null)]);
-    if (!findTab(tab.id) || version !== tab.followVersion || controller.signal.aborted) return;
+    if (!alive() || version !== tab.followVersion || controller.signal.aborted) return;
     if (!available) {
       tab.followErrors.push('Не удалось загрузить список подписок.');
       return;
@@ -1508,7 +1520,7 @@ async function loadFollowFeed(tab) {
     if (tab.followGroups.some(group => group.items.length)) flushFollowUpdate(tab);
     const regularJobs = jobs.filter(job => job.entry.source !== 'rule34');
     const rule34Jobs = jobs.filter(job => job.entry.source === 'rule34');
-    const valid = () => findTab(tab.id) && version === tab.followVersion && !controller.signal.aborted;
+    const valid = () => alive() && version === tab.followVersion && !controller.signal.aborted;
     const worker = async queue => {
       while (queue.length && valid()) {
         const { group, entry } = queue.shift();
@@ -1549,14 +1561,15 @@ async function loadFollowFeed(tab) {
       tab.followCacheTimer = null;
       tab.loading = false;
       if (!controller.signal.aborted) tab.lastLoadedAt = Date.now();
-      if (findTab(tab.id) && activeId === tab.id) render();
+      if (alive() && activeId === tab.id) render();
       scheduleFollowRetry(tab);
     }
   }
 }
 
 async function loadMoreFollows(tab) {
-  if (!findTab(tab.id) || tab.loading || tab.followLoadingMore ||
+  const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
+  if (!alive() || tab.loading || tab.followLoadingMore ||
       !tab.followStreams?.length) return;
   const batch = tab.followStreams.filter(stream => followStreamRetryAt(stream) <= Date.now()).slice(0, 3);
   if (!batch.length) {
@@ -1565,8 +1578,10 @@ async function loadMoreFollows(tab) {
     return;
   }
   const version = tab.followVersion;
-  const controller = tab.followController;
+  const controller = tab.followController ||= new AbortController();
   tab.followLoadingMore = true;
+  // Preserve unconsumed cursors while a viewer may detach from this feed.
+  tab.followPagingStreams = batch.map(stream => ({ ...stream, buffer: [...stream.buffer] }));
   if (activeId === tab.id) render();
   tab.followStreams = tab.followStreams.filter(stream => !batch.includes(stream));
   try {
@@ -1597,7 +1612,7 @@ async function loadMoreFollows(tab) {
         return { stream, items: repeated ? [] : items.slice(0, 24) };
       } catch (error) { return { stream, error }; }
     }));
-    if (!findTab(tab.id) || version !== tab.followVersion || controller.signal.aborted) return;
+    if (!alive() || version !== tab.followVersion || controller.signal.aborted) return;
     const seenGroups = [];
     tab.followLoadError = false;
     for (const { stream, items, error } of results) {
@@ -1616,6 +1631,7 @@ async function loadMoreFollows(tab) {
   } finally {
     if (version === tab.followVersion) {
       tab.followLoadingMore = false;
+      delete tab.followPagingStreams;
       if (activeId === tab.id) render();
       scheduleFollowRetry(tab);
     }
@@ -1787,6 +1803,7 @@ async function loadDetail(tab) {
     if (controller.signal.aborted || findTab(tab.id) !== tab) return;
     if (detail) {
       tab.item = rememberItem(CatalogLogic.mergeDetailPages(tab.item, detail));
+      tab.artworkRoute?.engine.update(tab.item);
       tab.title = tab.item.title;
       recent = recent.map(entry => entry.key === tab.item.key
         ? CatalogLogic.mergeDetailPages(entry, detail) : entry);
@@ -1805,6 +1822,7 @@ async function loadDetail(tab) {
   if (findTab(tab.id)) {
     loadCreatorWorks(tab);
     loadRelated(tab);
+    warmArtworkRoute(tab.artworkRoute);
   }
 }
 
@@ -1894,7 +1912,8 @@ function selectCreatorWorks(item, candidates) {
 }
 
 async function loadRelated(tab, append = false) {
-  if (findTab(tab.id) !== tab || append && (tab.relatedLoading ||
+  const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
+  if (!alive() || append && (tab.relatedLoading ||
       !tab.relatedHasMore || tab.relatedError)) return;
   if (!append) tab.relatedController?.abort();
   const item = tab.item;
@@ -1919,7 +1938,7 @@ async function loadRelated(tab, append = false) {
   }
   if (!tab.relatedQuery) {
     tab.relatedHasMore = false;
-    if (findTab(tab.id) === tab && activeId === tab.id) render();
+    if (alive() && activeId === tab.id) render();
     return;
   }
   const controller = new AbortController();
@@ -1927,8 +1946,8 @@ async function loadRelated(tab, append = false) {
   const version = tab.relatedVersion = (tab.relatedVersion || 0) + 1;
   tab.relatedLoading = true;
   const rating = ratingFilterFor(item);
-  const before = filterFeedWorks(tab.related, 'related').length;
-  if (findTab(tab.id) === tab && activeId === tab.id) render();
+  const before = filterFeedWorks(tab.related, tab, false, 'related').length;
+  if (alive() && activeId === tab.id) render();
   try {
     // Limit work per scroll event, not the total number of related results.
     for (let batch = 0; batch < 3; batch++) {
@@ -1939,7 +1958,7 @@ async function loadRelated(tab, append = false) {
         pages: sources.map(source => `${source}:${group.pages[source]}`).join(','),
         sources: sources.join(','), rating, sort: 'recent', kind: 'illustrations' });
       const response = await request(`/api/search?${params}`, { signal: controller.signal });
-      if (findTab(tab.id) !== tab || controller.signal.aborted || version !== tab.relatedVersion) return;
+      if (!alive() || controller.signal.aborted || version !== tab.relatedVersion) return;
       const progress = CatalogLogic.advanceSearchSources(group.pages, tab.relatedPaused, sources, response);
       for (const source of sources) {
         if (response.errors?.[source]) tab.relatedErrors[source] = response.errors[source];
@@ -1958,8 +1977,8 @@ async function loadRelated(tab, append = false) {
       tab.relatedHasMore = relatedSearchHasMore(tab);
       tab.relatedLoadedOnce = true;
       rememberItems(tab.related);
-      if (findTab(tab.id) === tab && activeId === tab.id) render();
-      if (filterFeedWorks(tab.related, 'related').length - before >= 24) break;
+      if (alive() && activeId === tab.id) render();
+      if (filterFeedWorks(tab.related, tab, false, 'related').length - before >= 24) break;
     }
     tab.relatedHasMore = relatedSearchHasMore(tab);
     tab.relatedError = false;
@@ -1970,8 +1989,8 @@ async function loadRelated(tab, append = false) {
   finally {
     if (version === tab.relatedVersion) {
       tab.relatedLoading = false;
-      if (findTab(tab.id) === tab && activeId === tab.id) render();
-      if (findTab(tab.id) === tab && tab.relatedRetryPending) retryRelatedSearch(tab);
+      if (alive() && activeId === tab.id) render();
+      if (alive() && tab.relatedRetryPending) retryRelatedSearch(tab);
     }
   }
 }
@@ -2016,6 +2035,7 @@ function mergeRelatedWorks(item, existing, incoming) {
 }
 
 async function loadProfile(tab, append = false) {
+  const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
   if (!append) { tab.profileBanner = ''; delete tab.resumePrefetchAt; }
   if (tab.profileRef?.source === 'artist') {
     tab.query = tab.profileRef.artist;
@@ -2027,7 +2047,7 @@ async function loadProfile(tab, append = false) {
     await loadSearch(tab, append);
     return;
   }
-  if (!findTab(tab.id) || append && (tab.loading || tab.hasMore === false || tab.loadError)) return;
+  if (!alive() || append && (tab.loading || tab.hasMore === false || tab.loadError)) return;
   if (!append) tab.profileController?.abort();
   const controller = new AbortController();
   tab.profileController = controller;
@@ -2045,7 +2065,7 @@ async function loadProfile(tab, append = false) {
     rating: tab.rating || 'general', page: String(page) });
   try {
     const profile = await request(`/api/profile?${params}`, { signal: controller.signal });
-    if (!findTab(tab.id) || version !== tab.profileVersion) return;
+    if (!alive() || version !== tab.profileVersion) return;
     if (append && tab.profile) profile.name = tab.profile.name;
     tab.profile = profile;
     tab.errors = profile.notices || {};
@@ -2105,10 +2125,222 @@ function openPreferredAttribution(item, reveal = false) {
   else toast('Автор пока не определён. Проверьте исходную ссылку и теги работы.');
 }
 
+const artworkRoutes = new Set();
+let nextArtworkSourceId = -1, quickPreviewRoute = null;
+
+function artworkSourceSignature(source) {
+  return JSON.stringify([source.kind, source.query, source.rating, source.sort,
+    source.selectedSources, source.profileRef]);
+}
+
+function copyArtworkSource(source) {
+  const plain = Object.fromEntries(Object.entries(source).filter(([key, value]) =>
+    !/Controller$|Timer$|^artwork|^virtual|^gridTops|^resumePrefetchAt/.test(key) &&
+    typeof value !== 'function' && typeof value?.then !== 'function'));
+  const copy = structuredClone(plain);
+  if (copy.followPagingStreams) {
+    copy.followStreams = [...new Map([...copy.followPagingStreams, ...(copy.followStreams || [])]
+      .map(stream => [`${stream.follow.key}:${stream.source}`, stream])).values()];
+    delete copy.followPagingStreams;
+  }
+  return { ...copy, id: nextArtworkSourceId--, artworkDetached: true,
+    started: source.kind === 'follows' && source.loading ? false : source.started,
+    artworkDisposed: false, loading: false, followLoadingMore: false,
+    relatedLoading: false, creatorLoading: false };
+}
+
+function artworkRouteSource(route) {
+  if (!route.source.artworkDetached && (findTab(route.source.id) !== route.source ||
+      artworkSourceSignature(route.source) !== route.signature)) route.source = route.backup;
+  return route.source;
+}
+
+function artworkSourceItems(route) {
+  const source = artworkRouteSource(route);
+  const raw = route.list === 'related' ? source.related || [] :
+    source.kind === 'recent' ? recent : source.items || [];
+  if (route.readRaw === raw && route.readRawLength === raw.length && route.readPreferences === contentPreferences)
+    return route.readItems;
+  const fullRead = route.readPreferences !== contentPreferences;
+  const changed = fullRead ? raw : raw.filter(item => route.readVersions.get(item.key) !== item);
+  const added = changed.some(item => !route.readVersions.has(item.key));
+  route.readRaw = raw; route.readRawLength = raw.length; route.readPreferences = contentPreferences;
+  route.readVersions = new Map(raw.map(item => [item.key, item]));
+  if (added && !source.artworkDetached && !source.loading && !source.followLoadingMore && !source.relatedLoading)
+    route.backup = copyArtworkSource(source);
+  const works = filterFeedWorks(changed, source, source.kind === 'follows', route.list)
+    .filter(item => !isExpiredFeedWork(source, item));
+  route.readItems = source.kind === 'profile'
+    ? CatalogLogic.stableFeedItems(source.profileGridItems || [], works) : works;
+  return route.readItems;
+}
+
+function artworkSourceHasMore(route) {
+  const source = artworkRouteSource(route);
+  if (['likes', 'bookmarks', 'recent'].includes(source.kind)) return false;
+  if (route.list === 'related') return !source.relatedStarted || source.relatedLoading ||
+    source.relatedHasMore || source.relatedError || Object.keys(source.relatedPaused || {}).length > 0;
+  if (source.kind === 'follows') return !source.started || source.loading || source.followLoadingMore ||
+    !!source.followStreams?.length;
+  return !source.started || source.loading || source.hasMore || source.loadError ||
+    Object.keys(source.pausedSources || {}).length > 0;
+}
+
+async function loadArtworkSource(route) {
+  const source = artworkRouteSource(route);
+  const busy = () => route.list === 'related' ? source.relatedLoading :
+    source.loading || source.followLoadingMore;
+  const deadline = Date.now() + 95000;
+  const wasBusy = busy(), before = artworkSourceItems(route);
+  while (busy() && !route.disposed && Date.now() < deadline)
+    await new Promise(resolve => setTimeout(resolve, 60));
+  if (route.disposed || busy()) throw new Error('Artwork source unavailable');
+  if (wasBusy && artworkSourceItems(route) !== before) return;
+  if (route.list === 'related') {
+    if (source.relatedStarted && (source.relatedError || Object.keys(source.relatedPaused || {}).length)) {
+      source.relatedError = false; source.relatedPaused = {};
+    }
+    await loadRelated(source, !!source.relatedStarted);
+    if (source.relatedError || !source.relatedHasMore && Object.keys(source.relatedPaused || {}).length)
+      throw new Error('Related source unavailable');
+  } else if (source.kind === 'follows') {
+    if (!source.started) await loadFollowFeed(source);
+    else await loadMoreFollows(source);
+    if (source.followStreams?.length && !source.hasMore) throw new Error('Following source paused');
+  } else if (source.kind === 'recommendations') {
+    source.loadError = false;
+    await loadRecommendations(source, !!source.started);
+    if (source.loadError || !source.hasMore && Object.keys(source.errors || {}).length)
+      throw new Error('Recommendation source unavailable');
+  } else if (source.kind === 'profile') {
+    source.loadError = false;
+    await loadProfile(source, !!source.started);
+    if (source.loadError || source.profileError) throw new Error('Profile source unavailable');
+  } else {
+    const retry = !source.hasMore && Object.keys(source.pausedSources || {}).length > 0;
+    source.loadError = false;
+    await loadSearch(source, !!source.started, retry);
+    if (source.loadError || !source.hasMore && Object.keys(source.errors || {}).length)
+      throw new Error('Catalog source unavailable');
+  }
+  source.started = true;
+  if (!source.artworkDetached) route.backup = copyArtworkSource(source);
+}
+
+function createArtworkRoute(from, item, origin = null) {
+  if (!from) return null;
+  const related = from.kind === 'detail';
+  const creator = related && !!origin?.closest?.('.author-strip');
+  const list = related ? creator ? 'creator' : 'related' : from.kind;
+  // Each viewer owns its position, including works opened in background tabs.
+  const snapshot = from.kind === 'home' ? filterFeedWorks(from.items || [], from) :
+    creator ? selectCreatorWorks(from.item, from.creatorCandidates || from.creatorWorks || []) :
+    related ? filterFeedWorks(from.related || [], from, false, 'related') :
+    from.artworkLists?.get(origin?.closest?.('[data-grid-key]')?.dataset.gridKey || from.kind) ||
+    filterFeedWorks(from.kind === 'recent' ? recent : from.items || [], from, from.kind === 'follows');
+  let source = from;
+  if (creator) source = { id: nextArtworkSourceId--, artworkDetached: true, kind: 'profile',
+    profileRef: CatalogLogic.creatorProfileRef(from.item), title: from.title,
+    rating: ratingFilterFor(from.item), items: [], errors: {}, hasMore: true,
+    selectedSources: [...defaultSources], page: 0, loading: false };
+  const pageable = !['likes', 'bookmarks', 'recent'].includes(source.kind);
+  const raw = list === 'related' ? source.related || [] : source.kind === 'recent' ? recent : source.items || [];
+  const route = { source, signature: artworkSourceSignature(source),
+    backup: source.artworkDetached ? source : pageable ? copyArtworkSource(source) : {
+      id: nextArtworkSourceId--, kind: source.kind, artworkDetached: true, started: true, items: [] },
+    list: creator ? 'profile' : list, warmed: new Map(), disposed: false,
+    readRaw: raw, readRawLength: raw.length, readPreferences: contentPreferences,
+    readVersions: new Map(raw.map(item => [item.key, item])), readItems: [] };
+  const selected = snapshot.some(entry => entry.key === item.key || entry.memberKeys?.includes(item.key));
+  const initial = selected ? snapshot : related ? [item, ...snapshot] : [...snapshot, item];
+  route.engine = DartArtworkNavigation.create({ items: initial, current: item,
+    read: () => artworkSourceItems(route), more: () => !route.disposed && artworkSourceHasMore(route),
+    load: () => loadArtworkSource(route),
+    same: (a, b) => CatalogLogic.workHistoryTokens(a).some(token =>
+      CatalogLogic.workHistoryTokens(b).includes(token)),
+    merge: CatalogLogic.mergeGroupedWorks,
+    allowed: entry => !CatalogLogic.isWorkHidden(entry, contentPreferences) });
+  artworkRoutes.add(route);
+  return route;
+}
+
+function pruneArtworkRoutes() {
+  const held = new Set([quickPreviewRoute, ...tabs.map(tab => tab.artworkRoute),
+    ...navigation.map(entry => entry.view?.artworkRoute)]);
+  for (const route of artworkRoutes) {
+    if (held.has(route)) continue;
+    route.disposed = true; route.warmController?.abort();
+    if (route.source.artworkDetached) { route.source.artworkDisposed = true; abortTab(route.source); }
+    artworkRoutes.delete(route);
+  }
+}
+
+function warmArtworkRoute(route) {
+  if (!route || route.disposed) return;
+  const current = route.engine.items[route.engine.state.index]?.key;
+  if (route.warmFor === current && route.warming && !route.warmController?.signal.aborted) return;
+  route.warmController?.abort();
+  const controller = route.warmController = new AbortController();
+  route.warmFor = current;
+  route.warming = (async () => {
+    await route.engine.prefetch();
+    if (controller.signal.aborted || route.disposed) return;
+    await Promise.allSettled(route.engine.neighbors().map(async item => {
+      const detail = await request(`/api/detail?source=${encodeURIComponent(item.source)}&id=${encodeURIComponent(item.id)}`,
+        { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      const ready = rememberItem(CatalogLogic.mergeDetailPages(item, detail) || item);
+      route.engine.update(ready);
+      route.warmed.set(item.key, ready);
+      while (route.warmed.size > 4) route.warmed.delete(route.warmed.keys().next().value);
+      const url = galleryImages(ready).find(media => !CatalogLogic.videoMimeType(media)) || ready.thumbnail;
+      if (url) imageLoader.rememberBlob(url, await readMediaBlob(url, controller.signal));
+    }));
+  })().catch(() => {}).finally(() => {
+    if (route.warmController === controller) route.warming = null;
+  });
+}
+
+async function moveArtwork(direction) {
+  const tab = currentTab(), preview = quickPreview.open;
+  const route = preview ? quickPreviewRoute : tab?.artworkRoute;
+  if (!route || route.disposed) return;
+  const generation = quickPreviewGeneration;
+  const ticket = route.navigationTicket = (route.navigationTicket || 0) + 1;
+  const next = await route.engine.move(direction);
+  if (ticket !== route.navigationTicket || (preview ? !quickPreview.open || quickPreviewRoute !== route ||
+      quickPreviewGeneration !== generation : currentTab() !== tab)) return;
+  if (!next) {
+    if (route.engine.state.error) toast('Could not load the next artwork. Try again later.');
+    return;
+  }
+  const item = route.warmed.get(next.key) || next;
+  const replacement = tab?.kind === 'detail' ? { id: tab.id, kind: 'detail', title: item.title, item,
+    rating: ratingFilterFor(item), searchQuery: tab.searchQuery, artworkRoute: route,
+    preview: tab.preview, pinned: tab.pinned, items: [], errors: {}, page: 0,
+    scrollTop: 0, loading: false, selectedSources: [...defaultSources] } : null;
+  if (preview) {
+    const url = galleryImages(item).find(media => !CatalogLogic.videoMimeType(media)) || item.thumbnail;
+    if (!url) {
+      closeQuickPreview();
+      if (replacement) activate(tab.id, true, replacement);
+      else openDetail(item, { artworkRoute: route });
+      return;
+    }
+    if (replacement && tab.artworkRoute === route) activate(tab.id, true, replacement, true);
+    openQuickPreview({ item, url, route, image: { currentSrc: imageLoader.cached(url)?.blobUrl || '' } },
+      quickPreview.classList.contains('fullscreen') ? 'fullscreen' : 'window');
+  } else {
+    // Arrow browsing always stays in the current viewer, including pinned tabs.
+    activate(tab.id, true, replacement);
+  }
+}
+
 function openDetail(item, options = {}) {
   item = rememberItem(item);
   const from = currentTab();
   retainFeedWork(from, item);
+  const artworkRoute = options.artworkRoute || createArtworkRoute(from, item, options.origin);
   const searchQuery = from?.kind === 'search' ? from.query :
     from?.kind === 'detail' ? from.relatedQuery || from.searchQuery || '' : '';
   const keys = new Set([item.key, ...(item.memberKeys || [])]);
@@ -2117,6 +2349,7 @@ function openDetail(item, options = {}) {
   if (existing) {
     const grouped = CatalogLogic.groupWorks([existing.item, item])[0];
     existing.item = rememberItem(CatalogLogic.mergeDetailPages(grouped, existing.item));
+    if (artworkRoute) existing.artworkRoute = artworkRoute;
     saveSession();
     if (options.separate && existing.preview) pinTab(existing.id);
     if (!options.background) activate(existing.id);
@@ -2125,12 +2358,12 @@ function openDetail(item, options = {}) {
   const rating = ratingFilterFor(item);
   const previewMode = !options.separate && tabPreferences.artworkTabs === 'preview';
   const preview = previewMode && tabs.find(tab => tab.kind === 'detail' && tab.preview && !tab.pinned);
-  if (!preview) return createTab('detail', item.title, { item, rating, searchQuery,
+  if (!preview) return createTab('detail', item.title, { item, rating, searchQuery, artworkRoute,
     preview: previewMode }, { background: !!options.background });
   if (from) from.scrollTop = main.scrollTop;
   abortTab(preview);
   const replacement = { id: preview.id, kind: 'detail', title: item.title,
-    item, rating, searchQuery, preview: true, items: [], errors: {}, page: 0,
+    item, rating, searchQuery, artworkRoute, preview: true, items: [], errors: {}, page: 0,
     loading: false, scrollTop: 0, selectedSources: [...defaultSources],
     sort: 'recent', feed: 'illustrations' };
   tabs[tabs.indexOf(preview)] = replacement;
@@ -2246,8 +2479,11 @@ function zoomQuickPreviewFromCenter(nextScale) {
     bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
 }
 
-function openQuickPreview({ item, image, url }, mode = 'window') {
-  if (!item || !url || quickPreview.open) return;
+function openQuickPreview({ item, image, url, route }, mode = 'window') {
+  if (!item || !url || quickPreview.open && (!route || route !== quickPreviewRoute)) return;
+  quickPreviewRoute = route || (currentTab()?.kind === 'detail' &&
+    currentTab().item.key === item.key ? currentTab().artworkRoute :
+    createArtworkRoute(currentTab(), item, image));
   clearTimeout(quickPreviewZoomTimer);
   quickPreviewZoomTimer = null;
   quickPreview.classList.toggle('fullscreen', mode === 'fullscreen');
@@ -2255,8 +2491,8 @@ function openQuickPreview({ item, image, url }, mode = 'window') {
     ? 'Полноэкранный просмотр изображения' : 'Быстрый просмотр изображения');
   item = quickPreviewWork = rememberItem(item);
   retainFeedWork(currentTab(), item);
-  const preview = image.currentSrc || image.getAttribute?.('src') ||
-    imageLoader.cached(image.dataset.imageUrl)?.blobUrl || '';
+  const preview = image?.currentSrc || image?.getAttribute?.('src') ||
+    imageLoader.cached(image?.dataset?.imageUrl)?.blobUrl || '';
   const full = imageLoader.cached(url)?.blobUrl || `/api/image?url=${encodeURIComponent(url)}`;
   quickPreviewView = { scale: 1, x: 0, y: 0 };
   quickPreviewDrag = null;
@@ -2271,11 +2507,13 @@ function openQuickPreview({ item, image, url }, mode = 'window') {
     <button type="button" class="quick-preview-close" data-preview-action="close" title="Close preview" aria-label="Close preview">×</button>
     <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}</div>
   </div>`;
-  quickPreview.showModal();
+  if (!quickPreview.open) quickPreview.showModal();
+  globalThis.DartI18n?.translateTree(quickPreview);
   quickPreview.focus({ preventScroll: true });
   quickPreview.querySelector('.quick-preview-image').addEventListener('load', () => paintQuickPreview(true));
   paintQuickPreview(true);
   recordDetailVisit({ item });
+  if (quickPreviewRoute) { quickPreviewRoute.engine.select(item); warmArtworkRoute(quickPreviewRoute); }
   const generation = ++quickPreviewGeneration;
   if (preview && preview !== full) {
     const loaded = new Image();
@@ -2296,6 +2534,9 @@ function closeQuickPreview() {
   quickPreview.close();
   quickPreview.replaceChildren();
   quickPreviewWork = null;
+  quickPreviewRoute?.engine.cancel();
+  quickPreviewRoute?.warmController?.abort();
+  quickPreviewRoute = null;
 }
 
 async function toggleSavedWork(item, collection) {
@@ -3126,6 +3367,7 @@ function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false
     tab.profileGridRating = tab.rating;
   }
   if (!works.length) return emptyFeedMessage(tab, key);
+  if (tab) { tab.artworkLists ||= new Map(); tab.artworkLists.set(key || tab.kind, works); }
   const attribute = key ? ` data-grid-key="${escapeHtml(key)}"` : '';
   if (!key || works.length <= 160 || !tab)
     return `<div${attribute}><div class="grid">${works.map(item =>
@@ -3234,6 +3476,8 @@ function skeletons(count) {
 
 function renderDetail(tab) {
   const item = tab.item = rememberItem(tab.item);
+  tab.artworkRoute ||= createArtworkRoute(tab, item);
+  tab.artworkRoute?.engine.sync();
   if (CatalogLogic.isWorkHidden(item, contentPreferences))
     return `<div class="content"><div class="empty feature-empty">Эта работа скрыта фильтрами содержимого. <button class="inline-retry" data-action="content-settings">Изменить фильтры</button></div></div>`;
   const images = galleryImages(item);
@@ -4102,6 +4346,22 @@ quickPreview.addEventListener('click', event => {
   }
 });
 document.addEventListener('keydown', event => {
+  const tab = currentTab();
+  if (!quickPreview.open && tab?.kind !== 'detail') return;
+  const dialog = document.querySelector('dialog[open]');
+  const blocked = dialog && dialog !== quickPreview || !tabListPanel.hidden ||
+    !tabContextMenu.hidden || !recommendationTagMenu.hidden || !popover.hidden ||
+    document.activeElement?.closest?.('.tabs-bar');
+  const action = DartArtworkNavigation.shortcut(event, document.activeElement, blocked);
+  if (!action) return;
+  const route = quickPreview.open ? quickPreviewRoute : tab.artworkRoute;
+  if (!route || event.repeat && route.engine.state.busy) return;
+  event.preventDefault(); event.stopImmediatePropagation();
+  if (action === 'like') void toggleSavedWork(quickPreview.open ? quickPreviewWork : tab.item, 'likes');
+  else void moveArtwork(action === 'previous' ? -1 : 1);
+}, true);
+
+document.addEventListener('keydown', event => {
   if (quickPreview.open) {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -4480,7 +4740,7 @@ main.addEventListener('auxclick', event => {
   if (event.button !== 1) return;
   const control = event.target.closest('[data-action="open"]');
   const item = control && itemForControl(control);
-  if (item) { event.preventDefault(); openDetail(item, { separate: true, background: !event.shiftKey }); }
+  if (item) { event.preventDefault(); openDetail(item, { separate: true, background: !event.shiftKey, origin: control }); }
 });
 main.addEventListener('click', event => {
   const control = event.target.closest('[data-action]');
@@ -4513,7 +4773,7 @@ main.addEventListener('click', event => {
     if (author) void setAuthorHidden(author, false);
   }
   else if (action === 'open' && item) openDetail(item, {
-    separate: event.ctrlKey || event.metaKey, background: (event.ctrlKey || event.metaKey) && !event.shiftKey });
+    separate: event.ctrlKey || event.metaKey, background: (event.ctrlKey || event.metaKey) && !event.shiftKey, origin: control });
   else if (action === 'attribution-primary' && item) {
     if (control.dataset.creatorId) openCreator(item);
     else openPreferredAttribution(item, reveal);

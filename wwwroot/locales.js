@@ -3,6 +3,7 @@
 (function(root) {
   const rows = `
 Home|Главная|Startseite
+Could not load the next artwork. Try again later.|Не удалось загрузить следующую работу. Повторите позже.|Das nächste Werk konnte nicht geladen werden. Versuche es später erneut.
 Settings|Настройки|Einstellungen
 Appearance|Оформление|Darstellung
 Color and theme|Цвет и тема|Farben und Design
