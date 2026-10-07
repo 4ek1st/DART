@@ -29,7 +29,11 @@ internal sealed class SavedWorksStore
             .Where(item => CatalogState.IsSupported(item.Source)).ToList();
     }
 
-    public bool Toggle(string collection, CatalogItem item)
+    public bool Toggle(string collection, CatalogItem item) => Update(collection, item, ensureSaved: false);
+
+    public bool EnsureSaved(string collection, CatalogItem item) => Update(collection, item, ensureSaved: true);
+
+    private bool Update(string collection, CatalogItem item, bool ensureSaved)
     {
         using var fileLock = AcquireLock();
         var state = Read();
@@ -39,6 +43,9 @@ internal sealed class SavedWorksStore
             keys.Contains(saved["key"]?.GetValue<string>() ?? "") ||
             saved["memberKeys"] is JsonArray members && members.Any(key =>
                 key is JsonValue value && value.TryGetValue<string>(out var text) && keys.Contains(text))).ToArray();
+        // Double-click likes are idempotent even with stale clients or concurrent windows.
+        // Keep existing metadata, unknown fields and library order byte-for-byte.
+        if (ensureSaved && existing.Length > 0) return true;
         foreach (var saved in existing) items.Remove(saved);
         if (existing.Length == 0) items.Insert(0, JsonSerializer.SerializeToNode(item, Json));
         Write(state);

@@ -2539,7 +2539,12 @@ function closeQuickPreview() {
   quickPreviewRoute = null;
 }
 
-async function toggleSavedWork(item, collection) {
+async function toggleSavedWork(item, collection, likeOnly = false) {
+  if (likeOnly && isSavedWork(item, 'likes')) {
+    syncSavedWorkButtons();
+    toast('Добавлено в понравившиеся');
+    return;
+  }
   const pendingKey = collection + ':' + item.key;
   if (savedWorkPending.has(pendingKey)) return;
   savedWorkPending.add(pendingKey);
@@ -2555,7 +2560,7 @@ async function toggleSavedWork(item, collection) {
       } catch { /* Retain the available preview and tag names if details are restricted. */ }
     }
     const response = await request(`/api/${collection}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item)
+      method: likeOnly ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item)
     });
     const keys = new Set([item.key, ...(item.memberKeys || [])]);
     const remaining = (collection === 'likes' ? likes : bookmarks).filter(entry =>
@@ -3456,7 +3461,7 @@ function renderCard(item, isNew = false) {
     ? `Объединено ${provenance.total} записей · ${sourceDetails}` : sourceName;
   return `<article class="card" data-work-key="${escapeHtml(item.key)}" data-work-members="${escapeHtml(JSON.stringify([item.key, ...(item.memberKeys || [])]))}"><div class="card-art ${isNew ? 'new-item' : ''}">
     <button class="card-art" data-action="open" data-key="${escapeHtml(item.key)}"${previewVideo ? ` data-video-preview="${escapeHtml(previewVideo)}"` : ''} data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" aria-label="Открыть ${escapeHtml(item.title)} · ${escapeHtml(sourceTitle)}">
-      ${item.thumbnail ? `<img data-image-url="${escapeHtml(item.thumbnail)}" alt="" decoding="async">` : `<span class="text-preview"${/^(Работа|Artwork|Werk) #/.test(item.title) ? '' : ' data-no-i18n'}>${escapeHtml(item.title.slice(0, 180))}</span>`}
+      ${item.thumbnail ? `<img data-image-url="${escapeHtml(item.thumbnail)}" alt="" decoding="async" draggable="false">` : `<span class="text-preview"${/^(Работа|Artwork|Werk) #/.test(item.title) ? '' : ' data-no-i18n'}>${escapeHtml(item.title.slice(0, 180))}</span>`}
       ${previewVideo ? '<img class="video-preview-frame" alt="" aria-hidden="true" decoding="async" hidden>' : ''}
       <span class="image-fail">Изображение недоступно</span>
       <span class="source-badge" title="${escapeHtml(sourceTitle)}">${escapeHtml(sourceBadge)}</span>
@@ -3561,7 +3566,7 @@ function renderDetailImage(item, url, index) {
   const preview = imageLoader.cached(url)?.blobUrl ||
     (previewUrl ? imageLoader.cached(previewUrl)?.blobUrl : '');
   const size = longDetailImageSize(url, previewUrl);
-  return `<div class="detail-image${size ? ' long-image' : ''}"${size ? ` style="aspect-ratio: ${size.width} / ${size.height}"` : ''}><img data-action="zoom-image" data-image-url="${escapeHtml(url)}"${previewUrl ? ` data-preview-url="${escapeHtml(previewUrl)}"` : ''}${preview ? ` src="${escapeHtml(preview)}"` : ''} alt="${escapeHtml(item.title)}" role="button" tabindex="0" aria-label="Увеличить изображение: ${escapeHtml(item.title)}" decoding="async"><span class="image-fail">Изображение недоступно</span></div>`;
+  return `<div class="detail-image${size ? ' long-image' : ''}"${size ? ` style="aspect-ratio: ${size.width} / ${size.height}"` : ''}><img data-action="zoom-image" data-image-url="${escapeHtml(url)}"${previewUrl ? ` data-preview-url="${escapeHtml(previewUrl)}"` : ''}${preview ? ` src="${escapeHtml(preview)}"` : ''} alt="${escapeHtml(item.title)}" role="button" tabindex="0" aria-label="Увеличить изображение: ${escapeHtml(item.title)}" decoding="async" draggable="false"><span class="image-fail">Изображение недоступно</span></div>`;
 }
 
 function longDetailImageSize(url, previewUrl) {
@@ -4273,6 +4278,42 @@ main.addEventListener('pointermove', event => {
   if (event.pointerType === 'mouse') quickPreviewPointer = { x: event.clientX, y: event.clientY };
 });
 main.addEventListener('pointerleave', () => { quickPreviewPointer = null; });
+const artworkImageGestures = DartArtworkGestures.create({
+  resolve(event) {
+    const tab = currentTab();
+    if (quickPreview.open) {
+      if (!event.target.matches?.('.quick-preview-image') || !quickPreviewWork) return null;
+      const generation = quickPreviewGeneration;
+      return { item: quickPreviewWork, context: quickPreview, target: generation,
+        valid: () => quickPreview.open && quickPreviewGeneration === generation };
+    }
+    if (!tab || !main.contains(event.target)) return null;
+    const control = event.target.closest?.('button.card-art[data-action="open"], .detail-image img[data-action="zoom-image"]');
+    if (!control || control.matches('button') && !control.querySelector('img[data-image-url]')) return null;
+    const detail = control.dataset.action === 'zoom-image';
+    const item = detail ? tab.item : itemForControl(control);
+    if (!item) return null;
+    const artwork = detail && quickPreviewArtworkAt(control, tab, itemIndex);
+    return { item, context: tab, target: `${control.dataset.action}:${item.key}:${control.dataset.imageUrl || ''}`,
+      valid: () => currentTab() === tab && !quickPreview.open,
+      single: () => detail ? artwork && openQuickPreview(artwork, 'fullscreen') : openDetail(item, { origin: control }) };
+  },
+  like: item => { void toggleSavedWork(item, 'likes', true); }
+});
+document.addEventListener('pointerdown', event => artworkImageGestures.pointerdown(event), true);
+document.addEventListener('pointermove', event => artworkImageGestures.pointermove(event), true);
+for (const type of ['keydown', 'pointercancel', 'dragstart', 'contextmenu'])
+  document.addEventListener(type, () => artworkImageGestures.cancel(), true);
+window.addEventListener('blur', () => artworkImageGestures.cancel());
+main.addEventListener('scroll', () => artworkImageGestures.cancel());
+for (const surface of [main, quickPreview]) {
+  surface.addEventListener('click', event => {
+    if (artworkImageGestures.click(event)) event.stopImmediatePropagation();
+  }, true);
+  surface.addEventListener('dblclick', event => {
+    if (artworkImageGestures.dblclick(event)) event.stopImmediatePropagation();
+  }, true);
+}
 quickPreview.addEventListener('cancel', event => {
   event.preventDefault();
   closeQuickPreview();
@@ -4293,12 +4334,15 @@ quickPreview.addEventListener('pointerdown', event => {
   if (quickPreviewView.scale <= 1 || quickPreviewDrag) return;
   event.preventDefault();
   quickPreviewDrag = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY,
-    x: quickPreviewView.x, y: quickPreviewView.y };
-  stage.setPointerCapture(event.pointerId);
-  paintQuickPreview(true);
+    x: quickPreviewView.x, y: quickPreviewView.y, moved: false };
 });
 quickPreview.addEventListener('pointermove', event => {
   if (!quickPreviewDrag || event.pointerId !== quickPreviewDrag.pointerId) return;
+  if (!quickPreviewDrag.moved) {
+    if (Math.hypot(event.clientX - quickPreviewDrag.clientX, event.clientY - quickPreviewDrag.clientY) <= 8) return;
+    quickPreviewDrag.moved = true;
+    event.target.closest?.('.quick-preview-stage')?.setPointerCapture(event.pointerId);
+  }
   quickPreviewView = { ...quickPreviewView,
     x: quickPreviewDrag.x + event.clientX - quickPreviewDrag.clientX,
     y: quickPreviewDrag.y + event.clientY - quickPreviewDrag.clientY };
@@ -4316,12 +4360,6 @@ quickPreview.addEventListener('pointercancel', stopQuickPreviewDrag);
 quickPreview.addEventListener('lostpointercapture', stopQuickPreviewDrag);
 quickPreview.addEventListener('auxclick', event => {
   if (event.button === 1 && event.target.closest?.('.quick-preview-stage')) event.preventDefault();
-});
-quickPreview.addEventListener('dblclick', event => {
-  if (!event.target.closest?.('.quick-preview-stage') || event.target.closest?.('button')) return;
-  event.preventDefault();
-  if (quickPreviewView.scale > 1) zoomQuickPreviewFromCenter(1);
-  else zoomQuickPreview(2.5, event.clientX, event.clientY);
 });
 quickPreview.addEventListener('click', event => {
   const previewAction = event.target.closest?.('button[data-preview-action]')?.dataset.previewAction;

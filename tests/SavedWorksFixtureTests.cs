@@ -53,6 +53,17 @@ internal static class SavedWorksFixtureTests
             Expect(Toggle(store, "Like", first) && !Toggle(store, "Bookmark", first), "Both buttons must toggle independently");
             Expect(Read(store, "Likes").Count == 2 && Read(store, "Bookmarks").Count == 0,
                 "Removing a bookmark must retain the like");
+            var retained = File.ReadAllBytes(libraryFile);
+            var ensure = Store.GetMethod("EnsureLike")!;
+            Expect((bool)ensure.Invoke(store, [first])! &&
+                (bool)ensure.Invoke(store, [new CatalogItem { Key = "sankaku:mirror", Source = "sankaku", Id = "mirror" }])! &&
+                File.ReadAllBytes(libraryFile).SequenceEqual(retained),
+                "Repeated image likes and confirmed mirrors must retain the like, original fields and order without a write");
+            var concurrent = new CatalogItem { Key = "rule34:3", Source = "rule34", Id = "3" };
+            Parallel.For(0, 8, _ => ensure.Invoke(Open(root), [concurrent]));
+            Expect(Read(store, "Likes").Count(item => item.Key == concurrent.Key) == 1,
+                "Concurrent idempotent likes must add one record and never toggle it back off");
+            Toggle(store, "Like", concurrent);
             Toggle(store, "Bookmark", first);
             var refreshed = new CatalogItem { Key = first.Key, Source = first.Source, Id = first.Id,
                 CreatorTag = "confirmed_artist", CreatorName = "Confirmed Artist" };

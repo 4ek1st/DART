@@ -217,6 +217,13 @@ internal static class Program
             if (item is null || !CatalogService.IsValidItem(item)) return Results.BadRequest();
             return Results.Ok(new { saved = store.ToggleLike(item) });
         });
+        app.MapPut("/api/likes", async (HttpContext context, LocalStore store) =>
+        {
+            if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
+            var item = await context.Request.ReadFromJsonAsync<CatalogItem>(context.RequestAborted);
+            if (item is null || !CatalogService.IsValidItem(item)) return Results.BadRequest();
+            return Results.Ok(new { saved = store.EnsureLike(item) });
+        });
 
         app.MapGet("/api/follows/cache", (string? rating, LocalStore store) =>
             rating is "general" or "explicit" or "all"

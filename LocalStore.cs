@@ -185,6 +185,7 @@ internal sealed class LocalStore : ISankakuSessionStore
     public List<CatalogItem> GetLikes() => savedWorks.Get("likes");
     public bool ToggleBookmark(CatalogItem item) => savedWorks.Toggle("bookmarks", item);
     public bool ToggleLike(CatalogItem item) => savedWorks.Toggle("likes", item);
+    public bool EnsureLike(CatalogItem item) => savedWorks.EnsureSaved("likes", item);
 
     public bool RefreshSavedMetadata(CatalogItem item)
     {
