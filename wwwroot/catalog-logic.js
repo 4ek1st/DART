@@ -1,6 +1,27 @@
 (function (root) {
   const supportedSources = Object.freeze(['danbooru', 'gelbooru', 'rule34', 'sankaku']);
 
+  const attributionCache = new WeakMap(), sampleCache = new WeakMap(), contentCache = new WeakMap();
+  const attributionFields = ['source', 'creatorTag', 'creatorName', 'artistId', 'artist',
+    'participants', 'uploaderId', 'uploaderName', 'originalUrl'];
+  const sampleFields = [...attributionFields, 'visualSamples', 'visualHash', 'visualPHash',
+    'visualAspectRatio', 'tags', 'characterTags', 'published'];
+  const contentFields = [...attributionFields, 'tags', 'allTags', 'followedArtistTag'];
+  function derived(cache, item, fields, compute) {
+    if (!item || typeof item !== 'object') return compute();
+    const values = fields.flatMap(field => Array.isArray(item[field]) ? [item[field], item[field].length] : [item[field]]);
+    const cached = cache.get(item);
+    if (cached && values.every((value, index) => value === cached.values[index]) &&
+        values.length === cached.values.length) return cached.result;
+    const result = compute();
+    cache.set(item, { values, result });
+    return result;
+  }
+
+  function navigationSection(tab) {
+    return tab?.kind === 'search' ? (tab.rating === 'explicit' ? 'adult' : 'search') : tab?.kind;
+  }
+
   function filterCatalogItems(items) {
     if (!Array.isArray(items)) return [];
     const filtered = items.filter(item => supportedSources.includes(item?.source));
@@ -256,6 +277,10 @@
       if (!signed.length) return value;
       // Sankaku renews both signing pairs for the same CDN file.
       for (const pair of signed) for (const name of pair) url.searchParams.delete(name);
+      // The CDN can move /o files from s. to v./data. A known hash filename
+      // identifies that same original; preview/sample derivatives stay separate.
+      const file = /^\/(?:o|data)\/[a-f0-9]{2}\/[a-f0-9]{2}\/([a-f0-9]{32}\.[a-z0-9]+)$/i.exec(url.pathname);
+      if (file) return `https://sankakucomplex.com/media/original/${file[1].toLowerCase()}${url.search}`;
       return url.href;
     } catch { return value; }
   }
@@ -306,6 +331,9 @@
   }
 
   function itemVisualSamples(item) {
+    return derived(sampleCache, item, sampleFields, () => buildVisualSamples(item));
+  }
+  function buildVisualSamples(item) {
     const creator = visualCreator(item);
     const samples = (item.visualSamples || []).filter(sample =>
       validVisualHash(sample?.hash) && sample.owner && Array.isArray(sample.tags)).map(sample => {
@@ -417,7 +445,10 @@
   function invalidateGrouping(items) {
     if (!Array.isArray(items)) return;
     groupedCache.delete(items);
-    for (const item of items) if (item && typeof item === 'object') groupingEvidenceCache.delete(item);
+    for (const item of items) if (item && typeof item === 'object') {
+      groupingEvidenceCache.delete(item);
+      attributionCache.delete(item); sampleCache.delete(item); contentCache.delete(item);
+    }
   }
   function groupWorks(items) {
     if (Array.isArray(items) && groupedCache.has(items)) return groupedCache.get(items);
@@ -657,6 +688,13 @@
       [...previous.filter((_, index) => !affected.has(index)), ...changed]);
   }
 
+  function refineGrouping(items, enriched) {
+    const previous = groupedCache.get(items);
+    invalidateGrouping(enriched);
+    if (previous) groupedCache.set(items, mergeGroupedWorks(previous, enriched));
+    else invalidateGrouping(items);
+  }
+
   function titleFromCharacters(title, characters) {
     const names = characters.filter(tag => normalizeFilterTag(tag) !== 'original character');
     const generatedTitle = characters.map(tag => tag.replaceAll('_', ' ')).join(', ');
@@ -666,6 +704,7 @@
   }
 
   function mergeWorkMetadata(previous, incoming) {
+    if (previous === incoming) return incoming;
     if (!previous || previous.key !== incoming?.key || previous.source !== incoming.source)
       return incoming;
     const merged = { ...previous, ...incoming };
@@ -767,11 +806,22 @@
   function isAuthorHidden(item, preferences = {}) {
     const hidden = preferences.hiddenAuthorSet || new Set((preferences.hiddenAuthors || []).map(hiddenAuthorKey).filter(Boolean));
     if (!hidden.size) return false;
-    const artistTags = [...workParticipants(item).map(person => person.tag), item?.followedArtistTag,
-      ...(item?.tags || []), ...(item?.allTags || [])];
-    if (artistTags.some(artistId => hidden.has(hiddenAuthorKey({ source: 'artist', artistId })))) return true;
-    const artistId = item?.uploaderId || (item?.source !== 'danbooru' ? item?.artistId : '');
-    return !!artistId && hidden.has(hiddenAuthorKey({ source: item.source, artistId }));
+    const authors = contentEvidence(item).authors;
+    for (const key of hidden) if (authors.has(key)) return true;
+    return false;
+  }
+
+  function contentEvidence(item) {
+    return derived(contentCache, item, contentFields, () => {
+      const tags = [...new Set([...(item?.tags || []), ...(item?.allTags || [])]
+        .map(normalizeFilterTag).filter(Boolean))];
+      const artists = [...workParticipants(item).map(person => person.tag), item?.followedArtistTag,
+        ...(item?.tags || []), ...(item?.allTags || [])];
+      const uploader = item?.uploaderId || (item?.source !== 'danbooru' ? item?.artistId : '');
+      return { tags, authors: new Set([...artists.map(artistId =>
+        hiddenAuthorKey({ source: 'artist', artistId })),
+        hiddenAuthorKey({ source: item?.source, artistId: uploader })].filter(Boolean)) };
+    });
   }
 
   function artworkTagKind(item, tag) {
@@ -855,8 +905,7 @@
     const blocked = preferences.excludedTagSet || excludedContentTags(preferences.excludedTags);
     const hideFurry = preferences.hideFurry === true;
     if (aiMode === 'all' && !blocked.size && !hideFurry) return false;
-    const tags = [...new Set([...(item?.tags || []), ...(item?.allTags || [])]
-      .map(normalizeFilterTag).filter(Boolean))];
+    const tags = contentEvidence(item).tags;
     return tags.some(tag => blocked.has(tag) || hideFurry && furryTags.has(tag) ||
       aiMode !== 'all' && matchesMarker(tag, generatedTags) ||
       aiMode === 'generated-and-assisted' && matchesMarker(tag, assistedTags));
@@ -1412,6 +1461,10 @@
   }
 
   function workAttribution(item, priority = 'creator') {
+    const choices = derived(attributionCache, item, attributionFields, () => ({}));
+    return choices[priority] ||= buildAttribution(item, priority);
+  }
+  function buildAttribution(item, priority = 'creator') {
     const source = item?.source || '';
     const booruUploader = source === 'gelbooru' || source === 'rule34' || source === 'sankaku';
     const participants = workParticipants(item).map(person => ({ ...person,
@@ -1493,6 +1546,11 @@
       newKeys: new Set(ordered.filter(entry => entry.isNew).map(entry => entry.item.key)) };
   }
 
+  function groupFollowFeed(groups, rating) {
+    const feed = buildFollowFeed(groups, rating, Number.MAX_SAFE_INTEGER);
+    return { items: groupWorks(feed.items), newKeys: feed.newKeys };
+  }
+
   function stableFeedItems(previous, incoming, newKeys = new Set()) {
     if (!previous?.length) return [...incoming];
     const positions = new Map();
@@ -1516,17 +1574,17 @@
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks,
-    removeNavigationEntry, groupWorks, mergeGroupedWorks, invalidateGrouping,
+    removeNavigationEntry, groupWorks, mergeGroupedWorks, invalidateGrouping, refineGrouping,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind,
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,
     sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType,
     mediaCacheKey, signedMediaExpired, renewWorkMedia, needsVisualFingerprint, perceptualImageHash,
-    supportedSources, filterCatalogItems, cleanClientState,
+    supportedSources, filterCatalogItems, cleanClientState, navigationSection,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,
     recommendationQueryGroups, recommendationCombinations, rankRecommendations, mergeRecommendations,
-    followKey, followFeedRequests, buildFollowFeed, stableFeedItems };
+    followKey, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems };
   root.CatalogLogic = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

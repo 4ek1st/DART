@@ -79,7 +79,7 @@ test('popular cards expose the source vote count', () => {
   const end = source.indexOf('\nfunction skeletons(', start);
   assert.ok(start >= 0 && end > start);
   let sort = 'popular';
-  const context = { itemIndex: new Map(), currentTab: () => ({ sort }),
+  const context = { itemIndex: new Map(), rememberedInputs: new WeakMap(), currentTab: () => ({ sort }),
     CatalogLogic, names: { danbooru: 'Danbooru', gelbooru: 'Gelbooru' },
     contentPreferences: { attributionPriority: 'creator' },
     savedWorkButton: () => '', galleryImages: item => item.images || [], escapeHtml: value => String(value),

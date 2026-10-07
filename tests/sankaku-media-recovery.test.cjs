@@ -34,6 +34,19 @@ test('renewing media preserves saved groups, metadata, ordering and other catalo
   assert.equal(logic.renewWorkMedia(mirrored, detail).images[0], renewedFull);
 });
 
+test('a Sankaku original moved to another CDN renews by file hash without mixing derivatives or variants', () => {
+  const hash = '702c33e2ba298328287ef45485cb0422';
+  const oldMovie = `https://s.sankakucomplex.com/o/70/2c/${hash}.mp4?e=1&m=old`;
+  const moved = `https://v.sankakucomplex.com/data/70/2c/${hash}.mp4?e=4102444800&m=fresh`;
+  assert.equal(logic.mediaCacheKey(oldMovie), logic.mediaCacheKey(moved));
+  assert.notEqual(logic.mediaCacheKey(oldMovie), logic.mediaCacheKey(moved.replace('/data/', '/data/sample/')));
+  assert.notEqual(logic.mediaCacheKey(oldMovie), logic.mediaCacheKey(moved.replace('.mp4', '.avif')));
+  assert.notEqual(logic.mediaCacheKey(oldMovie), logic.mediaCacheKey(moved.replace(hash, 'a'.repeat(32))));
+  const item = { key: 'sankaku:AbC', source: 'sankaku', images: [oldMovie], imageRecords: [{ url: oldMovie, hash }] };
+  const renewed = logic.renewWorkMedia(item, { key: item.key, source: 'sankaku', images: [moved] });
+  assert.deepEqual(renewed.images, [moved]); assert.equal(renewed.imageRecords[0].url, moved);
+});
+
 function harness({ expired = true, failDetail = false, source = 'sankaku', count = 1 } = {}) {
   const item = { key: `${source}:AbC`, source, id: 'AbC', thumbnail: expired ? old : fresh,
     images: [full], memberKeys: [`${source}:AbC`, 'rule34:2'] };

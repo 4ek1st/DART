@@ -240,11 +240,10 @@ internal sealed class LocalStore : ISankakuSessionStore
             if (item.Source == "sankaku")
             {
                 // Renew signed URLs in place while retaining other pages of a saved series.
-                static string Identity(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
-                    CatalogService.SankakuMediaHost(uri.Host) ? uri.GetLeftPart(UriPartial.Path) : url;
-                var fresh = item.Images.ToDictionary(Identity, url => url);
+                var fresh = item.Images.GroupBy(CatalogService.SankakuMediaIdentity)
+                    .ToDictionary(group => group.Key, group => group.Last());
                 var previous = saved["images"]?.Deserialize<List<string>>(Json) ?? [];
-                var images = previous.Select(url => fresh.GetValueOrDefault(Identity(url), url))
+                var images = previous.Select(url => fresh.GetValueOrDefault(CatalogService.SankakuMediaIdentity(url), url))
                     .Concat(item.Images).Distinct().Take(100).ToList();
                 var node = JsonSerializer.SerializeToNode(images, Json);
                 if (!JsonNode.DeepEquals(saved["images"], node))
@@ -255,7 +254,7 @@ internal sealed class LocalStore : ISankakuSessionStore
                     foreach (var record in records.OfType<JsonObject>())
                     {
                         var oldUrl = record["url"]?.GetValue<string>() ?? "";
-                        if (fresh.TryGetValue(Identity(oldUrl), out var url) && url != oldUrl)
+                        if (fresh.TryGetValue(CatalogService.SankakuMediaIdentity(oldUrl), out var url) && url != oldUrl)
                         { record["url"] = url; changed = true; }
                     }
                 Update("thumbnail", item.Thumbnail);
@@ -569,8 +568,20 @@ internal sealed class LocalStore : ISankakuSessionStore
     {
         lock (sync)
         {
+            using var fileLock = AcquireFileLock(clientStateFile + ".lock");
             var next = JsonNode.Parse(CatalogState.CleanClientState(raw))!.AsObject();
             var previous = JsonNode.Parse(GetClientStateJson()) as JsonObject;
+            if (next["clientWriter"] is JsonValue writerValue && writerValue.TryGetValue<string>(out var writer) &&
+                previous?["clientWriter"] is JsonValue savedWriter && savedWriter.TryGetValue<string>(out var previousWriter) &&
+                previousWriter == writer &&
+                next["clientRevision"] is JsonValue nextRevision && nextRevision.TryGetValue<long>(out var sequence) &&
+                previous["clientRevision"] is JsonValue savedRevision && savedRevision.TryGetValue<long>(out var savedSequence) &&
+                sequence < savedSequence) return;
+            // A teardown patch deliberately omits bulky histories. Preserve
+            // omitted fields, including fields from newer compatible clients.
+            if (previous is not null)
+                foreach (var field in previous)
+                    if (!next.ContainsKey(field.Key)) next[field.Key] = field.Value?.DeepClone();
             // Verified duplicate pairs are a cache shared by windows. An older session save
             // may omit it, so retain and merge the evidence instead of resetting it.
             var pairs = new[] { previous?["mediaDuplicatePairs"], next["mediaDuplicatePairs"] }
@@ -582,6 +593,13 @@ internal sealed class LocalStore : ISankakuSessionStore
                 .Select(pair => pair.ToJsonString()).Distinct().TakeLast(512).ToArray();
             if (pairs.Length > 0 || next.ContainsKey("mediaDuplicatePairs"))
                 next["mediaDuplicatePairs"] = new JsonArray(pairs.Select(pair => JsonNode.Parse(pair)).ToArray());
+            var verified = new[] { previous?["mediaVerifiedImages"], next["mediaVerifiedImages"] }
+                .OfType<JsonArray>().SelectMany(entries => entries).OfType<JsonValue>()
+                .Select(value => value.TryGetValue<string>(out var key) ? key : "")
+                .Where(key => key.Length <= 1000 && Uri.TryCreate(key, UriKind.Absolute, out var uri) &&
+                    uri.Scheme is "http" or "https").Distinct().TakeLast(256).ToArray();
+            if (verified.Length > 0 || next.ContainsKey("mediaVerifiedImages"))
+                next["mediaVerifiedImages"] = new JsonArray(verified.Select(key => (JsonNode?)JsonValue.Create(key)).ToArray());
             WriteAtomic(clientStateFile, Encoding.UTF8.GetBytes(next.ToJsonString()));
         }
     }

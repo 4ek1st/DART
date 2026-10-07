@@ -25,11 +25,12 @@ test('desktop window controls send only native allowlisted commands', () => {
   ]);
 });
 
-function updateFixture(t, responses) {
+function updateFixture(t, responses, extraWindow = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
   const events = new Map(), requests = [];
-  const element = () => ({ hidden: true, title: '', attributes: {},
-    setAttribute(name, value) { this.attributes[name] = value; }, addEventListener() {} });
+  const element = () => ({ hidden: true, title: '', attributes: {}, handlers: new Map(),
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener(name, handler) { this.handlers.set(name, handler); } });
   const install = element(), controls = element(), main = { querySelector: () => null };
   const document = { hidden: false, documentElement: { classList: { toggle() {} } },
     getElementById: id => ({ 'install-update-button': install, 'window-controls': controls, main })[id],
@@ -42,12 +43,27 @@ function updateFixture(t, responses) {
       const value = responses.shift();
       if (value instanceof Error) throw value;
       return { ok: true, json: async () => value || { available: false } };
-    } };
+    }, ...extraWindow };
   shell.mount(window);
-  return { install, requests, events, document,
+  return { install, controls, requests, events, document,
     settle: () => new Promise(resolve => setImmediate(resolve)) };
 }
 const available = { available: true, verified: true, version: '0.2.6', configured: true };
+
+test('native Close waits for saved session and leaves the window open on a failed write', async t => {
+  const messages = []; let finish;
+  const fixture = updateFixture(t, [{ available: false }], {
+    chrome: { webview: { postMessage: message => messages.push(message), addEventListener() {} } },
+    flushClientState: () => new Promise(resolve => { finish = resolve; })
+  });
+  const click = fixture.controls.handlers.get('click');
+  const event = { target: { closest: () => ({ dataset: { windowCommand: 'close' } }) } };
+  const failed = click(event); assert.equal(messages.length, 0);
+  finish(false); await failed; assert.equal(messages.length, 0);
+  const saved = click(event); assert.equal(messages.length, 0);
+  finish(true); await saved;
+  assert.deepEqual(messages, [{ type: 'window-command', command: 'close' }]);
+});
 
 test('a release published while browsing appears within five minutes without opening settings', async t => {
   const fixture = updateFixture(t, [{ available: false, configured: true }, available]);

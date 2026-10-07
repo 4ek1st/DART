@@ -70,6 +70,21 @@ internal static class SavedWorksFixtureTests
             Store.GetMethod("RefreshSavedMetadata")!.Invoke(store, [refreshed]);
             Expect(Read(store, "Likes")[0].CreatorTag == "confirmed_artist" &&
                 Read(store, "Bookmarks")[0].CreatorTag == "confirmed_artist", "Metadata enrichment must update both collections");
+            var mediaStore = Open(Path.Combine(root, "cdn-media"));
+            const string hash = "702c33e2ba298328287ef45485cb0422";
+            var oldVideo = $"https://s.sankakucomplex.com/o/70/2c/{hash}.mp4?e=1&m=old";
+            var newVideo = $"https://v.sankakucomplex.com/data/70/2c/{hash}.mp4?e=4102444800&m=fresh";
+            var movie = new CatalogItem { Key = "sankaku:k3R9x5dwqrG", Source = "sankaku", Id = "k3R9x5dwqrG",
+                CreatorTag = "confirmed_artist", Images = [oldVideo, "https://cdn.donmai.us/variant.jpg"] };
+            Toggle(mediaStore, "Like", movie); Toggle(mediaStore, "Bookmark", movie);
+            Store.GetMethod("RefreshSavedMetadata")!.Invoke(mediaStore, [new CatalogItem {
+                Key = movie.Key, Source = movie.Source, Id = movie.Id, Images = [newVideo] }]);
+            foreach (var collection in new[] { "Likes", "Bookmarks" })
+            {
+                var renewed = Read(Open(Path.Combine(root, "cdn-media")), collection).Single();
+                Expect(renewed.Images.SequenceEqual(new[] { newVideo, movie.Images[1] }) && renewed.CreatorTag == movie.CreatorTag,
+                    "Moving a signed Sankaku original between CDNs must replace its expired URL, retain its variant and survive restart");
+            }
             foreach (var item in Read(store, "Likes")) Toggle(store, "Like", item);
             Expect(Read(Open(root), "Likes").Count == 0 && Read(Open(root), "Bookmarks").Count == 1,
                 "Repeated startup must not resurrect removed likes or migrate new bookmarks");
@@ -114,7 +129,25 @@ internal static class SavedWorksFixtureTests
             var reopenedState = JsonNode.Parse((string)clean.Invoke(null, [migratedState.ToJsonString()])!)!;
             Expect(reopenedState["session"]!["tabs"]![2]!["kind"]!.GetValue<string>() == "bookmarks",
                 "New bookmark tabs must remain bookmarks after restart");
-            Console.WriteLine("Saved works migration, independent likes/bookmarks, recovery, concurrent writes and session migration: PASS");
+            var updateClient = Store.GetMethod("UpdateClientStateJson")!;
+            var readClient = Store.GetMethod("GetClientStateJson")!;
+            var largeState = new JsonObject {
+                ["clientWriter"] = "test-window", ["clientRevision"] = 1,
+                ["session"] = new JsonObject { ["savedWorksVersion"] = 1,
+                    ["tabs"] = new JsonArray(new JsonObject { ["kind"] = "likes" }) },
+                ["recent"] = new JsonArray(new JsonObject { ["source"] = "sankaku", ["title"] = new string('x', 70000) }),
+                ["futureField"] = new JsonObject { ["keep"] = true },
+                ["mediaVerifiedImages"] = new JsonArray("https://cdn.donmai.us/first.jpg")
+            };
+            updateClient.Invoke(store, [largeState.ToJsonString()]);
+            updateClient.Invoke(store, ["""{"clientWriter":"test-window","clientRevision":2,"session":{"savedWorksVersion":1,"tabs":[{"kind":"home"}]},"mediaDuplicatePairs":[["https://cdn.donmai.us/first.jpg","https://s.sankakucomplex.com/mirror.jpg"]]}"""]);
+            updateClient.Invoke(store, [largeState.ToJsonString()]);
+            var restored = JsonNode.Parse((string)readClient.Invoke(store, null)!)!;
+            Expect(restored["session"]!["tabs"]![0]!["kind"]!.GetValue<string>() == "home", "A slow old save cannot resurrect closed tabs");
+            Expect(restored["recent"]![0]!["title"]!.GetValue<string>().Length == 70000 &&
+                restored["futureField"]!["keep"]!.GetValue<bool>() && restored["mediaDuplicatePairs"]!.AsArray().Count == 1 &&
+                restored["mediaVerifiedImages"]!.AsArray().Count == 1, "Compact teardown retains large history, duplicate evidence and future fields");
+            Console.WriteLine("Saved works migration, independent collections, recovery, concurrent writes and large session persistence: PASS");
         }
         finally { Directory.Delete(root, recursive: true); }
     }

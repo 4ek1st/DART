@@ -16,8 +16,10 @@
     const controls = document.getElementById('window-controls');
     controls.hidden = !bridge;
     document.documentElement.classList.toggle('desktop-window', !!bridge);
-    controls.addEventListener('click', event => {
+    controls.addEventListener('click', async event => {
       const command = event.target.closest('[data-window-command]')?.dataset.windowCommand;
+      if (command === 'close' && typeof window.flushClientState === 'function' &&
+          !await window.flushClientState()) return;
       if (command) windowCommand(bridge, command);
     });
     bridge?.addEventListener('message', event => {
@@ -85,7 +87,8 @@
         dialog.querySelector('[data-update-install]').onclick = async () => {
           status.installing = true; install.hidden = true; renderPanel();
           try {
-            if (typeof window.saveSession === 'function') window.saveSession();
+            if (typeof window.flushClientState === 'function' && !await window.flushClientState())
+              throw new Error('Не удалось сохранить состояние. Повторите попытку.');
             await api('/install', { method: 'POST' });
           } catch (error) { status.installing = false; status.error = error.message; renderPanel(); }
         };

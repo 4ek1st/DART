@@ -3,6 +3,10 @@
 (function(root) {
   const rows = `
 Home|Главная|Startseite
+Could not save the session. Retrying automatically.|Не удалось сохранить состояние. Повторим автоматически.|Der Sitzungszustand konnte nicht gespeichert werden. Ein neuer Versuch erfolgt automatisch.
+Could not save the session. Please try again.|Не удалось сохранить состояние. Повторите попытку.|Der Sitzungszustand konnte nicht gespeichert werden. Bitte versuche es erneut.
+Multiple images · Count verified when opened|Несколько изображений · Число уточняется при открытии|Mehrere Bilder · Die Anzahl wird beim Öffnen geprüft
+Images:|Изображения:|Bilder:
 Could not load the next artwork. Try again later.|Не удалось загрузить следующую работу. Повторите позже.|Das nächste Werk konnte nicht geladen werden. Versuche es später erneut.
 Settings|Настройки|Einstellungen
 Appearance|Оформление|Darstellung

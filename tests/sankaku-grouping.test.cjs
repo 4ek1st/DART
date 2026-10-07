@@ -97,7 +97,7 @@ function requestFixture(items, pauseImages = false) {
   const end = source.indexOf('\nfunction toast(', start);
   let active = 0, maximum = 0;
   const imageRequests = [];
-  const context = vm.createContext({ CatalogLogic, visualHashCache: new Map(),
+  const context = vm.createContext({ CatalogLogic, visualHashCache: new Map(), visualFingerprintValues: new Map(),
     AbortSignal, AbortController, setTimeout, clearTimeout, URL, URLSearchParams, console, structuredClone,
     DartResourceCache: require('../wwwroot/resource-cache.js'),
     document: { createElement: () => ({ getContext: () => ({ drawImage() {},
@@ -117,12 +117,15 @@ function requestFixture(items, pauseImages = false) {
   return { context, imageRequests, maximum: () => maximum };
 }
 
-test('recommendations and search fingerprint eligible works from all four sources', async () => {
+test('search returns before requesting offscreen thumbnails; visible evidence still covers four sources', async () => {
   const sankaku = series()[0]; delete sankaku.visualHash;
   const items = CatalogLogic.supportedSources.map(source => ({ ...sankaku, source,
     key: `${source}:1`, thumbnail: `https://example.test/${source}.jpg` }));
   const probe = requestFixture(items);
   const response = await probe.context.request('/api/search?q=anteiru');
+  assert.equal(probe.imageRequests.length, 0, 'Publishing catalog records must not wait for all their images');
+  for (const item of response.items) await probe.context.catalogThumbnailFingerprint(item.thumbnail);
+  probe.context.addCatalogVisualHashes(response.items);
   for (const item of response.items) {
     assert.match(item.visualHash, /^[a-f0-9]{16}$/);
     assert.match(item.visualPHash, /^[a-f0-9]{16}$/);
@@ -138,6 +141,9 @@ test('parallel Sankaku feed requests share a bounded thumbnail queue and cache',
     probe.context.request('/api/search?q=anteiru'),
     probe.context.request('/api/profile?artistId=anteiru')
   ]);
+  assert.equal(probe.imageRequests.length, 0);
+  await Promise.all([...search.items, ...profile.items].map(item => probe.context.catalogThumbnailFingerprint(item.thumbnail)));
+  probe.context.addCatalogVisualHashes(search.items); probe.context.addCatalogVisualHashes(profile.items);
   assert.equal(probe.imageRequests.length, 18);
   assert.ok(probe.maximum() <= 4);
   assert.ok(probe.maximum() > 1);
@@ -156,6 +162,8 @@ test('renewed Sankaku thumbnail signatures do not repeat visual fingerprint down
   delete first.visualHash; delete second.visualHash;
   const probe = requestFixture([first, second], true);
   const result = await probe.context.request('/api/search?q=anteiru');
+  await Promise.all(result.items.map(item => probe.context.catalogThumbnailFingerprint(item.thumbnail)));
+  probe.context.addCatalogVisualHashes(result.items);
   assert.equal(probe.imageRequests.length, 1);
   assert.equal(result.items[0].visualHash, result.items[1].visualHash);
 });

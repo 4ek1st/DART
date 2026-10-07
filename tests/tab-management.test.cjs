@@ -15,6 +15,7 @@ function fixture() {
     names: { danbooru: 'Danbooru', gelbooru: 'Gelbooru', rule34: 'Rule34' },
     tabPreferences: { artworkTabs: 'preview' }, recent: [], recommendationExposure: [],
     detailImageDeduper: { duplicates: { entries: () => [] } },
+    clientStateWriter: { save(value) { writes.push(value); return Promise.resolve(true); } },
     localStorage: { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value) },
     fetch: async (url, options) => { writes.push(JSON.parse(options.body)); return {}; },
     getSearchHistory: () => [], rememberItem: item => item, retainFeedWork() {},
@@ -26,7 +27,8 @@ function fixture() {
     render() { this.main.dataset.tabId = String(this.activeId); }
   });
   vm.runInContext('function findTab(id) { return tabs.find(tab => tab.id === id); } function currentTab() { return findTab(activeId); }', context);
-  vm.runInContext(slice('function saveSession(', '\nasync function saveRecommendationTagPreference('), context);
+  context.detailImageDeduper.verified = new Set();
+  vm.runInContext(slice('function captureClientState(', '\nasync function saveRecommendationTagPreference('), context);
   vm.runInContext(slice('function restoreSession(', '\nfunction openSearch('), context);
   vm.runInContext(slice('function openDetail(', '\nfunction isSavedWork('), context);
   // The app's real rendering is exercised in the browser checks; this harness keeps the navigation state real.

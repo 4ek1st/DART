@@ -432,6 +432,8 @@ internal sealed class CatalogForm : Form
     private readonly WebView2 webView = new() { Dock = DockStyle.Fill };
     private readonly Uri home;
     private readonly string userDataDirectory;
+    private bool closeRequested, sessionFlushed;
+    private TaskCompletionSource<bool>? closeFlush;
     protected override CreateParams CreateParams
     {
         get { var parameters = base.CreateParams; parameters.Style &= ~0x00C00000; return parameters; }
@@ -477,6 +479,11 @@ internal sealed class CatalogForm : Form
                 try
                 {
                     using var message = System.Text.Json.JsonDocument.Parse(e.WebMessageAsJson);
+                    if (message.RootElement.GetProperty("type").GetString() == "session-flushed")
+                    {
+                        closeFlush?.TrySetResult(message.RootElement.GetProperty("saved").GetBoolean());
+                        return;
+                    }
                     if (message.RootElement.GetProperty("type").GetString() != "window-command") return;
                     switch (message.RootElement.GetProperty("command").GetString())
                     {
@@ -518,6 +525,31 @@ internal sealed class CatalogForm : Form
         if (webView.CoreWebView2 is null || IsDisposed) return;
         webView.CoreWebView2.PostWebMessageAsJson(System.Text.Json.JsonSerializer.Serialize(new
             { type = "window-state", maximized = WindowState == FormWindowState.Maximized }));
+    }
+
+    protected override async void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        if (sessionFlushed || webView.CoreWebView2 is null || e.CloseReason != CloseReason.UserClosing) return;
+        e.Cancel = true;
+        if (closeRequested) return;
+        closeRequested = true;
+        closeFlush = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            await webView.CoreWebView2.ExecuteScriptAsync("Promise.resolve(typeof flushClientState === 'function' ? flushClientState() : true).then(saved => chrome.webview.postMessage({type:'session-flushed',saved:!!saved})).catch(() => chrome.webview.postMessage({type:'session-flushed',saved:false}))");
+            if (await closeFlush.Task.WaitAsync(TimeSpan.FromSeconds(10)))
+            {
+                sessionFlushed = true;
+                Close();
+                return;
+            }
+        }
+        catch (Exception error) when (error is TimeoutException or InvalidOperationException or
+            System.Runtime.InteropServices.COMException) { }
+        closeRequested = false;
+        if (!IsDisposed && webView.CoreWebView2 is not null)
+            await webView.CoreWebView2.ExecuteScriptAsync("if (typeof toast === 'function') toast('Не удалось сохранить состояние. Повторите попытку.')");
     }
 
     private static void OpenExternal(string? raw)

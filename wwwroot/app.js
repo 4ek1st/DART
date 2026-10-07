@@ -103,6 +103,16 @@ let recommendationPreferenceSaveQueue = Promise.resolve();
 let recommendationVisitCount = 0;
 let recommendationExposure = [];
 const visualHashCache = new Map();
+const visualFingerprintValues = new Map();
+const clientStateWriter = DartClientState.createWriter({
+  storage: localStorage,
+  send: async body => {
+    const response = await fetch('/api/client-state', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  },
+  onError: () => toast('Не удалось сохранить состояние. Повторим автоматически.')
+});
 
 try { recent = CatalogLogic.filterCatalogItems(JSON.parse(localStorage.getItem('artcatalog-recent') || '[]')); }
 catch { recent = []; }
@@ -164,7 +174,9 @@ async function request(path, options = {}) {
   const result = options.cache === 'reload' ? await requestJson(path, options) :
     structuredClone(await request.catalogCache.get(path, options.signal));
   if (!options.signal?.aborted && (path.startsWith('/api/search?') || path.startsWith('/api/profile?')))
-    await addCatalogVisualHashes(result.items || [], options.signal);
+    // Reuse evidence already decoded by visible cards. A catalog response must
+    // never wait for every offscreen image before publishing its first row.
+    addCatalogVisualHashes(result.items || [], options.signal);
   return result;
 }
 
@@ -213,12 +225,21 @@ function readMediaBlob(url, signal) {
 
 const visualHashJobs = [];
 let activeVisualHashJobs = 0;
-function runVisualHashJob(job) {
+function runVisualHashJob(job, signal) {
   return new Promise(resolve => {
-    visualHashJobs.push({ job, resolve });
+    if (signal?.aborted) { resolve(''); return; }
+    const queued = { job, resolve, signal };
+    visualHashJobs.push(queued);
+    const cancelled = () => {
+      const index = visualHashJobs.indexOf(queued);
+      if (index >= 0) { visualHashJobs.splice(index, 1); queued.resolve(''); }
+    };
+    queued.resolve = value => { signal?.removeEventListener('abort', cancelled); resolve(value); };
+    signal?.addEventListener('abort', cancelled, { once: true });
     const drain = () => {
       while (activeVisualHashJobs < 4 && visualHashJobs.length) {
         const entry = visualHashJobs.shift();
+        if (entry.signal?.aborted) { entry.resolve(''); continue; }
         activeVisualHashJobs++;
         Promise.resolve().then(entry.job).catch(() => '').then(entry.resolve).finally(() => {
           activeVisualHashJobs--; drain();
@@ -255,19 +276,27 @@ function catalogBitmapFingerprint(bitmap) {
     aspectRatio: (bitmap.naturalWidth || bitmap.width) / (bitmap.naturalHeight || bitmap.height) };
 }
 
-async function catalogThumbnailFingerprint(url) {
+async function catalogThumbnailFingerprint(url, signal) {
   const key = CatalogLogic.mediaCacheKey(url);
   if (!visualHashCache.has(key)) {
     const pending = runVisualHashJob(async () => {
       const blob = typeof imageLoader !== 'undefined' && imageLoader.cached(url)?.blob ||
-        await readMediaBlob(url, AbortSignal.timeout(5000));
+        await readMediaBlob(url, signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000));
+      if (signal?.aborted) return '';
       const bitmap = await createImageBitmap(blob);
       try {
         if (typeof imageLoader !== 'undefined') imageLoader.rememberBlob(url, blob);
         return catalogBitmapFingerprint(bitmap);
       }
       finally { bitmap.close(); }
-    }).then(hash => { if (!hash) visualHashCache.delete(key); return hash; });
+    }, signal).then(hash => {
+      if (!hash) visualHashCache.delete(key);
+      else {
+        visualFingerprintValues.set(key, hash);
+        while (visualFingerprintValues.size > 2000) visualFingerprintValues.delete(visualFingerprintValues.keys().next().value);
+      }
+      return hash;
+    });
     visualHashCache.set(key, pending);
     while (visualHashCache.size > 2000) visualHashCache.delete(visualHashCache.keys().next().value);
   }
@@ -294,11 +323,11 @@ async function rememberCardFingerprint(img) {
   const lists = [likes, bookmarks, recent, ...tabs.flatMap(tab => [tab.items, tab.related, tab.creatorWorks])];
   for (const list of lists) {
     if (!Array.isArray(list)) continue;
-    let changed = false;
+    const enriched = [];
     for (const candidate of list) if (candidate.key === item.key) {
-      Object.assign(candidate, update); changed = true;
+      Object.assign(candidate, update); enriched.push(candidate);
     }
-    if (changed) CatalogLogic.invalidateGrouping(list);
+    if (enriched.length) CatalogLogic.refineGrouping(list, enriched);
   }
   if (!img.isConnected) return;
   clearTimeout(cardFingerprintTimer);
@@ -316,18 +345,16 @@ async function rememberCardFingerprint(img) {
   }, 120);
 }
 
-async function addCatalogVisualHashes(items, signal) {
-  await Promise.all(items.filter(item => CatalogLogic.needsVisualFingerprint(item) &&
-      !(/^[a-f0-9]{16}$/i.test(item.visualHash || '') && /^[a-f0-9]{16}$/i.test(item.visualPHash || '')))
-    .map(async item => {
-      if (signal?.aborted) return;
-      const fingerprint = await catalogThumbnailFingerprint(item.thumbnail);
-      if (fingerprint && !signal?.aborted) {
+function addCatalogVisualHashes(items, signal) {
+  if (signal?.aborted) return;
+  for (const item of items) {
+      const fingerprint = visualFingerprintValues.get(CatalogLogic.mediaCacheKey(item.thumbnail));
+      if (fingerprint) {
         item.visualHash = fingerprint.hash;
         item.visualPHash = fingerprint.perceptualHash;
         item.visualAspectRatio = fingerprint.aspectRatio;
       }
-    }));
+  }
 }
 
 function toast(message) {
@@ -339,10 +366,19 @@ function toast(message) {
 
 function findTab(id) { return tabs.find(tab => tab.id === id); }
 function currentTab() { return findTab(activeId); }
+const rememberedInputs = new WeakMap();
 function rememberItem(item) {
   if (!item?.key) return item;
-  const remembered = CatalogLogic.mergeWorkMetadata(itemIndex.get(item.key), item);
+  const previous = itemIndex.get(item.key);
+  if (previous === item) return item;
+  const cached = rememberedInputs.get(item);
+  const fields = Object.entries(item).flatMap(([key, value]) => Array.isArray(value)
+    ? [key, value, value.length] : [key, value]);
+  if (cached && cached.result === previous && fields.length === cached.fields.length &&
+      fields.every((value, index) => value === cached.fields[index])) return previous;
+  const remembered = CatalogLogic.mergeWorkMetadata(previous, item);
   itemIndex.set(item.key, remembered);
+  rememberedInputs.set(item, { result: remembered, fields });
   return remembered;
 }
 function rememberItems(items) { items.forEach(rememberItem); }
@@ -386,7 +422,8 @@ function itemForControl(control) {
       ...(item?.participants || []).filter(person => person.tag !== data.creatorId)] };
 }
 
-function saveSession() {
+function captureClientState() {
+  if (currentTab() && main.dataset.tabId === String(activeId)) currentTab().scrollTop = main.scrollTop;
   const descriptors = tabs.map(tab => ({
     kind: tab.kind, title: tab.title, query: tab.query || '',
     searchQuery: tab.kind === 'detail' ? tab.searchQuery || '' : undefined,
@@ -403,13 +440,18 @@ function saveSession() {
     localStorage.setItem('artcatalog-session', JSON.stringify(session));
   }
   catch { /* Browser storage may be unavailable. */ }
-  fetch('/api/client-state', { method: 'POST', keepalive: true,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session, themePreference: globalThis.DartTheme?.preference || 'system',
+  return { session, themePreference: globalThis.DartTheme?.preference || 'system',
       recent, searchHistory: getSearchHistory(), recommendationExposure,
-      mediaDuplicatePairs: detailImageDeduper.duplicates.entries() })
-  }).catch(() => {});
+      mediaDuplicatePairs: detailImageDeduper.duplicates.entries(),
+      mediaVerifiedImages: [...detailImageDeduper.verified] };
 }
+
+function saveSession() {
+  if (!tabs.length) return Promise.resolve(true);
+  return clientStateWriter.save(captureClientState());
+}
+
+function flushClientState() { return saveSession(); }
 
 async function saveRecommendationTagPreference(tag, mode) {
   const pending = recommendationPreferenceSaveQueue.then(() =>
@@ -441,12 +483,17 @@ async function loadRecommendationTagPreferences() {
 
 async function loadClientState() {
   try {
-    const state = CatalogLogic.cleanClientState(await request('/api/client-state'));
+    const saved = await request('/api/client-state');
+    const pending = clientStateWriter.readPending();
+    const state = CatalogLogic.cleanClientState(pending || saved);
+    if (pending) void clientStateWriter.save(pending);
     if (Array.isArray(state.recommendationExposure)) {
       recommendationExposure = cleanRecommendationExposure(state.recommendationExposure);
       localStorage.setItem('dart-recommendation-exposure', JSON.stringify(recommendationExposure));
     }
     detailImageDeduper.duplicates.restore(state.mediaDuplicatePairs);
+    for (const key of (Array.isArray(state.mediaVerifiedImages) ? state.mediaVerifiedImages : []).slice(-256))
+      if (typeof key === 'string' && key.length <= 1000 && /^https?:\/\//i.test(key)) detailImageDeduper.verified.add(key);
     if (['system', 'light', 'dark', 'list'].includes(state.themePreference))
       globalThis.DartTheme?.setPreference(state.themePreference);
     if (state.session?.tabs?.length)
@@ -1388,11 +1435,20 @@ function scheduleFollowRetry(tab) {
   }, Math.max(500, Math.min(...pending) - Date.now()));
 }
 
-function updateFollowFeed(tab) {
-  const feed = CatalogLogic.buildFollowFeed(tab.followGroups, tab.rating,
-    Number.MAX_SAFE_INTEGER);
-  const visible = CatalogLogic.filterWorks(CatalogLogic.groupWorks(feed.items),
-    contentPreferences);
+async function updateFollowFeed(tab) {
+  const version = tab.followVersion, rating = tab.rating;
+  const revision = tab.followUpdateRevision || 0;
+  const fallback = () => {
+    const feed = CatalogLogic.buildFollowFeed(tab.followGroups, rating, Number.MAX_SAFE_INTEGER);
+    return { items: CatalogLogic.groupWorks(feed.items), newKeys: feed.newKeys };
+  };
+  const cache = tab.followComputed;
+  const feed = cache?.version === version && cache.rating === rating && cache.revision === revision
+    ? cache.feed : typeof DartCatalogJobs !== 'undefined'
+    ? await DartCatalogJobs.run('followFeed', [tab.followGroups, rating], fallback) : fallback();
+  if (version !== tab.followVersion || rating !== tab.rating || revision !== (tab.followUpdateRevision || 0)) return;
+  tab.followComputed = { version, rating, revision, feed };
+  const visible = CatalogLogic.filterWorks(feed.items, contentPreferences);
   const visibleKeys = new Set(visible.flatMap(item => item.memberKeys || [item.key]));
   tab.items = CatalogLogic.stableFeedItems(tab.followStableRating === tab.rating
     ? tab.items : [], visible, feed.newKeys);
@@ -1402,17 +1458,29 @@ function updateFollowFeed(tab) {
     .map(stream => [stream.source, stream.error]));
   tab.hasMore = tab.followStreams.some(stream => followStreamRetryAt(stream) <= Date.now());
   rememberItems(visible);
+  return true;
 }
 
-function flushFollowUpdate(tab) {
+async function flushFollowUpdate(tab) {
   if (tab.followUpdateTimer) clearTimeout(tab.followUpdateTimer);
   tab.followUpdateTimer = null;
-  updateFollowFeed(tab);
-  tab.followPublished = true;
-  if (activeId === tab.id) render();
+  tab.followUpdatePending = true;
+  if (tab.followUpdateJob) return tab.followUpdateJob;
+  tab.followUpdateJob = (async () => {
+    while (tab.followUpdatePending) {
+      tab.followUpdatePending = false;
+      if (await updateFollowFeed(tab)) {
+        tab.followPublished = true;
+        if (activeId === tab.id) render();
+      }
+    }
+  })();
+  try { await tab.followUpdateJob; }
+  finally { tab.followUpdateJob = null; }
 }
 
 function queueFollowUpdate(tab, version) {
+  tab.followUpdateRevision = (tab.followUpdateRevision || 0) + 1;
   if (!tab.followCacheTimer) tab.followCacheTimer = setTimeout(() => {
     tab.followCacheTimer = null;
     saveFollowPreview(tab, version);
@@ -1517,7 +1585,7 @@ async function loadFollowFeed(tab) {
       const allowed = new Set(jobs.filter(job => job.group === group).map(job => job.entry.source));
       group.items = group.items.filter(item => allowed.has(item.source));
     }
-    if (tab.followGroups.some(group => group.items.length)) flushFollowUpdate(tab);
+    if (tab.followGroups.some(group => group.items.length)) await flushFollowUpdate(tab);
     const regularJobs = jobs.filter(job => job.entry.source !== 'rule34');
     const rule34Jobs = jobs.filter(job => job.entry.source === 'rule34');
     const valid = () => alive() && version === tab.followVersion && !controller.signal.aborted;
@@ -1547,10 +1615,10 @@ async function loadFollowFeed(tab) {
       }
     };
     const regular = Promise.all([worker(regularJobs), worker(regularJobs), worker(regularJobs)])
-      .then(() => { if (valid()) { flushFollowUpdate(tab); saveFollowPreview(tab, version); } });
+      .then(async () => { if (valid()) { await flushFollowUpdate(tab); saveFollowPreview(tab, version); } });
     await Promise.all([regular, worker(rule34Jobs)]);
     if (!valid()) return;
-    flushFollowUpdate(tab);
+    await flushFollowUpdate(tab);
     saveFollowPreview(tab, version);
     await markFollowItemsSeen(tab, tab.followGroups, version);
   } finally {
@@ -1624,7 +1692,8 @@ async function loadMoreFollows(tab) {
       if (error || stream.buffer.length || stream.nextPage !== null)
         tab.followStreams.push(stream);
     }
-    updateFollowFeed(tab);
+    tab.followUpdateRevision = (tab.followUpdateRevision || 0) + 1;
+    await updateFollowFeed(tab);
     if (activeId === tab.id) render();
     saveFollowPreview(tab, version);
     await markFollowItemsSeen(tab, seenGroups, version);
@@ -2685,9 +2754,7 @@ function renderChrome() {
   document.querySelectorAll('.side-link').forEach(button => {
     const current = currentTab();
     const nav = button.dataset.nav;
-    button.classList.toggle('active', nav === current?.kind || current?.kind === 'search' &&
-      (nav === 'adult' && current.rating === 'explicit' && current.feed === 'illustrations' ||
-       nav === 'search' && current.rating !== 'explicit' && current.feed === 'illustrations'));
+    button.classList.toggle('active', nav === CatalogLogic.navigationSection(current));
   });
   if (currentTab()?.kind === 'detail') searchInput.value = '';
   else searchInput.value = currentTab()?.query || '';
@@ -3444,6 +3511,7 @@ function renderCard(item, isNew = false) {
   item = rememberItem(item);
   const media = galleryImages(item);
   const imageCount = media.length;
+  const countConfirmed = imageCount < 2 || detailImageDeduper.isCountConfirmed(media);
   const previewVideo = media.find(url => CatalogLogic.videoMimeType(url));
   const taggedArtist = currentTab()?.kind === 'follows' && item.followedArtistTag;
   const attribution = CatalogLogic.workAttribution(item, contentPreferences.attributionPriority);
@@ -3467,7 +3535,7 @@ function renderCard(item, isNew = false) {
       <span class="source-badge" title="${escapeHtml(sourceTitle)}">${escapeHtml(sourceBadge)}</span>
       ${isNew ? '<span class="new-badge">Новое</span>' : ''}
       ${isAdultRating(item.rating) ? `<span class="rating-badge" title="${ratingLabel(item.rating) === 'Q' ? 'Questionable — пограничный контент' : 'NSFW — откровенный контент'}">${ratingLabel(item.rating)}</span>` : ''}
-      ${imageCount > 1 ? `<span class="image-count">▣ ${imageCount}</span>` : ''}
+      ${imageCount > 1 ? `<span class="image-count" data-count-confirmed="${countConfirmed}" title="${countConfirmed ? `Images: ${imageCount}` : 'Multiple images · Count verified when opened'}">▣${countConfirmed ? ` ${imageCount}` : ''}</span>` : ''}
       ${previewVideo ? '<span class="video-badge" role="img" aria-label="Видео" title="Video · Hover for 5 preview frames">▶</span>' : ''}
     </button>
     ${savedWorkButton(item, 'likes')}
@@ -3596,14 +3664,27 @@ function rememberImageDimensions(img) {
 const detailImageDeduper = {
   signatures: new Map(),
   duplicates: DartMediaDuplicates.createDuplicateIndex(),
+  verified: new Set(),
+  verifiedRevision: 0,
+  verifiedResolved: null,
   saveTimer: null,
+  saveEvidence() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => { this.saveTimer = null; saveSession(); }, 250);
+  },
+  isCountConfirmed(urls) {
+    const revision = `${this.duplicates.revision}:${this.verifiedRevision}:${this.verified.size}`;
+    if (this.verifiedResolved?.revision !== revision)
+      this.verifiedResolved = { revision, keys: new Set([...this.verified].map(key => this.duplicates.resolve(key))) };
+    return urls.every(url => CatalogLogic.videoMimeType(url) ||
+      this.verifiedResolved.keys.has(this.duplicates.resolve(CatalogLogic.mediaCacheKey(url))));
+  },
   unique(urls, comparePixels = false) {
     const revision = this.duplicates.revision;
     const images = DartMediaDuplicates.uniqueImages(urls, this.duplicates,
       CatalogLogic.mediaCacheKey, key => comparePixels ? this.signatures.get(key)?.value : null);
     if (this.duplicates.revision !== revision) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = setTimeout(() => { this.saveTimer = null; saveSession(); }, 250);
+      this.saveEvidence();
     }
     return images;
   },
@@ -3625,6 +3706,11 @@ const detailImageDeduper = {
       while (this.signatures.size > 128) this.signatures.delete(this.signatures.keys().next().value);
     }
     await record.pending;
+    if (record.value && !this.verified.has(key)) {
+      this.verified.add(key); this.verifiedRevision++;
+      while (this.verified.size > 256) this.verified.delete(this.verified.values().next().value);
+      this.saveEvidence();
+    }
     if (!img.isConnected || img.dataset.imageUrl !== url) return;
     const unique = new Set(this.unique([...stage.querySelectorAll('.detail-image img[data-image-url]')]
       .map(image => image.dataset.imageUrl), true));
@@ -3652,7 +3738,10 @@ function syncGalleryImageCounts() {
       badge.className = 'image-count';
       card.querySelector('button.card-art')?.append(badge);
     }
-    badge.textContent = `▣ ${count}`;
+    const confirmed = detailImageDeduper.isCountConfirmed(galleryImages(item));
+    badge.textContent = confirmed ? `▣ ${count}` : '▣';
+    badge.dataset.countConfirmed = String(confirmed);
+    badge.title = confirmed ? `Images: ${count}` : 'Multiple images · Count verified when opened';
   }
 }
 
@@ -5031,8 +5120,12 @@ main.addEventListener('click', event => {
   }
 });
 
+window.addEventListener('online', () => { void clientStateWriter.flush(); });
 window.addEventListener('beforeunload', () => {
   saveSession();
+  const patch = tabs.length && clientStateWriter.unloadPatch(captureClientState());
+  if (patch) void fetch('/api/client-state', { method: 'POST', keepalive: true,
+    headers: { 'Content-Type': 'application/json' }, body: patch }).catch(() => {});
   globalThis.DartVideoPreview?.dispose();
   for (const entry of imageLoader.cache.values()) URL.revokeObjectURL(entry.blobUrl);
 });

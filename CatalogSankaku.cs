@@ -102,6 +102,16 @@ internal sealed partial class CatalogService
     internal static bool SankakuMediaHost(string host) => host.Equals("sankakucomplex.com",
         StringComparison.OrdinalIgnoreCase) || host.EndsWith(".sankakucomplex.com", StringComparison.OrdinalIgnoreCase);
 
+    internal static string SankakuMediaIdentity(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !SankakuMediaHost(uri.Host)) return url;
+        var file = System.Text.RegularExpressions.Regex.Match(uri.AbsolutePath,
+            @"^/(?:o|data)/[a-f0-9]{2}/[a-f0-9]{2}/([a-f0-9]{32}\.[a-z0-9]+)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        return file.Success ? "https://sankakucomplex.com/media/original/" + file.Groups[1].Value.ToLowerInvariant()
+            : uri.GetLeftPart(UriPartial.Path);
+    }
+
     private static bool SankakuRestricted(JsonElement post) =>
         !ValidImageUrl(String(post, "file_url")) && !ValidImageUrl(String(post, "sample_url")) &&
             (String(post, "redirect_to_signup") == "True" || String(post, "is_premium") == "True" ||

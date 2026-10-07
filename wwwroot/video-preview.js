@@ -86,18 +86,29 @@
     video.preload = 'metadata';
     video.disableRemotePlayback = true;
     const session = crypto.randomUUID().replaceAll('-', '');
+    const endpoint = `/api/video-preview?url=${encodeURIComponent(url)}&session=${session}`;
     try {
+      let keyframes = [];
+      if (/\.(mp4|m4v)$/i.test(new URL(url).pathname)) {
+        const info = await fetch(endpoint + '&info=1', { signal });
+        if (!info.ok) throw new Error('Preview media unavailable');
+        keyframes = (await info.json()).sampleTimes || [];
+      }
       await mediaEvent(video, 'loadedmetadata', signal, () => {
-        video.src = `/api/video-preview?url=${encodeURIComponent(url)}&session=${session}`;
+        video.src = endpoint;
         video.load();
       });
       // Some WebM containers omit duration in their header. A bounded tail seek
       // lets Chromium discover the end; live streams remain ordinary thumbnails.
       if (video.duration === Infinity)
         await mediaEvent(video, 'seeked', signal, () => { video.currentTime = 1e10; });
-      const times = sampleTimes(video.duration);
+      const times = keyframes.length === 5 && keyframes.every(time => Number.isFinite(time) &&
+        time >= 0 && time < video.duration) ? keyframes : sampleTimes(video.duration);
+      // Decode one still at a time and keep the output at 320px. A bounded
+      // 16MP input also covers common portrait/illustration videos above 4K.
       if (!times.length || !video.videoWidth || !video.videoHeight ||
-          video.videoWidth * video.videoHeight > 3840 * 2160)
+          video.videoWidth * video.videoHeight > 16 * 1024 * 1024 ||
+          Math.max(video.videoWidth, video.videoHeight) > 8192)
         throw new Error('Preview metadata unavailable');
       const scale = Math.min(1, 320 / Math.max(video.videoWidth, video.videoHeight));
       canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
