@@ -6,10 +6,10 @@ const Gestures = require('../wwwroot/artwork-gestures.js');
 
 function fixture() {
   let time = 0, next = 0;
-  const timers = new Map(), actions = [], context = {};
+  const timers = new Map(), actions = [], likeEvents = [], context = {};
   const gesture = Gestures.create({
     resolve: event => event.choice,
-    like: item => actions.push('like:' + item.key),
+    like: (item, event) => { actions.push('like:' + item.key); likeEvents.push(event); },
     schedule: (run, delay) => { const id = ++next; timers.set(id, { run, at: time + delay }); return id; },
     unschedule: id => timers.delete(id)
   });
@@ -27,7 +27,7 @@ function fixture() {
       timers.delete(id); entry.run();
     }
   };
-  return { gesture, choice, click, advance, actions, timers };
+  return { gesture, choice, click, advance, actions, likeEvents, timers };
 }
 
 test('one image click opens once after the double-click window', () => {
@@ -55,6 +55,19 @@ test('different images and different tabs never form a double-click like', () =>
   const a = f.choice('a'); f.click(a);
   f.click({ ...a, context: {} }); f.advance(300);
   assert.deepEqual(f.actions, ['open:a']);
+});
+
+test('image like feedback receives the second click coordinates without another like on dblclick', () => {
+  const f = fixture();
+  f.click('a');
+  const second = f.click('a', { detail: 2, clientX: 23, clientY: 32 });
+  assert.equal(f.likeEvents[0], second.event);
+  assert.equal(f.likeEvents[0].clientX, 23);
+  assert.equal(f.likeEvents[0].clientY, 32);
+  f.gesture.dblclick(second.event);
+  f.advance(400);
+  assert.equal(f.likeEvents.length, 1);
+  assert.deepEqual(f.actions, ['like:a']);
 });
 
 test('a busy browser cannot treat slow clicks as a like while its timer is delayed', () => {

@@ -4278,6 +4278,43 @@ main.addEventListener('pointermove', event => {
   if (event.pointerType === 'mouse') quickPreviewPointer = { x: event.clientX, y: event.clientY };
 });
 main.addEventListener('pointerleave', () => { quickPreviewPointer = null; });
+let artworkLikeFeedback = null;
+let artworkLikeFeedbackTimer = null;
+function showArtworkLikeFeedback(event) {
+  if (!Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) return;
+  clearTimeout(artworkLikeFeedbackTimer);
+  artworkLikeFeedback?.remove();
+  const heart = document.createElement('span');
+  heart.className = 'artwork-like-feedback';
+  heart.setAttribute('aria-hidden', 'true');
+  heart.innerHTML = svg('heart');
+  let x = event.clientX, y = event.clientY;
+  // The top layer keeps the heart above modal previews without stealing focus.
+  if (typeof heart.showPopover === 'function') {
+    heart.setAttribute('popover', 'manual');
+    document.body.append(heart);
+    heart.showPopover();
+  } else {
+    const host = quickPreview.open ? quickPreview : document.body;
+    if (host === quickPreview) {
+      const bounds = host.getBoundingClientRect();
+      heart.style.position = 'absolute';
+      x = (x - bounds.left) * host.offsetWidth / bounds.width - host.clientLeft;
+      y = (y - bounds.top) * host.offsetHeight / bounds.height - host.clientTop;
+    }
+    host.append(heart);
+  }
+  heart.style.left = `${x}px`;
+  heart.style.top = `${y}px`;
+  artworkLikeFeedback = heart;
+  artworkLikeFeedbackTimer = setTimeout(() => {
+    heart.remove();
+    if (artworkLikeFeedback === heart) {
+      artworkLikeFeedback = null;
+      artworkLikeFeedbackTimer = null;
+    }
+  }, 1000);
+}
 const artworkImageGestures = DartArtworkGestures.create({
   resolve(event) {
     const tab = currentTab();
@@ -4298,7 +4335,10 @@ const artworkImageGestures = DartArtworkGestures.create({
       valid: () => currentTab() === tab && !quickPreview.open,
       single: () => detail ? artwork && openQuickPreview(artwork, 'fullscreen') : openDetail(item, { origin: control }) };
   },
-  like: item => { void toggleSavedWork(item, 'likes', true); }
+  like: (item, event) => {
+    showArtworkLikeFeedback(event);
+    void toggleSavedWork(item, 'likes', true);
+  }
 });
 document.addEventListener('pointerdown', event => artworkImageGestures.pointerdown(event), true);
 document.addEventListener('pointermove', event => artworkImageGestures.pointermove(event), true);

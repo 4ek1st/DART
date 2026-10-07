@@ -47,7 +47,7 @@
           event.timeStamp - previous.at <= delay;
         if (same(previous?.choice, choice) && timely && valid(previous.choice) &&
             Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <= movement) {
-          like(choice.item);
+          like(choice.item, event);
           return true;
         }
         // The remaining clicks in a triple/quadruple click must not open a viewer.
