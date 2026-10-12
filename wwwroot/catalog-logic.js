@@ -200,7 +200,20 @@
   function workHistoryTokens(item) {
     const keys = [item?.key, ...(item?.memberKeys || [])]
       .filter(Boolean).map(key => `key:${key}`);
-    return [...new Set([...keys, ...itemIdentities(item || {})])];
+    const identities = itemIdentities(item || {});
+    // A related post is not proof that a different confirmed publication was
+    // viewed. Existing history still matches its own keys, hashes and source.
+    const knownPublication = publicationIdentities(item || {}).size > 0;
+    return [...new Set([...keys, ...identities.filter(token => !knownPublication ||
+      !/^group:(danbooru|gelbooru|rule34|sankaku):parent:/.test(token))])];
+  }
+
+  function sameWork(first, second) {
+    if (first === second) return true;
+    const keys = new Set([first?.key, ...(first?.memberKeys || [])].filter(Boolean));
+    // Grouping already decides which source records belong together. Viewer
+    // selection must not reintroduce weak relationships between those groups.
+    return [second?.key, ...(second?.memberKeys || [])].some(key => key && keys.has(key));
   }
 
   function hideViewedWorks(items, viewedTokens) {
@@ -260,6 +273,11 @@
   function artworkMedia(item) {
     const imageRecords = uniqueImageRecords(itemImageRecords(item));
     return { images: imageRecords.map(record => record.url), imageRecords };
+  }
+
+  function previewMedia(item) {
+    const images = artworkMedia(item).images;
+    return images.find(videoMimeType) || images[0] || item.thumbnail || '';
   }
 
   function videoMimeType(url) {
@@ -1689,13 +1707,13 @@
 
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
-    workHistoryTokens, hideViewedWorks,
+    workHistoryTokens, hideViewedWorks, sameWork,
     removeNavigationEntry, groupWorks, mergeGroupedWorks, invalidateGrouping, refineGrouping,
     needsGroupRepair, repairLegacyGroup, replaceRepairedGroups,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind,
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,
-    sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType,
+    sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType, previewMedia,
     mediaCacheKey, signedMediaExpired, renewWorkMedia, needsVisualFingerprint, perceptualImageHash,
     supportedSources, filterCatalogItems, cleanClientState, navigationSection,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,

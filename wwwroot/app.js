@@ -2397,8 +2397,7 @@ function createArtworkRoute(from, item, origin = null) {
   route.engine = DartArtworkNavigation.create({ items: initial, current: item,
     read: () => artworkSourceItems(route), more: () => !route.disposed && artworkSourceHasMore(route),
     load: () => loadArtworkSource(route),
-    same: (a, b) => CatalogLogic.workHistoryTokens(a).some(token =>
-      CatalogLogic.workHistoryTokens(b).includes(token)),
+    same: CatalogLogic.sameWork,
     merge: CatalogLogic.mergeGroupedWorks,
     allowed: entry => !CatalogLogic.isWorkHidden(entry, contentPreferences) });
   artworkRoutes.add(route);
@@ -2461,7 +2460,7 @@ async function moveArtwork(direction) {
     preview: tab.preview, pinned: tab.pinned, items: [], errors: {}, page: 0,
     scrollTop: 0, loading: false, selectedSources: [...defaultSources] } : null;
   if (preview) {
-    const url = galleryImages(item).find(media => !CatalogLogic.videoMimeType(media)) || item.thumbnail;
+    const url = CatalogLogic.previewMedia(item);
     if (!url) {
       closeQuickPreview();
       if (replacement) activate(tab.id, true, replacement);
@@ -2538,8 +2537,7 @@ function quickPreviewArtworkAt(target, tab, index) {
   const cardImage = opener?.querySelector?.('img[data-image-url]');
   const cardItem = opener && index.get(opener.dataset.key);
   if (cardImage && cardItem) {
-    const url = opener.dataset.videoPreview || (cardItem.images || []).find(CatalogLogic.videoMimeType) ||
-      [...(cardItem.images || []), cardItem.thumbnail, cardImage.dataset.imageUrl].find(Boolean);
+    const url = opener.dataset.videoPreview || CatalogLogic.previewMedia(cardItem) || cardImage.dataset.imageUrl;
     return url ? { item: cardItem, image: cardImage, url } : null;
   }
   if (tab?.kind !== 'detail') return null;

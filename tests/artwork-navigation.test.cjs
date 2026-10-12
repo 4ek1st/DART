@@ -4,7 +4,7 @@ const Logic = require('../wwwroot/catalog-logic.js');
 const fs = require('node:fs'), vm = require('node:vm');
 const app = fs.readFileSync(require('node:path').join(__dirname, '../wwwroot/app.js'), 'utf8');
 const work = id => ({ key: `danbooru:${id}`, id, source: 'danbooru', title: `Work ${id}` });
-const same = (a, b) => Logic.workHistoryTokens(a).some(token => Logic.workHistoryTokens(b).includes(token));
+const same = Logic.sameWork;
 const merge = Logic.mergeGroupedWorks;
 
 test('both directions retain visited and liked work after the source changes', async () => {

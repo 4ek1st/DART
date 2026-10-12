@@ -62,6 +62,13 @@ test('a low resolution poster still fits a large viewer within desktop and narro
  }
 });
 
+test('arrow browsing chooses the playable movie when the next artwork is a video',()=>{
+ const item={key:'rule34:8',thumbnail:'https://example.test/thumb.jpg',images:['https://example.test/movie.mp4']};
+ assert.equal(typeof CatalogLogic.previewMedia,'function');
+ assert.equal(CatalogLogic.previewMedia(item),item.images[0]);
+ assert.equal(CatalogLogic.previewMedia({images:['https://example.test/page.jpg']}),'https://example.test/page.jpg');
+});
+
 test('closing or replacing a preview pauses video, cancels loading and releases its source',()=>{
  const calls=[],controller=new AbortController();
  const video={pause:()=>calls.push('pause'),removeAttribute:name=>calls.push('remove:'+name),load:()=>calls.push('load')};
