@@ -33,7 +33,7 @@ try {
     $outputDir = Join-Path $PSScriptRoot 'outputs'
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     $alignedApk = Join-Path $outputDir 'ArtCatalog-Mobile-aligned.apk'
-    $signedApk = Join-Path $outputDir 'ArtCatalog-Mobile-0.1.6.apk'
+    $signedApk = Join-Path $outputDir 'ArtCatalog-Mobile-0.1.10.apk'
     & "$androidTools\zipalign.exe" -f -p 4 'app\build\outputs\apk\release\app-release-unsigned.apk' $alignedApk
     if ($LASTEXITCODE -ne 0) { throw 'APK alignment failed.' }
     & "$androidTools\apksigner.bat" sign --ks $keyFile --ks-key-alias artcatalog --ks-pass env:ARTCATALOG_SIGN_PASSWORD --key-pass env:ARTCATALOG_SIGN_PASSWORD --out $signedApk $alignedApk

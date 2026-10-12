@@ -16,8 +16,12 @@ public class CatalogLogicTest {
         assertEquals(List.of("sky","ai_generated"),CatalogLogic.merge(List.of(a),List.of(b)).get(0).tags);
     }
     @Test public void uploaderDoesNotBecomeAnUnconfirmedArtist() throws Exception {
-        Post p=CatalogLogic.map("gelbooru",new JSONObject("{\"id\":4,\"owner\":\"reposter\",\"tags\":\"sky\"}"));
+        Post p=CatalogLogic.map("gelbooru",new JSONObject("{\"id\":4,\"owner\":\"reposter\",\"creator_id\":88,\"tags\":\"sky\"}"));
         assertEquals("Автор не указан",p.artist);
+        assertEquals("reposter",p.uploaderId);
+        assertEquals("reposter",p.uploaderName);
+        Post rule=CatalogLogic.map("rule34",new JSONObject("{\"id\":5,\"owner\":\"another_user\",\"creator_id\":88}"));
+        assertEquals("another_user",rule.uploaderId);
     }
     @Test public void ratingBoundaryIncludesGeneralSensitiveAndExcludesUnknown() {
         assertTrue(CatalogLogic.matchesRating("g", "general"));

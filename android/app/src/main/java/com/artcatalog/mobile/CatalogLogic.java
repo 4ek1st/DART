@@ -26,10 +26,13 @@ public final class CatalogLogic {
         String character=o.optString("tag_string_character");
         p.title=character.isBlank()?"Иллюстрация #"+p.id:character.replace('_',' ');
         if(!character.isBlank())p.characterTags=new ArrayList<>(Arrays.asList(character.trim().split("\\s+")));
+        String copyright=o.optString("tag_string_copyright");
+        if(!copyright.isBlank())p.copyrightTags=new ArrayList<>(Arrays.asList(copyright.trim().split("\\s+")));
         String artists=o.optString("tag_string_artist").trim();if(!artists.isBlank())p.artistTags=new ArrayList<>(Arrays.asList(artists.split("\\s+")));
         p.artistTag=p.artistTags.isEmpty()?"":p.artistTags.get(0);
         p.artist=p.artistTag.isBlank()?"Автор не указан":p.artistTag.replace('_',' ');
-        p.uploaderId=o.optString("uploader_id",o.optString("creator_id"));p.uploaderName=o.optString("owner");
+        p.uploaderName=o.optString("owner");
+        p.uploaderId=source.equals("danbooru")?o.optString("uploader_id"):p.uploaderName;
         JSONObject uploader=o.optJSONObject("uploader");if(uploader!=null)p.uploaderName=uploader.optString("name",p.uploaderName);
         String originalLink=o.optString("source");if(originalLink.matches("https://[^\\s]+"))p.originalUrl=originalLink;
         String parent=o.optString("parent_id");p.groupKey=parent.matches("[1-9][0-9]*")?source+":parent:"+parent:o.optBoolean("has_children")?source+":parent:"+p.id:"";
@@ -63,11 +66,12 @@ public final class CatalogLogic {
             String name=value(tag,"tagName");if(name.isBlank())name=value(tag,"name_en");if(name.isBlank())name=value(tag,"name");
             if(name.isBlank()||p.tags.contains(name))continue;p.tags.add(name);
             if(tag.optInt("type",-1)==1)p.artistTags.add(name);
+            if(tag.optInt("type",-1)==3)p.copyrightTags.add(name);
             if(tag.optInt("type",-1)==4&&!name.endsWith("_request")&&!name.equals("original_character"))p.characterTags.add(name);
         }
         p.artistTag=p.artistTags.isEmpty()?"":p.artistTags.get(0);p.artist=p.artistTag.isBlank()?"Автор не указан":p.artistTag.replace('_',' ');
         p.title=p.characterTags.isEmpty()?"Иллюстрация #"+p.id:String.join(", ",p.characterTags).replace('_',' ');
-        JSONObject author=o.optJSONObject("author");if(author!=null){p.uploaderId=value(author,"id");p.uploaderName=value(author,"name");}
+        JSONObject author=o.optJSONObject("author");if(author!=null){p.uploaderName=value(author,"name");p.uploaderId=p.uploaderName.isBlank()?value(author,"id"):p.uploaderName;}
         String originalLink=value(o,"source");if(originalLink.matches("https://[^\\s]+"))p.originalUrl=originalLink;
         String parent=value(o,"parent_id");p.groupKey=validId("sankaku",parent)?"sankaku:parent:"+parent:o.optBoolean("has_children")?"sankaku:parent:"+p.id:"";
         p.original=value(o,"file_url");p.image=value(o,"sample_url");p.preview=value(o,"preview_url");p.smallPreview=p.preview;
@@ -115,9 +119,27 @@ public final class CatalogLogic {
     private static final Set<String> GENERATED=Set.of("ai generated","ai art","ai artwork","ai image","ai illustration","stable diffusion","nai diffusion","novelai","midjourney","dall e","dall e 2","dall e 3","comfyui","automatic1111","thisanimedoesnotexist","generated with ai","made with ai");
     private static final Set<String> ASSISTED=Set.of("ai assisted","ai aided","ai enhanced");
     private static boolean marker(String tag,Set<String> markers){for(String m:markers)if(tag.equals(m)||tag.startsWith(m+" "))return true;return false;}
-    public static boolean hidden(Post p,String aiMode,Collection<String> excluded){if(aiMode.equals("all")&&excluded.isEmpty())return false;Set<String> blocked=excluded instanceof Set?(Set<String>)excluded:new HashSet<>(excluded);for(String raw:p.tags){String tag=normalizeTag(raw);if(blocked.contains(tag)||!aiMode.equals("all")&&marker(tag,GENERATED)||aiMode.equals("generated-and-assisted")&&marker(tag,ASSISTED))return true;}return false;}
-    public static String tagKind(Post p,String tag){String normalized=normalizeTag(tag);if(!normalized.equals("original character"))for(String character:p.characterTags)if(normalizeTag(character).equals(normalized))return "character";return normalized.equals("original")?"original":"";}
-    public static List<String> artworkTags(Post p){List<String> sorted=union(p.tags,p.characterTags);Set<String> characters=new HashSet<>();for(String tag:p.characterTags)characters.add(normalizeTag(tag));Map<String,Integer> kinds=new HashMap<>();for(String tag:sorted){String normal=normalizeTag(tag);kinds.put(tag,!normal.equals("original character")&&characters.contains(normal)?0:normal.equals("original")?1:2);}sorted.sort(Comparator.comparingInt(kinds::get));return sorted;}
+    private static final Set<String> FURRY=Set.of(
+        "furry","anthro","anthropomorphic","furrification","furry character","furry female","furry male","furry boy","furry girl","furry futa",
+        "furry intersex","furry only","furry female only","furry male only","furry with furry","furry with non furry","furry with nonfurry","furry and animal",
+        "furry (japanese)","furry on furry","human on furry","male on furry","human male on female furry","anthropomorphic animal","anthropomorphic furry",
+        "anthro on anthro","muscular anthro","anthro penetrating anthro","human on anthro","young anthro","overweight anthro","mature anthro",
+        "female anthro","male anthro","male on anthro","human penetrating anthro","larger anthro","nude anthro","semi anthro","athletic anthro",
+        "smaller anthro","male penetrating anthro","female on anthro","obese anthro","clothed anthro","humanoid on anthro","submissive anthro",
+        "dominant anthro","feral penetrating anthro","pregnant anthro","bottomless anthro","slightly chubby anthro","human to anthro","topless anthro","younger anthro");
+    public static boolean hidden(Post p,String aiMode,Collection<String> excluded){return hidden(p,aiMode,excluded,false);}
+    public static boolean hidden(Post p,String aiMode,Collection<String> excluded,boolean hideFurry){
+        if(aiMode.equals("all")&&excluded.isEmpty()&&!hideFurry)return false;
+        Set<String> blocked=excluded instanceof Set?(Set<String>)excluded:new HashSet<>(excluded);
+        boolean furryAlias=blocked.contains("furry")||blocked.contains("anthro")||blocked.contains("anthropomorphic");
+        for(String raw:p.tags){String tag=normalizeTag(raw);
+            if(blocked.contains(tag)||(hideFurry||furryAlias)&&FURRY.contains(tag)||
+                !aiMode.equals("all")&&marker(tag,GENERATED)||aiMode.equals("generated-and-assisted")&&marker(tag,ASSISTED))return true;
+        }
+        return false;
+    }
+    public static String tagKind(Post p,String tag){String normalized=normalizeTag(tag);if(!normalized.equals("original character"))for(String character:p.characterTags)if(normalizeTag(character).equals(normalized))return "character";for(String copyright:p.copyrightTags)if(normalizeTag(copyright).equals(normalized))return "copyright";return normalized.equals("original")?"original":"";}
+    public static List<String> artworkTags(Post p){List<String> sorted=union(union(p.tags,p.characterTags),p.copyrightTags);Set<String> characters=new HashSet<>(),copyrights=new HashSet<>();for(String tag:p.characterTags)characters.add(normalizeTag(tag));for(String tag:p.copyrightTags)copyrights.add(normalizeTag(tag));Map<String,Integer> kinds=new HashMap<>();for(String tag:sorted){String normal=normalizeTag(tag);kinds.put(tag,!normal.equals("original character")&&characters.contains(normal)?0:copyrights.contains(normal)?1:normal.equals("original")?2:3);}sorted.sort(Comparator.comparingInt(kinds::get));return sorted;}
     public static List<String> relatedQueries(Post p){List<String> result=new ArrayList<>();for(String tag:p.characterTags)if(!normalizeTag(tag).equals("original character"))result.add(tag);for(String tag:recommendationTags(List.of(p)))if(!tag.equals(p.artistTag)&&!p.artistTags.contains(tag)&&!Set.of("artist_name","signature","watermark","original").contains(tag)&&!result.contains(tag))result.add(tag);return result;}
     public static Post neighbor(List<Post> posts,Post current,int delta){for(int i=0;i<posts.size();i++)if(posts.get(i).key().equals(current.key())||posts.get(i).memberKeys.contains(current.key())){int next=i+delta;return next>=0&&next<posts.size()?posts.get(next):null;}return null;}
     public static List<String> recommendationTags(List<Post> bookmarks){

@@ -21,7 +21,7 @@ final class ImageLoader {
     private final ThreadPoolExecutor pool=new ThreadPoolExecutor(4,4,20,TimeUnit.SECONDS,new PriorityBlockingQueue<>(),r->new Thread(()->{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);r.run();},"ArtCatalog-image"));
     private final ConcurrentHashMap<String,Request> requests=new ConcurrentHashMap<>();
     private final AtomicLong sequence=new AtomicLong();
-    private final Semaphore decoding=new Semaphore(1);
+    private final Semaphore decoding=new Semaphore(2);
     private final List<Ticket> prefetches=new ArrayList<>();
     private final Map<String,Ticket> window=new LinkedHashMap<>();
     private final ConcurrentHashMap<String,Long> failures=new ConcurrentHashMap<>();
@@ -51,12 +51,15 @@ final class ImageLoader {
         int budget=Math.max(24,Math.min(64,memoryClass/3))*1024*1024;
         memory=new LruCache<String,Bitmap>(budget){@Override protected int sizeOf(String key,Bitmap b){return b.getAllocationByteCount();}};
         fullMemory=new LruCache<String,Bitmap>(Math.max(12,Math.min(32,memoryClass/6))*1024*1024){@Override protected int sizeOf(String key,Bitmap b){return b.getAllocationByteCount();}};
-        previewPixels=budget/(56*4);
+        // Two-column cards stay sharp without filling the bitmap cache with
+        // more decoded previews than it can retain on a low-memory phone.
+        previewPixels=Math.max(160000,Math.min(512*512,budget/(24*4)));
         directory=new File(context.getCacheDir(),"images");directory.mkdirs();
     }
     void setReadyListener(Runnable listener){readyListener=listener;}
     private LruCache<String,Bitmap> cache(int edge){return edge<=720?memory:fullMemory;}
-    boolean prepared(String url,int edge){Long failed=failures.get(url+":"+edge);return !CatalogLogic.isMediaUrl(url)||cache(edge).get(url+":"+edge)!=null||failed!=null&&SystemClock.elapsedRealtime()-failed<60000;}
+    boolean failed(String url,int edge){Long failed=failures.get(url+":"+edge);return failed!=null&&SystemClock.elapsedRealtime()-failed<60000;}
+    boolean prepared(String url,int edge){return !CatalogLogic.isMediaUrl(url)||cache(edge).get(url+":"+edge)!=null||failed(url,edge);}
     boolean hasBitmap(String url,int edge){return cache(edge).get(url+":"+edge)!=null;}
     void bind(ImageView view,String url,int edge){bind(view,url,edge,null);}
     void bind(ImageView view,String url,int edge,Runnable loaded){bind(view,url,edge,1,loaded);}

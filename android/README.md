@@ -1,10 +1,10 @@
 # DART for Android
 
-The current standalone mobile app is **ArtCatalog Mobile 0.1.6** for Android 8.0+
+The current standalone mobile app is **ArtCatalog Mobile 0.1.10** for Android 8.0+
 (API 26). It works without a Windows PC and currently has a Russian interface.
 The Android and Windows apps have separate version numbers and may differ in features.
 
-[Download the signed Android APK](https://github.com/4ek1st/DART/releases/download/v0.2.3/DART.Android-0.1.6.apk)
+[Download the signed Android APK](https://github.com/4ek1st/DART/releases/download/android-v0.1.10/DART.Android-0.1.10.apk) · [Release notes](RELEASE-0.1.10.md)
 
 Open the APK on your phone and allow installation from the app opening the file
 if Android prompts you. The package is `com.artcatalog.mobile` and appears as
@@ -15,7 +15,9 @@ to keep the local profile.
 
 - Native phone layout with bottom navigation, search, two-column feeds, and full-screen viewing.
 - Danbooru, Gelbooru, Rule34, and Sankaku sources, subject to their access rules.
-- Bookmarks, recommendations, artist follows, history, image and video viewing.
+- Local likes and bookmarks, recommendations, artist follows, history, image and video viewing.
+- Swipe between works with a short slide animation. Double-tap an image to like its work.
+- Multiple images of one work form a single vertical gallery; tags and artist links stay in the detail view.
 - Local profile storage, import and export. API credentials stay on the device.
 
 ## Build from source
