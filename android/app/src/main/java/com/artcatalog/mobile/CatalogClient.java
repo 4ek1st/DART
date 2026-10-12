@@ -70,7 +70,7 @@ class CatalogClient {
         String endpoint;
         if(source.equals("danbooru")){
             String tags=query+(rating.equals("general")?" rating:g,s":rating.equals("explicit")?" rating:q,e":"")+(sort.equals("popular")?" order:score":"");
-            endpoint="https://danbooru.donmai.us/posts.json?limit="+size+"&page="+(page+1)+"&tags="+encode(tags.trim())+"&only=id,md5,rating,score,created_at,image_width,image_height,tag_string,tag_string_artist,tag_string_character,file_url,large_file_url,preview_file_url,source,uploader_id,uploader,media_asset,parent_id,has_children";
+            endpoint="https://danbooru.donmai.us/posts.json?limit="+size+"&page="+(page+1)+"&tags="+encode(tags.trim())+"&only=id,md5,rating,score,created_at,image_width,image_height,tag_string,tag_string_artist,tag_string_character,tag_string_copyright,file_url,large_file_url,preview_file_url,source,uploader_id,uploader,media_asset,parent_id,has_children";
         }else{
             String id=store.credential(source,"user"),key=store.credential(source,"key");
             if(id.isBlank()||key.isBlank())throw new MissingKey();
@@ -96,8 +96,8 @@ class CatalogClient {
         for(int i=0;i<data.length();i++){
             JSONObject obj=data.optJSONObject(i);if(obj==null)continue;fingerprint.append(obj.optString("id")).append(',');Post post=CatalogLogic.map("sankaku",obj);
             if(!CatalogLogic.validId("sankaku",post.id)||!CatalogLogic.matchesRating(post.rating,rating))continue;
+            if(obj.optBoolean("redirect_to_signup")||obj.optBoolean("is_premium")||post.media.isEmpty()){locked++;continue;}
             if(CatalogLogic.isMediaUrl(post.preview)||CatalogLogic.isMediaUrl(post.image))out.posts.add(post);
-            if(post.media.isEmpty()&&(obj.optBoolean("redirect_to_signup")||obj.optBoolean("is_premium")||CatalogLogic.isMediaUrl(post.preview)))locked++;
         }
         if(data.length()>=size)out.more.add("sankaku");out.fingerprints.put("sankaku",fingerprint.toString());
         if(locked>0){boolean login=!store.sankakuAuthenticated();out.notices.put("sankaku",locked+" работ на странице ограничены. "+new SankakuApi.AccessException(login).getMessage());if(login)out.authRequired.add("sankaku");}
@@ -116,12 +116,12 @@ class CatalogClient {
     List<String> artistTags(Post post) throws Exception {enrich(post);return new ArrayList<>(post.artistTags);}
     void enrich(Post post) throws Exception {
         if(post.source.equals("danbooru"))return;
-        if(post.source.equals("sankaku")){Post fresh=CatalogLogic.map("sankaku",sankaku.post(post.id));CatalogLogic.refreshSignedMedia(post,fresh);post.tags=fresh.tags;post.artistTags=fresh.artistTags;post.artistTag=fresh.artistTag;post.artist=fresh.artist;post.characterTags=fresh.characterTags;post.title=fresh.title;post.originalUrl=fresh.originalUrl;return;}
+        if(post.source.equals("sankaku")){Post fresh=CatalogLogic.map("sankaku",sankaku.post(post.id));CatalogLogic.refreshSignedMedia(post,fresh);post.tags=fresh.tags;post.artistTags=fresh.artistTags;post.artistTag=fresh.artistTag;post.artist=fresh.artist;post.characterTags=fresh.characterTags;post.copyrightTags=fresh.copyrightTags;post.title=fresh.title;post.originalUrl=fresh.originalUrl;return;}
         if(post.source.equals("gelbooru")&&store.configured("gelbooru")){
-            for(int start=0;start<Math.min(post.tags.size(),250);start+=40){String names=String.join(" ",post.tags.subList(start,Math.min(start+40,post.tags.size())));String url="https://gelbooru.com/index.php?page=dapi&s=tag&q=index&json=1&limit=200&names="+encode(names)+"&user_id="+encode(store.credential("gelbooru","user"))+"&api_key="+encode(store.credential("gelbooru","key"));Object data=new JSONTokener(get(url)).nextValue();JSONArray tags=data instanceof JSONArray?(JSONArray)data:data instanceof JSONObject?((JSONObject)data).optJSONArray("tag"):null;if(tags!=null)for(int i=0;i<tags.length();i++){JSONObject tag=tags.optJSONObject(i);if(tag==null)continue;String name=tag.optString("name");if(!post.tags.contains(name))continue;if(tag.optInt("type")==1&&!post.artistTags.contains(name))post.artistTags.add(name);if(tag.optInt("type")==4&&!post.characterTags.contains(name))post.characterTags.add(name);}}
+            for(int start=0;start<Math.min(post.tags.size(),250);start+=40){String names=String.join(" ",post.tags.subList(start,Math.min(start+40,post.tags.size())));String url="https://gelbooru.com/index.php?page=dapi&s=tag&q=index&json=1&limit=200&names="+encode(names)+"&user_id="+encode(store.credential("gelbooru","user"))+"&api_key="+encode(store.credential("gelbooru","key"));Object data=new JSONTokener(get(url)).nextValue();JSONArray tags=data instanceof JSONArray?(JSONArray)data:data instanceof JSONObject?((JSONObject)data).optJSONArray("tag"):null;if(tags!=null)for(int i=0;i<tags.length();i++){JSONObject tag=tags.optJSONObject(i);if(tag==null)continue;String name=tag.optString("name");if(!post.tags.contains(name))continue;if(tag.optInt("type")==1&&!post.artistTags.contains(name))post.artistTags.add(name);if(tag.optInt("type")==3&&!post.copyrightTags.contains(name))post.copyrightTags.add(name);if(tag.optInt("type")==4&&!post.characterTags.contains(name))post.characterTags.add(name);}}
         }else if(post.source.equals("rule34")){
-            String html=get(post.sourceUrl);java.util.regex.Matcher categories=java.util.regex.Pattern.compile("<li\\b[^>]*\\btag-type-(artist|character)\\b[^>]*>(.*?)</li>",java.util.regex.Pattern.CASE_INSENSITIVE|java.util.regex.Pattern.DOTALL).matcher(html);
-            while(categories.find()){java.util.regex.Matcher link=java.util.regex.Pattern.compile("href=\"[^\"]*(?:&amp;|&)tags=([^\"&]+)\"",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(categories.group(2));if(!link.find())continue;String tag=URLDecoder.decode(link.group(1),StandardCharsets.UTF_8.name());if(!post.tags.contains(tag))continue;List<String> target=categories.group(1).equalsIgnoreCase("artist")?post.artistTags:post.characterTags;if(!target.contains(tag))target.add(tag);}
+            String html=get(post.sourceUrl);java.util.regex.Matcher categories=java.util.regex.Pattern.compile("<li\\b[^>]*\\btag-type-(artist|character|copyright)\\b[^>]*>(.*?)</li>",java.util.regex.Pattern.CASE_INSENSITIVE|java.util.regex.Pattern.DOTALL).matcher(html);
+            while(categories.find()){java.util.regex.Matcher link=java.util.regex.Pattern.compile("href=\"[^\"]*(?:&amp;|&)tags=([^\"&]+)\"",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(categories.group(2));if(!link.find())continue;String tag=URLDecoder.decode(link.group(1),StandardCharsets.UTF_8.name());if(!post.tags.contains(tag))continue;List<String> target=categories.group(1).equalsIgnoreCase("artist")?post.artistTags:categories.group(1).equalsIgnoreCase("copyright")?post.copyrightTags:post.characterTags;if(!target.contains(tag))target.add(tag);}
         }
         if(!post.artistTags.isEmpty()){post.artistTag=post.artistTags.get(0);post.artist=post.artistTag.replace('_',' ');}
     }
