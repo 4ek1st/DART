@@ -86,6 +86,7 @@ internal static class SavedWorksFixtureTests
                     "Moving a signed Sankaku original between CDNs must replace its expired URL, retain its variant and survive restart");
             }
             GroupRepairFixture(Path.Combine(root, "group-repair"));
+            QueuedReadFixture(Path.Combine(root, "queued-read"));
             foreach (var item in Read(store, "Likes")) Toggle(store, "Like", item);
             Expect(Read(Open(root), "Likes").Count == 0 && Read(Open(root), "Bookmarks").Count == 1,
                 "Repeated startup must not resurrect removed likes or migrate new bookmarks");
@@ -180,6 +181,34 @@ internal static class SavedWorksFixtureTests
         Toggle(store, "Like", first); Toggle(store, "Like", second);
         repair.Invoke(store, [combined, new List<CatalogItem> { first, second }]);
         Expect(Read(store, "Likes").Count == 0, "A delayed repair must never resurrect works the user unliked");
+    }
+
+    private static void QueuedReadFixture(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        var savedType = typeof(CatalogItem).Assembly.GetType("ArtCatalog.SavedWorksStore")!;
+        var writerStore = Activator.CreateInstance(savedType, [directory])!;
+        var item = new CatalogItem { Key = "danbooru:1", Source = "danbooru", Id = "1", Title = "Before" };
+        savedType.GetMethod("EnsureSaved")!.Invoke(writerStore, ["likes", item]);
+        var readerStore = Activator.CreateInstance(savedType, [directory])!;
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        Exception? writerError = null;
+        var writer = new Thread(() =>
+        {
+            try { savedType.GetMethod("RefreshMetadata")!.Invoke(writerStore, [item,
+                new Func<JsonObject, bool>(saved => { entered.Set(); release.Wait(); saved["title"] = "After"; return true; })]); }
+            catch (Exception error) { writerError = error; }
+        });
+        writer.Start(); Expect(entered.Wait(TimeSpan.FromSeconds(10)), "Metadata writer must acquire its lock");
+        using var finish = new Timer(_ => release.Set(), null, 3200, Timeout.Infinite);
+        try
+        {
+            var items = (List<CatalogItem>)savedType.GetMethod("Get")!.Invoke(readerStore, ["likes"])!;
+            Expect(items.Single().Title == "After", "A read queues behind an in-process metadata write instead of timing out or reading stale state");
+        }
+        finally { release.Set(); writer.Join(); }
+        if (writerError is not null) throw writerError;
     }
 
     private static void ExpectOpenFailure(string directory)

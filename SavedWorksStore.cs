@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -7,6 +8,7 @@ namespace ArtCatalog;
 internal sealed class SavedWorksStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ProcessLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly string directory;
     private readonly string path;
     private readonly string lockPath;
@@ -204,10 +206,29 @@ internal sealed class SavedWorksStore
         _ = array.Deserialize<List<CatalogItem>>(Json) ?? throw new JsonException();
     }
 
-    private FileStream AcquireLock()
+    private IDisposable AcquireLock()
     {
-        for (var attempt = 0; ; attempt++)
-            try { return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
-            catch (IOException) when (attempt < 49) { Thread.Sleep(50); }
+        var gate = ProcessLocks.GetOrAdd(Path.GetFullPath(lockPath), _ => new SemaphoreSlim(1, 1));
+        // Metadata repair and UI reads share this queue. A legitimate slow
+        // write in this process must not consume the external-file retry limit.
+        gate.Wait();
+        try
+        {
+            for (var attempt = 0; ; attempt++)
+                try { return new StoreLock(new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None), gate); }
+                catch (IOException) when (attempt < 49) { Thread.Sleep(50); }
+        }
+        catch { gate.Release(); throw; }
+    }
+
+    private sealed class StoreLock(FileStream file, SemaphoreSlim gate) : IDisposable
+    {
+        private int disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+            try { file.Dispose(); }
+            finally { gate.Release(); }
+        }
     }
 }
