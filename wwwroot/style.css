@@ -318,10 +318,15 @@ h3 { font-size: 15px; }
 .quick-preview:not([open]) { display: none; }
 .quick-preview::backdrop { background: #000b; animation: quick-preview-backdrop .2s ease-out; }
 .quick-preview-stage { position: relative; width: fit-content; max-width: 100%; overflow: hidden; touch-action: none; cursor: zoom-in; }
+.quick-preview-video-stage { cursor: auto; touch-action: auto; }
+.quick-preview-video-stage .quick-preview-actions { bottom: 60px; }
+.quick-preview-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; background: #101010d9; padding: 48px; text-align: center; }
+.quick-preview-error[hidden] { display: none; }
+.quick-preview-error button { border: 1px solid #595959; border-radius: 6px; background: #292929; color: white; padding: 8px 14px; }
 .quick-preview.fullscreen .quick-preview-stage { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; max-width: none; }
 .quick-preview-stage.zoomed { cursor: grab; }
 .quick-preview-stage.panning { cursor: grabbing; }
-.quick-preview-image { display: block; width: auto; height: auto; max-width: min(84vw, 1100px); max-height: 78vh; object-fit: contain; transform-origin: center center; transition: transform .22s cubic-bezier(.2, .8, .2, 1); user-select: none; -webkit-user-drag: none; }
+.quick-preview-image { display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; transition: transform .22s cubic-bezier(.2, .8, .2, 1); user-select: none; -webkit-user-drag: none; }
 .quick-preview.fullscreen .quick-preview-image { width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; }
 .quick-preview-tools, .quick-preview-actions { position: absolute; z-index: 1; display: flex; align-items: center; gap: 6px; padding: 7px; border-radius: 11px; background: #161616df; box-shadow: 0 4px 22px #000a; }
 .quick-preview-tools { top: 12px; left: 12px; }

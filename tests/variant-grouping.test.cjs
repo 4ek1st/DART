@@ -16,10 +16,10 @@ test('a child joins its parent even when has_children was absent, across all cat
   }
 });
 
-test('the reported Rule34 parent relation combines both differently framed scene images', () => {
+test('a Rule34 parent does not combine distinct published scenes without same-drawing evidence', () => {
   const works = logic.groupWorks(copy('zaidcos'));
-  assert.equal(works.length, 1);
-  assert.equal(works[0].images.length, 2);
+  assert.equal(works.length, 2);
+  assert(works.every(work => work.images.length === 1));
 });
 
 test('Discord attachment identity joins reencoded mirrors and preserves distinct attachment pages', () => {

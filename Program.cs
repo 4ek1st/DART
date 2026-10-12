@@ -225,6 +225,20 @@ internal static class Program
             return Results.Ok(new { saved = store.EnsureLike(item) });
         });
 
+        app.MapPost("/api/grouping/repair", async (HttpContext context, LocalStore store) =>
+        {
+            if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
+            if (context.Request.ContentLength is > 1_000_000) return Results.StatusCode(413);
+            var update = await context.Request.ReadFromJsonAsync<GroupRepairUpdate>(context.RequestAborted);
+            if (update is null || update.Expected is null || update.Groups is null ||
+                !CatalogService.IsValidItem(update.Expected) || update.Groups.Count is < 1 or > 100 ||
+                update.Groups.Any(item => item is null || !CatalogService.IsValidItem(item) || item.GroupMembers is null || item.GroupMembers.Count > 100 ||
+                    item.GroupMembers.Any(member => member is null || member.GroupMembers is null || member.GroupMembers.Count != 0 || !CatalogService.IsValidItem(member))))
+                return Results.BadRequest();
+            try { return Results.Ok(new { changed = store.RepairSavedGroup(update.Expected, update.Groups) }); }
+            catch (InvalidDataException) { return Results.BadRequest(); }
+        });
+
         app.MapGet("/api/follows/cache", (string? rating, LocalStore store) =>
             rating is "general" or "explicit" or "all"
                 ? Results.Content(store.GetFollowFeedCacheJson(rating), "application/json")

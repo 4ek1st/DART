@@ -459,6 +459,9 @@ Rule34 returned an incomplete response instead of works. We will retry later.|Ru
 Rule34 is temporarily unavailable (HTTP|Rule34 временно не отвечает (HTTP|Rule34 ist vorübergehend nicht verfügbar (HTTP
 ). We will retry later.|). Повторим позже.|). Ein neuer Versuch erfolgt später.
 Sankaku did not return a list of works. Check your tags.|Sankaku не вернул список работ. Проверьте теги.|Sankaku hat keine Werkliste zurückgegeben. Prüfen Sie Ihre Tags.
+Quick video preview|Быстрый просмотр видео|Videovorschau
+Fullscreen video preview|Полноэкранный просмотр видео|Videovorschau im Vollbild
+Video could not be played.|Не удалось воспроизвести видео.|Das Video konnte nicht abgespielt werden.
 Sign in to Sankaku to view this work.|Для просмотра этой работы авторизуйтесь в Sankaku.|Melden Sie sich bei Sankaku an, um dieses Werk anzusehen.
 Sign in to Sankaku in settings to access these works.|Авторизуйтесь в Sankaku в настройках, чтобы получить доступ к этим работам.|Melden Sie sich in den Einstellungen bei Sankaku an, um auf diese Werke zuzugreifen.
 Sankaku restricted access for this account. Check access requirements or your Plus subscription on the site.|Sankaku ограничил доступ для этого аккаунта. Проверьте условия доступа или подписку Plus на сайте.|Sankaku hat den Zugriff für dieses Konto eingeschränkt. Prüfen Sie die Zugangsbedingungen oder Ihr Plus-Abonnement auf der Website.

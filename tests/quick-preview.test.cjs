@@ -39,19 +39,35 @@ test('hovered card opens its image, while its save button and empty cards do not
   assert.equal(context.quickPreviewArtworkAt(hovered, { kind: 'search' }, new Map([[item.key, item]])), null);
 });
 
-test('hovering a detail image opens that specific page; video cards use their still thumbnail', () => {
+test('hovering a detail image opens that specific page; Space on a video card opens the playable movie', () => {
   const item = { key: 'rule34:7', thumbnail: 'https://example.test/still.jpg',
     images: ['https://example.test/movie.mp4'] };
   const cardImage = { dataset: { imageUrl: item.thumbnail } };
   const opener = { dataset: { key: item.key }, querySelector: () => cardImage };
   const hoveredCard = { closest: () => opener, matches: () => false };
   assert.equal(context.quickPreviewArtworkAt(hoveredCard, { kind: 'search' },
-    new Map([[item.key, item]])).url, item.thumbnail);
+    new Map([[item.key, item]])).url, item.images[0]);
   const detailImage = { dataset: { imageUrl: 'https://example.test/page-2.jpg' },
     matches: selector => selector === '.detail-image img[data-image-url]', closest: () => null };
   const choice = context.quickPreviewArtworkAt(detailImage, { kind: 'detail', item }, new Map());
   assert.equal(choice.url, detailImage.dataset.imageUrl);
   assert.equal(choice.item, item);
+});
+
+test('a low resolution poster still fits a large viewer within desktop and narrow bounds',()=>{
+ for(const [vw,vh] of [[2560,1440],[1280,800],[400,700]]){
+  const size=context.quickPreviewFitSize(160,240,vw,vh,false);
+  assert(size.height>vh*.65);assert(size.width<=vw-32);assert(size.height<=vh-32);
+  assert(Math.abs(size.width/size.height-2/3)<.01);
+ }
+});
+
+test('closing or replacing a preview pauses video, cancels loading and releases its source',()=>{
+ const calls=[],controller=new AbortController();
+ const video={pause:()=>calls.push('pause'),removeAttribute:name=>calls.push('remove:'+name),load:()=>calls.push('load')};
+ context.quickPreview={querySelectorAll:()=>[video]};context.quickPreviewMediaController=controller;
+ context.stopQuickPreviewMedia();assert.equal(controller.signal.aborted,true);
+ assert.deepEqual(calls,['pause','remove:src','load']);assert.equal(context.quickPreviewMediaController,null);
 });
 
 test('zoom keeps the pointed pixel fixed, constrains panning and resets to fit', () => {

@@ -18,6 +18,8 @@ public sealed class CatalogItem
     public string Source { get; set; } = "";
     public string Id { get; set; } = "";
     public List<string> MemberKeys { get; set; } = [];
+    public int GroupingVersion { get; set; }
+    public List<CatalogItem> GroupMembers { get; set; } = [];
     public string Title { get; set; } = "";
     public string Artist { get; set; } = "";
     public string ArtistId { get; set; } = "";
@@ -57,6 +59,14 @@ public sealed class CatalogImageRecord
 {
     public string Url { get; set; } = "";
     public string Hash { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Owner { get; set; }
+}
+
+public sealed class GroupRepairUpdate
+{
+    public CatalogItem Expected { get; set; } = new();
+    public List<CatalogItem> Groups { get; set; } = [];
 }
 
 public sealed class SearchResponse

@@ -85,6 +85,7 @@ internal static class SavedWorksFixtureTests
                 Expect(renewed.Images.SequenceEqual(new[] { newVideo, movie.Images[1] }) && renewed.CreatorTag == movie.CreatorTag,
                     "Moving a signed Sankaku original between CDNs must replace its expired URL, retain its variant and survive restart");
             }
+            GroupRepairFixture(Path.Combine(root, "group-repair"));
             foreach (var item in Read(store, "Likes")) Toggle(store, "Like", item);
             Expect(Read(Open(root), "Likes").Count == 0 && Read(Open(root), "Bookmarks").Count == 1,
                 "Repeated startup must not resurrect removed likes or migrate new bookmarks");
@@ -150,6 +151,35 @@ internal static class SavedWorksFixtureTests
             Console.WriteLine("Saved works migration, independent collections, recovery, concurrent writes and large session persistence: PASS");
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static void GroupRepairFixture(string directory)
+    {
+        var store = Open(directory);
+        var first = new CatalogItem { Key = "danbooru:1", Source = "danbooru", Id = "1", Images = ["https://fixture.test/first.jpg"] };
+        var second = new CatalogItem { Key = "gelbooru:2", Source = "gelbooru", Id = "2", Images = ["https://fixture.test/second.jpg"] };
+        var combined = new CatalogItem { Key = first.Key, Source = first.Source, Id = first.Id,
+            MemberKeys = [first.Key, second.Key], Images = [first.Images[0], second.Images[0]] };
+        Toggle(store, "Like", combined); Toggle(store, "Bookmark", combined);
+        var library = Path.Combine(directory, "saved-works-v1.json");
+        var data = JsonNode.Parse(File.ReadAllText(library))!;
+        data["likes"]![0]!["futureField"] = new JsonObject { ["keep"] = true };
+        File.WriteAllText(library, data.ToJsonString()); var before = File.ReadAllBytes(library);
+        var repair = Store.GetMethod("RepairSavedGroup")!;
+        Expect((bool)repair.Invoke(store, [combined, new List<CatalogItem> { first, second }])!, "A saved union is repaired without toggling off either collection");
+        foreach (var collection in new[] { "Likes", "Bookmarks" })
+            Expect(Read(Open(directory), collection).Select(item => item.Key).SequenceEqual(new[] { first.Key, second.Key }),
+                "Splitting keeps all previously saved members and order through restart");
+        Expect(JsonNode.Parse(File.ReadAllText(library))!["likes"]!.AsArray().All(item => item!["futureField"]?["keep"]?.GetValue<bool>() == true),
+            "Unknown saved fields survive splitting");
+        Expect(Directory.GetFiles(Path.Combine(directory, "migration-backups"), "saved-works-before-grouping-*.json")
+            .Any(file => File.ReadAllBytes(file).SequenceEqual(before)), "Repair retains a byte-identical backup before the first write");
+        var after = File.ReadAllBytes(library);
+        Expect(!(bool)repair.Invoke(store, [combined, new List<CatalogItem> { first, second }])! && File.ReadAllBytes(library).SequenceEqual(after),
+            "A stale repair cannot replace a group already changed by another window");
+        Toggle(store, "Like", first); Toggle(store, "Like", second);
+        repair.Invoke(store, [combined, new List<CatalogItem> { first, second }]);
+        Expect(Read(store, "Likes").Count == 0, "A delayed repair must never resurrect works the user unliked");
     }
 
     private static void ExpectOpenFailure(string directory)

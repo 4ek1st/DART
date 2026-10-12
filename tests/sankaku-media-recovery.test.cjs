@@ -47,6 +47,15 @@ test('a Sankaku original moved to another CDN renews by file hash without mixing
   assert.deepEqual(renewed.images, [moved]); assert.equal(renewed.imageRecords[0].url, moved);
 });
 
+test('renewed signed media also updates stored grouping evidence so regrouping cannot restore expired URLs',()=>{
+  const item={key:'sankaku:AbC',source:'sankaku',images:[full],thumbnail:old,groupKey:'sankaku:parent:AbC'};
+  const other={key:'sankaku:DeF',source:'sankaku',images:['https://s.sankakucomplex.com/second.jpg'],groupKey:'sankaku:parent:AbC'};
+  const group=logic.groupWorks([item,other])[0];
+  const renewed=logic.renewWorkMedia(group,{...item,images:[renewedFull],thumbnail:fresh});
+  assert(logic.groupWorks([renewed])[0].images.includes(renewedFull));
+  assert(!logic.groupWorks([renewed])[0].images.includes(full));
+});
+
 function harness({ expired = true, failDetail = false, source = 'sankaku', count = 1 } = {}) {
   const item = { key: `${source}:AbC`, source, id: 'AbC', thumbnail: expired ? old : fresh,
     images: [full], memberKeys: [`${source}:AbC`, 'rule34:2'] };

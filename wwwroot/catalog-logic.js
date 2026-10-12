@@ -173,6 +173,10 @@
       const match = /^\/attachments\/(\d{5,25})\/(\d{5,25})\/[^/]+$/.exec(url.pathname);
       return match ? `original:discord-attachment:${match[1]}:${match[2]}` : '';
     }
+    if (host === 'i.pximg.net' && /^\/img-(?:zip-ugoira|ugoira)\//i.test(url.pathname)) {
+      const match = /\/(\d{5,12})_ugoira\d+x\d+\.(?:zip|webm|mp4)$/i.exec(url.pathname);
+      return match ? `group:pixiv:${match[1]}` : '';
+    }
     return '';
   }
 
@@ -213,7 +217,9 @@
       .map(record => [record.url, record]));
     return images.map(url => {
       const record = known.get(url) || { url };
-      return { ...record, hash: String(record.hash || mediaFileHash(url) || hash).toLowerCase() };
+      const owner = record.owner || (memberKeysOf(item).length === 1 ? item.key : '');
+      return { ...record, hash: String(record.hash || mediaFileHash(url) || hash).toLowerCase(),
+        ...(owner ? { owner } : {}) };
     });
   }
 
@@ -305,9 +311,11 @@
     const thumbnail = item.key === detail.key && detail.thumbnail ? detail.thumbnail : renew(item.thumbnail);
     const images = (item.images || []).map(renew);
     const imageRecords = (item.imageRecords || []).map(record => ({ ...record, url: renew(record.url) }));
+    const groupMembers = (item.groupMembers || []).map(member => renewWorkMedia(member, detail));
     if (thumbnail === item.thumbnail && images.every((url, index) => url === item.images[index]) &&
-        imageRecords.every((record, index) => record.url === item.imageRecords[index].url)) return item;
-    return { ...item, thumbnail, images, imageRecords };
+        imageRecords.every((record, index) => record.url === item.imageRecords[index].url) &&
+        groupMembers.every((member, index) => member === item.groupMembers[index])) return item;
+    return { ...item, thumbnail, images, imageRecords, groupMembers };
   }
 
   const validVisualHash = hash => /^[a-f0-9]{16}$/i.test(hash || '');
@@ -442,6 +450,69 @@
   }
 
   const groupedCache = new WeakMap();
+  const groupingVersion = 2;
+  const memberKeysOf = item => [...new Set([item?.key, ...(item?.memberKeys || [])].filter(Boolean))];
+  function hasGroupMembers(item) {
+    const keys = memberKeysOf(item);
+    return item?.groupingVersion === groupingVersion && (keys.length === 1 ||
+      Array.isArray(item.groupMembers) && item.groupMembers.length <= 100 &&
+      item.groupMembers.length === keys.length &&
+      keys.every(key => item.groupMembers.some(member => member?.key === key &&
+        (!member.groupMembers?.length) && memberKeysOf(member).length === 1)));
+  }
+  function needsGroupRepair(item) {
+    if (hasGroupMembers(item)) return !!item.groupMembers?.length && groupWorks([item]).length > 1;
+    return !hasGroupMembers(item) && memberKeysOf(item).length > 1 && memberKeysOf(item).length <= 100 &&
+      (/:parent:/.test(item?.groupKey || '') ||
+       (item?.identityKeys || []).filter(key => /^group:pixiv:|^original:x-status:/.test(key)).length > 1);
+  }
+  function repairLegacyGroup(item, fresh) {
+    const keys = memberKeysOf(item), records = new Map((fresh || []).map(member => [member?.key, member]));
+    if (!keys.every(key => records.get(key)?.images?.length)) return null;
+    const knownUrls = new Set(fresh.flatMap(member => member.images || []).map(mediaCacheKey));
+    const knownHashes = new Set(fresh.flatMap(itemImageRecords).map(record => record.hash).filter(Boolean));
+    // Incomplete source metadata must not silently discard a saved variant.
+    if (itemImageRecords(item).some(record => !knownUrls.has(mediaCacheKey(record.url)) &&
+        (!record.hash || !knownHashes.has(record.hash)))) return null;
+    return groupWorks(keys.map(key => ({ ...records.get(key), memberKeys: [key], identityKeys: [],
+      groupMembers: [], groupingVersion: 0 })));
+  }
+  function replaceRepairedGroups(items, expected, groups) {
+    if (!Array.isArray(items)) return items;
+    const keys = memberKeysOf(expected), matches = item => memberKeysOf(item).length === keys.length &&
+      keys.every(key => memberKeysOf(item).includes(key));
+    if (!items.some(matches)) return items;
+    return items.flatMap(item => matches(item) ? groups : [item]);
+  }
+  function publicationIdentities(item) {
+    return new Set([item.pixivGroupKey && `group:${item.pixivGroupKey}`,
+      /^pixiv:/.test(item.groupKey || '') && `group:${item.groupKey}`,
+      originalPostIdentity(item.originalUrl)].filter(key => /^group:pixiv:|^original:x-status:/.test(key || '')));
+  }
+  function groupInputs(items) {
+    const works = [], positions = new Map();
+    for (const item of items || []) {
+      if (!item?.key) continue;
+      const members = hasGroupMembers(item) && item.groupMembers?.length ? item.groupMembers : [item];
+      for (const member of members) {
+        const raw = memberKeysOf(member).length === 1 && member.identityKeys?.length
+          ? { ...member, identityKeys: [] } : member;
+        if (positions.has(raw.key)) {
+          const position = positions.get(raw.key);
+          // The later source response supplies corrected publication/creator
+          // fields; retain missing fields and media learned from the older one.
+          const previous = works[position];
+          works[position] = { ...works[position], ...raw };
+          for (const field of ['pixivGroupKey', 'originalUrl'])
+            if (!raw[field] && previous[field]) works[position][field] = previous[field];
+          if (raw.creatorTag && raw.creatorTag !== previous.creatorTag && !raw.participants?.length)
+            works[position].participants = workParticipants(raw);
+          if (memberKeysOf(works[position]).length === 1) works[position].identityKeys = [];
+        } else { positions.set(raw.key, works.length); works.push(raw); }
+      }
+    }
+    return works;
+  }
   function invalidateGrouping(items) {
     if (!Array.isArray(items)) return;
     groupedCache.delete(items);
@@ -452,8 +523,9 @@
   }
   function groupWorks(items) {
     if (Array.isArray(items) && groupedCache.has(items)) return groupedCache.get(items);
-    const works = (items || []).filter(item => item?.key);
+    const works = groupInputs(items);
     const roots = works.map((_, index) => index);
+    const publications = works.map(publicationIdentities);
     const find = index => {
       while (roots[index] !== index) {
         roots[index] = roots[roots[index]];
@@ -461,13 +533,31 @@
       }
       return index;
     };
-    const linked = new Map();
+    const join = (first, second, weak = false) => {
+      const a = find(first), b = find(second);
+      if (a === b) return;
+      if (weak && publications[a].size && publications[b].size &&
+          ![...publications[a]].some(key => publications[b].has(key))) return;
+      roots[a] = b;
+      for (const identity of publications[a]) publications[b].add(identity);
+    };
+    const linked = new Map(), parents = new Map();
     works.forEach((item, index) => {
       for (const identity of itemIdentities(item)) {
-        if (linked.has(identity)) roots[find(index)] = find(linked.get(identity));
+        if (/^group:(danbooru|gelbooru|rule34|sankaku):parent:/.test(identity)) {
+          if (!parents.has(identity)) parents.set(identity, []);
+          parents.get(identity).push(index); continue;
+        }
+        if (linked.has(identity)) join(index, linked.get(identity));
         else linked.set(identity, index);
       }
     });
+    // Resolve exact files and publications first. A parent can mean a related
+    // work; it cannot override conflicting known publications, even via a
+    // metadata-poor mirror which would otherwise bridge both components.
+    for (const indices of parents.values())
+      for (let position = 1; position < indices.length; position++)
+        for (const previous of indices.slice(0, position)) join(indices[position], previous, true);
     // Some boorus omit both the parent post and original publication URL. In
     // that case, infer only a compact upload batch by a verified artist tag,
     // uploader, dense tag overlap, close post IDs and publication times.
@@ -506,7 +596,7 @@
       const anchors = seriesBuckets.get(candidate.bucket);
       const match = anchors.find(anchor => sameSeries(anchor, candidate));
       if (match) {
-        roots[find(candidate.index)] = find(match.index);
+        join(candidate.index, match.index, true);
         match.minId = Math.min(match.minId, candidate.minId);
       }
       else anchors.push(candidate);
@@ -560,7 +650,7 @@
       if (distance <= 12)
         for (const previous of node.entries)
           if (compatibleVisualSamples(sample, previous.sample, distance))
-            roots[find(index)] = find(previous.index);
+            join(index, previous.index, true);
       for (const [edge, child] of node.children)
         if (edge >= distance - 12 && edge <= distance + 12)
           findVisualMatches(child, sample, index);
@@ -632,12 +722,16 @@
       const original = members.find(item => item.originalUrl)?.originalUrl || '';
       const characterTags = [...new Set(members.flatMap(item => item.characterTags || []))];
       const copyrightTags = [...new Set(members.flatMap(item => item.copyrightTags || []))];
+      const complete = members.every(item => memberKeysOf(item).length === 1);
       return { ...preferred, images, imageRecords, allTags: [...allTags], groupCount: count,
         characterTags, copyrightTags, title: titleFromCharacters(preferred.title, characterTags),
         participants, creatorTag: creator?.follow.artistId || '',
         creatorName: creator?.name || (participants.length ? '' : preferred.creatorName || ''),
         originalUrl: preferred.originalUrl || original,
         memberKeys: [...keys], identityKeys: [...identities], visualSamples,
+        groupingVersion: complete ? groupingVersion : 0,
+        groupMembers: complete && members.length > 1 ? members.map(item => ({ ...item,
+          memberKeys: [item.key], identityKeys: [], groupMembers: [], groupingVersion: 0 })) : [],
         rating: explicit ? 'e' : questionable ? 'q' : preferred.rating };
     });
     if (Array.isArray(items)) groupedCache.set(items, result);
@@ -690,6 +784,11 @@
 
   function refineGrouping(items, enriched) {
     const previous = groupedCache.get(items);
+    for (const item of enriched) {
+      const member = item.groupMembers?.find(member => member.key === item.key);
+      if (member) for (const field of ['visualHash', 'visualPHash', 'visualAspectRatio'])
+        if (item[field]) member[field] = item[field];
+    }
     invalidateGrouping(enriched);
     if (previous) groupedCache.set(items, mergeGroupedWorks(previous, enriched));
     else invalidateGrouping(items);
@@ -707,9 +806,23 @@
     if (previous === incoming) return incoming;
     if (!previous || previous.key !== incoming?.key || previous.source !== incoming.source)
       return incoming;
+    if (hasGroupMembers(previous) && !hasGroupMembers(incoming) && memberKeysOf(incoming).length > 1)
+      return previous; // A late legacy cache response cannot restore a repaired union.
     const merged = { ...previous, ...incoming };
     merged.memberKeys = [...new Set([previous.key, ...(previous.memberKeys || []),
       ...(incoming.memberKeys || [])].filter(Boolean))];
+    if (hasGroupMembers(previous)) {
+      const leaves = new Map((previous.groupMembers?.length ? previous.groupMembers :
+        [{ ...previous, groupingVersion: 0, groupMembers: [], memberKeys: [previous.key] }]).map(member => [member.key, member]));
+      for (const member of (hasGroupMembers(incoming) && incoming.groupMembers?.length ? incoming.groupMembers : [incoming])) {
+        const raw = { ...member, groupingVersion: 0, groupMembers: [], memberKeys: [member.key], identityKeys: [] };
+        leaves.set(raw.key, mergeWorkMetadata(leaves.get(raw.key), raw));
+      }
+      merged.groupingVersion = groupingVersion;
+      merged.groupMembers = leaves.size > 1 ? [...leaves.values()] : [];
+      merged.images = [...new Set([...(previous.images || []), ...(incoming.images || [])])];
+      merged.imageRecords = [...itemImageRecords(previous), ...itemImageRecords(incoming)];
+    }
     merged.visualHash = incoming.visualHash || previous.visualHash || '';
     merged.visualPHash = incoming.visualPHash || previous.visualPHash || '';
     merged.visualAspectRatio = incoming.visualAspectRatio || previous.visualAspectRatio || 0;
@@ -758,7 +871,10 @@
     const creator = workAttribution({ ...detail, participants }).creator;
     const media = detail.source === 'sankaku' ? refreshSankakuMedia(grouped, detail, images)
       : artworkMedia({ images, imageRecords: [...itemImageRecords(grouped), ...itemImageRecords(detail)] });
+    const groupMembers = hasGroupMembers(grouped) && grouped.groupMembers?.length
+      ? grouped.groupMembers.map(member => member.key === detail.key ? mergeWorkMetadata(member, detail) : member) : [];
     return { ...detail, ...media, groupCount: Math.max(1, media.images.length),
+      groupingVersion: grouped.groupingVersion || 0, groupMembers,
       characterTags, copyrightTags, title: titleFromCharacters(detail.title, characterTags),
       participants, creatorTag: creator?.follow.artistId || '',
       creatorName: creator?.name || (participants.length ? '' : detail.creatorName || grouped.creatorName || ''),
@@ -1575,6 +1691,7 @@
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks,
     removeNavigationEntry, groupWorks, mergeGroupedWorks, invalidateGrouping, refineGrouping,
+    needsGroupRepair, repairLegacyGroup, replaceRepairedGroups,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind,
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,

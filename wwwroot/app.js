@@ -54,6 +54,7 @@ document.body.append(quickPreview);
 let quickPreviewWork = null;
 let quickPreviewPointer = null;
 let quickPreviewGeneration = 0;
+let quickPreviewMediaController;
 let quickPreviewView = { scale: 1, x: 0, y: 0 };
 let quickPreviewDrag = null;
 let quickPreviewZoomTimer = null;
@@ -1016,6 +1017,77 @@ function refreshSavedDetail(detail) {
 
 async function refreshBookmarks() { return refreshSavedWorks('bookmarks'); }
 async function refreshLikes() { return refreshSavedWorks('likes'); }
+
+const groupRepairs = {
+  queue: [], pending: new Map(), cooldown: new Map(), active: 0,
+  enqueue(item, visible = () => true) {
+    if (!CatalogLogic.needsGroupRepair(item) || this.pending.has(item.key) ||
+        (this.cooldown.get(item.key) || 0) > Date.now()) return;
+    const entry = { item: structuredClone(item), visible, controller: new AbortController() };
+    this.pending.set(item.key, entry); this.queue.push(entry); this.drain();
+  },
+  drain() {
+    while (this.active < 2 && this.queue.length) {
+      const entry = this.queue.shift();
+      if (!entry.visible() || entry.controller.signal.aborted) { this.pending.delete(entry.item.key); continue; }
+      this.active++;
+      void this.run(entry).catch(() => { this.cooldown.set(entry.item.key, Date.now() + 60000); }).finally(() => {
+        this.pending.delete(entry.item.key); this.active--; this.drain();
+      });
+    }
+  },
+  async run({ item, controller }) {
+    const keys = [...new Set([item.key, ...(item.memberKeys || [])])], posts = []; let index = 0;
+    const worker = async () => {
+      while (index < keys.length) {
+        const key = keys[index++], [source, id] = key.split(':');
+        posts.push(await request(`/api/detail?${new URLSearchParams({ source, id })}`, { signal: controller.signal }));
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    const groups = CatalogLogic.repairLegacyGroup(item, posts);
+    if (!groups) throw new Error('Grouping metadata incomplete');
+    await request('/api/grouping/repair', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expected: item, groups }), signal: controller.signal });
+    if (controller.signal.aborted) return;
+    this.apply(item, groups);
+  },
+  apply(expected, groups) {
+    const replace = items => CatalogLogic.replaceRepairedGroups(items, expected, groups);
+    for (const group of groups) itemIndex.set(group.key, group);
+    for (const [collection, items] of [['likes', likes], ['bookmarks', bookmarks]]) {
+      const next = replace(items); if (next !== items) setSavedWorks(collection, next);
+    }
+    recent = replace(recent);
+    localStorage.setItem('artcatalog-recent', JSON.stringify(recent));
+    for (const tab of tabs) {
+      for (const field of ['items', 'related', 'creatorWorks', 'creatorCandidates', 'profileGridItems'])
+        if (tab[field]) tab[field] = replace(tab[field]);
+      let followChanged = false;
+      for (const group of tab.followGroups || []) {
+        const next = replace(group.items); if (next !== group.items) { group.items = next; followChanged = true; }
+      }
+      if (followChanged) queueFollowUpdate(tab, tab.followVersion);
+      if (tab.item && replace([tab.item])[0] !== tab.item)
+        tab.item = groups.find(group => group.memberKeys.includes(tab.item.key)) || groups[0];
+      tab.artworkRoute?.engine.replaceGroup?.(expected, groups);
+    }
+    if (quickPreviewWork && replace([quickPreviewWork])[0] !== quickPreviewWork)
+      quickPreviewWork = groups.find(group => group.memberKeys.includes(quickPreviewWork.key)) || groups[0];
+    quickPreviewRoute?.engine.replaceGroup?.(expected, groups);
+    render(); syncSavedWorkButtons(); saveSession();
+  },
+  scan() {
+    if (currentTab()?.kind === 'detail') this.enqueue(currentTab().item);
+    const bounds = main.getBoundingClientRect();
+    for (const card of main.querySelectorAll('article.card[data-work-key]')) {
+      const visible = () => { if (!card.isConnected) return false; const r = card.getBoundingClientRect();
+        return r.bottom > bounds.top && r.top < bounds.bottom; };
+      if (visible()) this.enqueue(itemIndex.get(card.dataset.workKey), visible);
+    }
+  },
+  stop() { for (const entry of this.pending.values()) entry.controller.abort(); this.queue = []; }
+};
 
 async function loadFavoriteTags() {
   try {
@@ -2458,7 +2530,7 @@ function quickPreviewShortcutAllowed(event, focused) {
   if (event.code !== 'Space' && event.key !== ' ') return false;
   if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
       focused?.isContentEditable) return false;
-  return !focused?.closest?.('input, textarea, select, [contenteditable]');
+  return !focused?.closest?.('input, textarea, select, [contenteditable], video, [role="slider"]');
 }
 
 function quickPreviewArtworkAt(target, tab, index) {
@@ -2466,13 +2538,24 @@ function quickPreviewArtworkAt(target, tab, index) {
   const cardImage = opener?.querySelector?.('img[data-image-url]');
   const cardItem = opener && index.get(opener.dataset.key);
   if (cardImage && cardItem) {
-    const url = [...(cardItem.images || []), cardItem.thumbnail, cardImage.dataset.imageUrl]
-      .find(candidate => candidate && !CatalogLogic.videoMimeType(candidate));
+    const url = opener.dataset.videoPreview || (cardItem.images || []).find(CatalogLogic.videoMimeType) ||
+      [...(cardItem.images || []), cardItem.thumbnail, cardImage.dataset.imageUrl].find(Boolean);
     return url ? { item: cardItem, image: cardImage, url } : null;
   }
-  if (tab?.kind !== 'detail' || !target?.matches?.('.detail-image img[data-image-url]')) return null;
+  if (tab?.kind !== 'detail') return null;
+  if (target?.matches?.('video[data-video-url]'))
+    return { item: tab.item, image: target, url: target.dataset.videoUrl };
+  if (!target?.matches?.('.detail-image img[data-image-url]')) return null;
   const url = target.dataset.imageUrl;
-  return url && !CatalogLogic.videoMimeType(url) ? { item: tab.item, image: target, url } : null;
+  return url ? { item: tab.item, image: target, url } : null;
+}
+
+function quickPreviewFitSize(width, height, viewportWidth, viewportHeight, fullscreen) {
+  const w = width > 0 ? width : 640, h = height > 0 ? height : 480;
+  const maxWidth = fullscreen ? viewportWidth : Math.min(1600, viewportWidth * .9, viewportWidth - 32);
+  const maxHeight = fullscreen ? viewportHeight : Math.min(viewportHeight * .88, viewportHeight - 32);
+  const scale = Math.min(Math.max(1, maxWidth) / w, Math.max(1, maxHeight) / h);
+  return { width: Math.round(w * scale), height: Math.round(h * scale) };
 }
 
 function quickPreviewBoundScale(value) {
@@ -2503,6 +2586,13 @@ function paintQuickPreview(instant = false) {
   const stage = quickPreview.querySelector('.quick-preview-stage');
   const image = stage?.querySelector('.quick-preview-image');
   if (!image) return;
+  const video = image.tagName === 'VIDEO';
+  const fullscreen = quickPreview.classList.contains('fullscreen');
+  const size = quickPreviewFitSize(image.videoWidth || image.naturalWidth || Number(image.dataset.previewWidth),
+    image.videoHeight || image.naturalHeight || Number(image.dataset.previewHeight), innerWidth, innerHeight, fullscreen);
+  stage.style.width = fullscreen ? '100%' : `${size.width}px`;
+  stage.style.height = fullscreen ? '100%' : `${size.height}px`;
+  if (video) { quickPreviewView = { scale: 1, x: 0, y: 0 }; return; }
   quickPreviewView = quickPreviewClampPan(quickPreviewView, image.clientWidth, image.clientHeight);
   stage.classList.toggle('zoomed', quickPreviewView.scale > 1.01);
   stage.classList.toggle('panning', !!quickPreviewDrag);
@@ -2527,7 +2617,7 @@ function showQuickPreviewZoom() {
 
 function zoomQuickPreview(nextScale, clientX, clientY) {
   const stage = quickPreview.querySelector('.quick-preview-stage');
-  if (!stage) return;
+  if (!stage || stage.querySelector('video')) return;
   const bounds = stage.getBoundingClientRect();
   if (!bounds.width || !bounds.height) return;
   const pointX = Math.max(-bounds.width / 2,
@@ -2548,43 +2638,75 @@ function zoomQuickPreviewFromCenter(nextScale) {
     bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
 }
 
+function stopQuickPreviewMedia() {
+  quickPreviewMediaController?.abort(); quickPreviewMediaController = null;
+  for (const video of quickPreview.querySelectorAll('video')) {
+    video.pause(); video.removeAttribute('src'); video.load();
+  }
+}
+
 function openQuickPreview({ item, image, url, route }, mode = 'window') {
   if (!item || !url || quickPreview.open && (!route || route !== quickPreviewRoute)) return;
+  stopQuickPreviewMedia(); globalThis.DartVideoPreview?.stop(); pauseDetailVideos();
+  const controller = quickPreviewMediaController = new AbortController();
+  const video = !!CatalogLogic.videoMimeType(url);
   quickPreviewRoute = route || (currentTab()?.kind === 'detail' &&
     currentTab().item.key === item.key ? currentTab().artworkRoute :
     createArtworkRoute(currentTab(), item, image));
   clearTimeout(quickPreviewZoomTimer);
   quickPreviewZoomTimer = null;
   quickPreview.classList.toggle('fullscreen', mode === 'fullscreen');
-  quickPreview.setAttribute('aria-label', mode === 'fullscreen'
-    ? 'Полноэкранный просмотр изображения' : 'Быстрый просмотр изображения');
+  quickPreview.setAttribute('aria-label', video ? mode === 'fullscreen' ? 'Fullscreen video preview' : 'Quick video preview'
+    : mode === 'fullscreen' ? 'Полноэкранный просмотр изображения' : 'Быстрый просмотр изображения');
   item = quickPreviewWork = rememberItem(item);
   retainFeedWork(currentTab(), item);
-  const preview = image?.currentSrc || image?.getAttribute?.('src') ||
+  const preview = (image?.tagName === 'VIDEO' ? image.poster : image?.currentSrc || image?.getAttribute?.('src')) ||
     imageLoader.cached(image?.dataset?.imageUrl)?.blobUrl || '';
   const full = imageLoader.cached(url)?.blobUrl || `/api/image?url=${encodeURIComponent(url)}`;
   quickPreviewView = { scale: 1, x: 0, y: 0 };
   quickPreviewDrag = null;
-  quickPreview.innerHTML = `<div class="quick-preview-stage">
-    <img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}" draggable="false">
+  quickPreview.innerHTML = `<div class="quick-preview-stage${video ? ' quick-preview-video-stage' : ''}" data-work-key="${escapeHtml(item.key)}">
+    ${video ? `<video class="quick-preview-image quick-preview-video" data-video-url="${escapeHtml(url)}" data-preview-width="${image?.naturalWidth || 640}" data-preview-height="${image?.naturalHeight || 480}" controls autoplay muted loop playsinline preload="metadata"${preview ? ` poster="${escapeHtml(preview)}"` : ''} aria-label="${escapeHtml(item.title)}"></video><div class="quick-preview-error" role="status" hidden><span>Video could not be played.</span><button type="button" data-preview-action="retry">Retry</button></div>` : `<img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}" draggable="false">
     <div class="quick-preview-tools" role="group" aria-label="Image zoom">
       <button type="button" data-preview-action="zoom-out" title="Zoom out" aria-label="Zoom out" disabled>−</button>
       <button type="button" data-preview-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
       <button type="button" data-preview-action="fit" title="Fit image" aria-label="Fit image" disabled>↺</button>
     </div>
-    <span class="quick-preview-zoom" aria-live="off">100%</span>
+    <span class="quick-preview-zoom" aria-live="off">100%</span>`}
     <button type="button" class="quick-preview-close" data-preview-action="close" title="Close preview" aria-label="Close preview">×</button>
     <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}</div>
   </div>`;
   if (!quickPreview.open) quickPreview.showModal();
   globalThis.DartI18n?.translateTree(quickPreview);
   quickPreview.focus({ preventScroll: true });
-  quickPreview.querySelector('.quick-preview-image').addEventListener('load', () => paintQuickPreview(true));
+  const media = quickPreview.querySelector('.quick-preview-image');
+  media.addEventListener(video ? 'loadedmetadata' : 'load', () => paintQuickPreview(true), { signal: controller.signal });
   paintQuickPreview(true);
   recordDetailVisit({ item });
   if (quickPreviewRoute) { quickPreviewRoute.engine.select(item); warmArtworkRoute(quickPreviewRoute); }
   const generation = ++quickPreviewGeneration;
-  if (preview && preview !== full) {
+  if (video) {
+    let attemptedRecovery = false;
+    const startVideo = async () => {
+      let nextUrl = url;
+      if (CatalogLogic.signedMediaExpired(url)) nextUrl = await sankakuMediaRecovery.recover([media], url, controller.signal) || url;
+      if (controller.signal.aborted) return;
+      media.src = `/api/video?url=${encodeURIComponent(nextUrl)}`;
+      media.load(); void media.play().catch(() => {});
+    };
+    media.addEventListener('error', async () => {
+      if (controller.signal.aborted) return;
+      if (!attemptedRecovery) {
+        attemptedRecovery = true;
+        const renewed = await sankakuMediaRecovery.recover([media], url, controller.signal);
+        if (controller.signal.aborted) return;
+        if (renewed && renewed !== url) { media.src = `/api/video?url=${encodeURIComponent(renewed)}`; media.load(); void media.play().catch(() => {}); return; }
+      }
+      quickPreview.querySelector('.quick-preview-error').hidden = false;
+    }, { signal: controller.signal });
+    media.addEventListener('playing', () => { quickPreview.querySelector('.quick-preview-error').hidden = true; }, { signal: controller.signal });
+    void startVideo();
+  } else if (preview && preview !== full) {
     const loaded = new Image();
     loaded.onload = () => {
       if (quickPreview.open && generation === quickPreviewGeneration)
@@ -2597,6 +2719,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
 function closeQuickPreview() {
   if (!quickPreview.open) return;
   ++quickPreviewGeneration;
+  stopQuickPreviewMedia();
   clearTimeout(quickPreviewZoomTimer);
   quickPreviewZoomTimer = null;
   quickPreviewDrag = null;
@@ -2813,6 +2936,7 @@ function render() {
   if (tab.kind === 'profile') scheduleProfileBanner(tab);
   autoFeed.mount();
   if (typeof scheduleRule34Recovery === 'function') scheduleRule34Recovery(tab);
+  if (typeof groupRepairs !== 'undefined') groupRepairs.scan();
 }
 
 function workMemberKeys(node) {
@@ -3548,7 +3672,14 @@ function skeletons(count) {
 }
 
 function renderDetail(tab) {
-  const item = tab.item = rememberItem(tab.item);
+  let item = tab.item = rememberItem(tab.item);
+  if (item.groupingVersion === 2 && item.groupMembers?.length) {
+    const groups = CatalogLogic.groupWorks([item]);
+    if (groups.length > 1) {
+      groupRepairs.enqueue(item);
+      item = tab.item = groups.find(group => group.memberKeys.includes(item.key)) || groups[0];
+    }
+  }
   tab.artworkRoute ||= createArtworkRoute(tab, item);
   tab.artworkRoute?.engine.sync();
   if (CatalogLogic.isWorkHidden(item, contentPreferences))
@@ -4213,7 +4344,10 @@ main.addEventListener('playing', event => {
     event.target.parentElement.classList.remove('failed');
 }, true);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) pauseDetailVideos();
+  if (document.hidden) {
+    pauseDetailVideos();
+    quickPreview.querySelectorAll('video').forEach(video => video.pause());
+  }
 });
 
 main.addEventListener('scroll', () => {
@@ -4226,6 +4360,7 @@ main.addEventListener('scroll', () => {
   requestAnimationFrame(() => {
     virtualScrollPending = false;
     if (currentTab() !== tab) return;
+    groupRepairs.scan();
     autoFeed.mount();
     if (expireRetainedFeedWorks(tab)) {
       const bounds = main.getBoundingClientRect();
@@ -4449,6 +4584,7 @@ quickPreview.addEventListener('cancel', event => {
 });
 quickPreview.addEventListener('wheel', event => {
   if (!quickPreview.open) return;
+  if (quickPreview.querySelector('video')) return;
   event.preventDefault();
   const stage = event.target.closest?.('.quick-preview-stage');
   if (!stage) return;
@@ -4460,7 +4596,7 @@ quickPreview.addEventListener('pointerdown', event => {
   const stage = event.target.closest?.('.quick-preview-stage');
   if (!stage || event.target.closest?.('button') || ![0, 1].includes(event.button)) return;
   if (event.button === 1) event.preventDefault();
-  if (quickPreviewView.scale <= 1 || quickPreviewDrag) return;
+  if (quickPreview.querySelector('video') || quickPreviewView.scale <= 1 || quickPreviewDrag) return;
   event.preventDefault();
   quickPreviewDrag = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY,
     x: quickPreviewView.x, y: quickPreviewView.y, moved: false };
@@ -4497,6 +4633,8 @@ quickPreview.addEventListener('click', event => {
     else if (previewAction === 'fit') zoomQuickPreviewFromCenter(1);
     else if (previewAction === 'zoom-in') zoomQuickPreviewFromCenter(quickPreviewView.scale * 1.5);
     else if (previewAction === 'zoom-out') zoomQuickPreviewFromCenter(quickPreviewView.scale / 1.5);
+    else if (previewAction === 'retry') openQuickPreview({ item: quickPreviewWork,
+      url: quickPreview.querySelector('video').dataset.videoUrl, route: quickPreviewRoute }, quickPreview.classList.contains('fullscreen') ? 'fullscreen' : 'window');
     return;
   }
   const button = event.target.closest?.('button[data-action]');
@@ -4535,6 +4673,7 @@ document.addEventListener('keydown', event => {
       event.stopImmediatePropagation();
       closeQuickPreview();
     } else if (event.code === 'Space' || event.key === ' ') {
+      if (event.target.closest?.('video, button, input, [role="slider"]')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       if (!event.repeat) closeQuickPreview();
@@ -5121,7 +5260,9 @@ main.addEventListener('click', event => {
 });
 
 window.addEventListener('online', () => { void clientStateWriter.flush(); });
+window.addEventListener('resize', () => { if (quickPreview.open) paintQuickPreview(true); });
 window.addEventListener('beforeunload', () => {
+  groupRepairs.stop(); stopQuickPreviewMedia();
   saveSession();
   const patch = tabs.length && clientStateWriter.unloadPatch(captureClientState());
   if (patch) void fetch('/api/client-state', { method: 'POST', keepalive: true,

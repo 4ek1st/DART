@@ -40,6 +40,17 @@
         if (selected) index = Math.max(0, works.findIndex(entry => same(entry, selected)));
         wanted = Math.max(0, index + offset); changed();
       },
+      replaceGroup(expected, groups) {
+        const keys = new Set([expected.key, ...(expected.memberKeys || [])]);
+        const selected = works[index], offset = wanted - index;
+        const matches = item => { const members = new Set([item.key, ...(item.memberKeys || [])]);
+          return members.size === keys.size && [...keys].every(key => members.has(key)); };
+        works = works.flatMap(item => matches(item) ? groups : [item]);
+        const selectedKey = selected?.key;
+        const found = works.findIndex(item => item.key === selectedKey || item.memberKeys?.includes(selectedKey));
+        if (found >= 0) index = found;
+        wanted = Math.max(0, index + offset); lastRead = undefined; changed();
+      },
       select(item) {
         sync();
         const selected = works.findIndex(entry => same(entry, item));

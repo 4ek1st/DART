@@ -61,8 +61,56 @@ internal sealed class SavedWorksStore
             foreach (var saved in ((JsonArray)state[collection]!).OfType<JsonObject>().Where(saved =>
                 saved["key"]?.GetValue<string>() == item.Key &&
                 saved["source"]?.GetValue<string>() == item.Source &&
-                saved["id"]?.GetValue<string>() == item.Id))
+                saved["id"]?.GetValue<string>() == item.Id || saved["groupMembers"] is JsonArray members &&
+                members.OfType<JsonObject>().Any(member => member["key"]?.GetValue<string>() == item.Key &&
+                    member["source"]?.GetValue<string>() == item.Source && member["id"]?.GetValue<string>() == item.Id)))
                 changed |= update(saved);
+        if (changed) Write(state);
+        return changed;
+    }
+
+    public bool RepairGroup(CatalogItem expected, List<CatalogItem> groups)
+    {
+        static HashSet<string> Keys(CatalogItem item) => item.MemberKeys.Append(item.Key).ToHashSet(StringComparer.Ordinal);
+        var expectedKeys = Keys(expected);
+        if (groups.Count is < 1 or > 100 || !expectedKeys.SetEquals(groups.SelectMany(group => Keys(group))))
+            throw new InvalidDataException("Repair must retain every saved member.");
+        using var fileLock = AcquireLock();
+        var state = Read(); var changed = false;
+        foreach (var collection in new[] { "likes", "bookmarks" })
+        {
+            var items = (JsonArray)state[collection]!;
+            for (var index = 0; index < items.Count; index++)
+            {
+                if (items[index] is not JsonObject saved || saved["key"]?.GetValue<string>() != expected.Key) continue;
+                var current = saved.Deserialize<CatalogItem>(Json)!;
+                if (current.GroupingVersion >= 2 && groups.Count == 1 || !expectedKeys.SetEquals(Keys(current))) continue;
+                if (!changed)
+                {
+                    var backupDirectory = Path.Combine(directory, "migration-backups"); Directory.CreateDirectory(backupDirectory);
+                    if (!Directory.EnumerateFiles(backupDirectory, "saved-works-before-grouping-*.json").Any())
+                    {
+                        var bytes = File.ReadAllBytes(path);
+                        var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+                        var backup = Path.Combine(backupDirectory, "saved-works-before-grouping-" + hash + ".json");
+                        File.WriteAllBytes(backup, bytes);
+                        if (!File.ReadAllBytes(backup).SequenceEqual(bytes)) throw new IOException("Grouping backup failed verification.");
+                    }
+                }
+                // Clone the original so unknown user fields survive for every
+                // split member. Only matching, still-saved groups are replaced.
+                var ordered = groups.OrderByDescending(group => Keys(group).Contains(expected.Key)).ToArray();
+                items.RemoveAt(index);
+                for (var offset = 0; offset < ordered.Length; offset++)
+                {
+                    var next = saved.DeepClone().AsObject();
+                    foreach (var field in JsonSerializer.SerializeToNode(ordered[offset], Json)!.AsObject())
+                        next[field.Key] = field.Value?.DeepClone();
+                    items.Insert(index + offset, next);
+                }
+                index += ordered.Length - 1; changed = true;
+            }
+        }
         if (changed) Write(state);
         return changed;
     }

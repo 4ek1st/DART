@@ -183,21 +183,29 @@ internal sealed class LocalStore : ISankakuSessionStore
 
     public List<CatalogItem> GetBookmarks() => savedWorks.Get("bookmarks");
     public List<CatalogItem> GetLikes() => savedWorks.Get("likes");
+    public bool RepairSavedGroup(CatalogItem expected, List<CatalogItem> groups) => savedWorks.RepairGroup(expected, groups);
     public bool ToggleBookmark(CatalogItem item) => savedWorks.Toggle("bookmarks", item);
     public bool ToggleLike(CatalogItem item) => savedWorks.Toggle("likes", item);
     public bool EnsureLike(CatalogItem item) => savedWorks.EnsureSaved("likes", item);
 
     public bool RefreshSavedMetadata(CatalogItem item)
     {
-        return savedWorks.RefreshMetadata(item, saved =>
+        return savedWorks.RefreshMetadata(item, UpdateSaved);
+        bool UpdateSaved(JsonObject saved)
         {
             var changed = false;
+            if (saved["groupMembers"] is JsonArray members)
+                foreach (var member in members.OfType<JsonObject>().Where(member => member["key"]?.GetValue<string>() == item.Key))
+                    changed |= UpdateSaved(member);
+            if (saved["key"]?.GetValue<string>() != item.Key) return changed;
             void Update(string field, string value, bool allowEmpty = false)
             {
                 if (!allowEmpty && string.IsNullOrWhiteSpace(value) || saved[field]?.GetValue<string>() == value) return;
                 saved[field] = value;
                 changed = true;
             }
+            Update("originalUrl", item.OriginalUrl);
+            Update("pixivGroupKey", item.PixivGroupKey);
             if (item.CharacterTags.Count > 0)
             {
                 var previous = saved["characterTags"]?.Deserialize<List<string>>(Json) ?? [];
@@ -266,7 +274,7 @@ internal sealed class LocalStore : ISankakuSessionStore
                 Update("accessMessage", item.AccessMessage, allowEmpty: true);
             }
             return changed;
-        });
+        }
     }
 
     public List<FollowedArtist> GetFollows()
