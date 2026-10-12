@@ -14,7 +14,7 @@ function renderSearchFor(tab) {
   const context = {
     CatalogLogic,
     favoriteTags: [],
-    viewedTokens: new Set(), likes: [], bookmarks: [], contentPreferences: {},
+    viewedTokens: new Set(), likes: [], bookmarks: [], contentPreferences: {}, knownWorkTokens:()=>new Set(),
     names: { danbooru: 'Danbooru', gelbooru: 'Gelbooru',
       rule34: 'Rule34', gelbooru: 'Gelbooru' },
     sourceKeyHint: () => '', escapeHtml: value => String(value),

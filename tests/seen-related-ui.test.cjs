@@ -10,12 +10,12 @@ const between = (start, end) => {
   assert(first >= 0 && last > first);
   return source.slice(first, last);
 };
-function fixture({ hidden = true, bookmarks = [], likes = [], viewed = [], tab = {} } = {}) {
+function fixture({ hidden = true, bookmarks = [], likes = [], viewed = [], recent = [], tab = {} } = {}) {
   const current = { id: 1, kind: 'detail', feed: 'illustrations', ...tab };
   const serverBookmarks = [...bookmarks];
   const context = vm.createContext({
     CatalogLogic, Set, Map, contentPreferences: { hideViewedAndSaved: hidden },
-    bookmarks: [...bookmarks], likes: [...likes], likedKeys: new Set(), viewedTokens: new Set(viewed), viewedPending: new Set(), savedKeys: new Set(),
+    bookmarks: [...bookmarks], likes: [...likes], recent, likedKeys: new Set(), viewedTokens: new Set(viewed), viewedPending: new Set(), savedKeys: new Set(),
     savedWorkPending: new Set(), tabs: [current], activeId: 1,
     main: { querySelectorAll: () => [] }, currentTab: () => current,
     escapeHtml: value => String(value),
@@ -31,7 +31,7 @@ function fixture({ hidden = true, bookmarks = [], likes = [], viewed = [], tab =
       throw new Error(`Unexpected fixture request: ${path}`);
     }
   });
-  vm.runInContext(between('function isHideableFeed(', '\nfunction measureVirtualGrids(') + '\n' +
+  vm.runInContext(between('function knownWorkTokens(', '\nfunction measureVirtualGrids(') + '\n' +
     between('function setSavedWorks(', '\nasync function loadFavoriteTags(') + '\n' +
     between('async function recordViewedWorks(', '\nasync function refreshFollows(') + '\n' +
     between('function isSavedWork(', '\nfunction syncSavedWorkButtons('), context);
@@ -70,6 +70,51 @@ test('unloaded viewed work holds an empty slot without changing later artwork po
 test('liked copies are also hidden in discovery feeds when hiding is enabled', () => {
   const context = fixture({ likes: [saved] });
   assert.doesNotMatch(context.renderGrid([copy, fresh], 'related'), /gelbooru:copy/);
+});
+
+test('a visible retained related card cannot bypass the viewed or liked filter on return',()=>{
+ for(const savedState of [{viewed:['key:'+copy.key]},{likes:[saved]}]){
+  const context=fixture(savedState),tab=context.currentTab();
+  tab.retainedFeedWorks=new Map([[copy.key,new Set(CatalogLogic.workHistoryTokens(copy))]]);
+  assert.doesNotMatch(context.renderGrid([copy,fresh],'related'),/data-key="gelbooru:copy"/);
+  assert.match(context.renderGrid([copy,fresh],'related'),/data-key="rule34:fresh"/);
+ }
+});
+
+test('a related work is hidden while its viewed identities are still being saved',()=>{
+ const context=fixture();context.viewedPending.add('key:'+copy.key);
+ assert.doesNotMatch(context.renderGrid([copy,fresh],'related'),/data-key="gelbooru:copy"/);
+});
+
+test('recently opened copies stay hidden when history persistence is delayed or unavailable',()=>{
+ const context=fixture({recent:[saved]});
+ assert.doesNotMatch(context.renderGrid([copy,fresh],'related'),/data-key="gelbooru:copy"/);
+});
+
+test('all four catalogs hide confirmed liked file copies in related results',()=>{
+ for(const source of CatalogLogic.supportedSources){
+  const owner={...saved,key:source+':owner',source};
+  const context=fixture({likes:[owner]});
+  for(const other of CatalogLogic.supportedSources){
+   const mirror={...copy,key:other+':mirror',source:other};
+   assert.doesNotMatch(context.renderGrid([mirror,fresh],'related'),/data-key="[^"]*:mirror"/);
+  }
+ }
+});
+
+test('view recording refreshes loaded related results before the write finishes, with one update per frame',async()=>{
+ const context=fixture({tab:{related:[copy,fresh]}}),frames=[];
+ context.main.dataset={tabId:'1'};context.requestAnimationFrame=fn=>frames.push(fn);
+ let html=context.renderGrid([copy,fresh],'related'),finish;
+ context.render=()=>{html=context.renderGrid([copy,fresh],'related');};
+ context.request=()=>new Promise(resolve=>{finish=resolve;});
+ const write=context.recordViewedWorks([copy]);
+ context.scheduleRelatedKnownRefresh();
+ assert.equal(frames.length,1);
+ frames.shift()();assert.doesNotMatch(html,/data-key="gelbooru:copy"/);
+ assert.match(html,/data-key="rule34:fresh"/);
+ finish({saved:true});await write;frames.shift()();
+ assert.doesNotMatch(html,/data-key="gelbooru:copy"/);
 });
 
 test('likes, bookmarks, history, profile and the open artwork are not filtered as related', () => {

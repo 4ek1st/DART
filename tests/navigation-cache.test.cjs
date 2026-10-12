@@ -25,7 +25,7 @@ test('matching catalog requests share one response without sharing mutable artwo
 
 function savedFixture() {
   let finish, reads=0;
-  const context=vm.createContext({CatalogLogic,likes:[],bookmarks:[],tabs:[],rememberItems(){},toast(){},
+  const context=vm.createContext({CatalogLogic,likes:[],bookmarks:[],tabs:[],rememberItems(){},toast(){},scheduleRelatedKnownRefresh(){},
     request:()=>{reads++;return new Promise(resolve=>{finish=resolve;});}});
   vm.runInContext(between('function setSavedWorks(', '\nasync function loadFavoriteTags('),context);
   return {context,reads:()=>reads,finish:value=>finish(value)};

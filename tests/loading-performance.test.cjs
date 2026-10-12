@@ -100,7 +100,7 @@ test('viewed identities rejected by a temporary failure can be saved on the next
   const persisted = new Set(), attempts = [];
   let fail = true;
   const record = vm.runInNewContext(source.slice(start, end) + '\nrecordViewedWorks', {
-    CatalogLogic, viewedTokens: persisted, viewedPending: new Set(), toast() {},
+    CatalogLogic, viewedTokens: persisted, viewedPending: new Set(), toast() {}, scheduleRelatedKnownRefresh() {},
     request: async (url, options) => { const batch = JSON.parse(options.body); attempts.push(batch);
       if (fail) throw new Error('Temporary failure'); }
   });

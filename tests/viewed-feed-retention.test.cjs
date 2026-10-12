@@ -5,8 +5,8 @@ const vm = require('node:vm');
 const CatalogLogic = require('../wwwroot/catalog-logic.js');
 
 const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
-const start = source.indexOf('function isHideableFeed(') >= 0
-  ? source.indexOf('function isHideableFeed(')
+const start = source.indexOf('function knownWorkTokens(') >= 0
+  ? source.indexOf('function knownWorkTokens(')
   : source.indexOf('function filterFeedWorks(');
 const end = source.indexOf('\nfunction emptyFeedMessage(', start);
 assert(start >= 0 && end > start);
@@ -22,7 +22,7 @@ function fixture() {
     getBoundingClientRect: () => rect };
   const context = vm.createContext({
     CatalogLogic, Set, Map, contentPreferences: { hideViewedAndSaved: true },
-    viewedTokens: new Set(), likes: [], bookmarks: [], itemIndex: new Map([[item.key, item]]),
+    viewedTokens: new Set(), viewedPending: new Set(), recent: [], likes: [], bookmarks: [], itemIndex: new Map([[item.key, item]]),
     main: { clientHeight: 500, dataset: { tabId: '1' }, getBoundingClientRect: () => bounds,
       querySelectorAll: () => [card] }
   });

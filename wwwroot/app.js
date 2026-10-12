@@ -976,6 +976,7 @@ function setSavedWorks(collection, items) {
   else { bookmarks = items; savedKeys = keys; }
   rememberItems(items);
   for (const tab of tabs.filter(tab => tab.kind === collection)) tab.items = items;
+  scheduleRelatedKnownRefresh();
 }
 
 async function refreshSavedWorks(collection, force = false) {
@@ -1114,6 +1115,7 @@ async function toggleFavoriteTag(query, requestedFavorite) {
 async function loadViewedTokens() {
   try { viewedTokens = new Set(await request('/api/viewed-identities')); }
   catch { toast('Историю просмотренных работ не удалось прочитать'); }
+  scheduleRelatedKnownRefresh();
 }
 
 async function recordViewedWorks(items) {
@@ -1121,6 +1123,7 @@ async function recordViewedWorks(items) {
     .filter(token => !viewedTokens.has(token) && !viewedPending.has(token));
   if (!incoming.length) return;
   for (const token of incoming) viewedPending.add(token);
+  scheduleRelatedKnownRefresh();
   try {
     for (let index = 0; index < incoming.length; index += 60) {
       const batch = incoming.slice(index, index + 60);
@@ -1130,7 +1133,10 @@ async function recordViewedWorks(items) {
       for (const token of batch) viewedTokens.add(token);
     }
   } catch { toast('Историю просмотренных работ не удалось сохранить'); }
-  finally { for (const token of incoming) viewedPending.delete(token); }
+  finally {
+    for (const token of incoming) viewedPending.delete(token);
+    scheduleRelatedKnownRefresh();
+  }
 }
 
 async function refreshFollows() {
@@ -3105,7 +3111,7 @@ function renderSearch(tab) {
 }
 
 function renderSearchSummary(tab) {
-  const knownTokens = new Set([...viewedTokens, ...[...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
+  const knownTokens = knownWorkTokens();
   const counts = CatalogLogic.searchResultCounts(tab.items, contentPreferences, knownTokens);
   if (contentPreferences.hideViewedAndSaved) {
     counts.shown = filterFeedWorks(tab.items, tab).filter(item => !isExpiredFeedWork(tab, item)).length;
@@ -3445,6 +3451,24 @@ function renderRelatedTail(tab) {
   return tab.related?.length ? '<div class="feed-status">Новые совпадения по тегам этой работы пока закончились.</div>' : '';
 }
 
+function knownWorkTokens() {
+  return new Set([...viewedTokens, ...viewedPending,
+    ...[...recent, ...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
+}
+
+function scheduleRelatedKnownRefresh() {
+  const tab = currentTab();
+  if (!contentPreferences.hideViewedAndSaved || tab?.kind !== 'detail' ||
+      !tab.related?.length || main.dataset?.tabId !== String(tab.id)) return;
+  if (scheduleRelatedKnownRefresh.pending === tab) return;
+  scheduleRelatedKnownRefresh.pending = tab;
+  requestAnimationFrame(() => {
+    if (scheduleRelatedKnownRefresh.pending !== tab) return;
+    delete scheduleRelatedKnownRefresh.pending;
+    if (currentTab() === tab && contentPreferences.hideViewedAndSaved) render();
+  });
+}
+
 function isHideableFeed(tab, gridKey = '') {
   return tab?.kind === 'home' || tab?.kind === 'recommendations' ||
     tab?.kind === 'search' || tab?.kind === 'detail' && gridKey === 'related';
@@ -3465,7 +3489,7 @@ function visibleFeedCard(tab, item) {
 }
 
 function retainFeedWork(tab, item, visibleHeight = 0) {
-  if (!contentPreferences.hideViewedAndSaved || !tab) return;
+  if (!contentPreferences.hideViewedAndSaved || !tab || tab.kind === 'detail') return;
   const card = visibleFeedCard(tab, item);
   if (!visibleHeight && !card) return;
   tab.retainedFeedWorks ||= new Map();
@@ -3513,8 +3537,7 @@ function expireRetainedFeedWorks(tab) {
     const rect = shown?.card.getBoundingClientRect();
     if (!rect || rect.bottom < bounds.top - margin || rect.top > bounds.bottom + margin) {
       tab.retainedFeedWorks.delete(key);
-      knownTokens ||= new Set([...viewedTokens,
-        ...[...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
+      knownTokens ||= knownWorkTokens();
       if ([...held].some(token => knownTokens.has(token))) {
         tab.expiredFeedWorks ||= new Map();
         tab.expiredFeedTokens ||= new Map();
@@ -3536,9 +3559,9 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '') {
     alreadyGrouped ? supported : CatalogLogic.groupWorks(supported), contentPreferences);
   const hideKnown = contentPreferences.hideViewedAndSaved && isHideableFeed(tab, gridKey);
   if (!hideKnown) return works;
-  const knownTokens = new Set([...viewedTokens,
-    ...[...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
-  return works.filter(item => isRetainedFeedWork(tab, item) || isExpiredFeedWork(tab, item) ||
+  const knownTokens = knownWorkTokens();
+  const related = tab?.kind === 'detail' && gridKey === 'related';
+  return works.filter(item => !related && isRetainedFeedWork(tab, item) || isExpiredFeedWork(tab, item) ||
     !CatalogLogic.workHistoryTokens(item).some(token => knownTokens.has(token)));
 }
 
