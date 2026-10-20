@@ -2,6 +2,7 @@
   const supportedSources = Object.freeze(['danbooru', 'gelbooru', 'rule34', 'sankaku']);
 
   const attributionCache = new WeakMap(), sampleCache = new WeakMap(), contentCache = new WeakMap();
+  const identityCache = new WeakMap();
   const attributionFields = ['source', 'creatorTag', 'creatorName', 'artistId', 'artist',
     'participants', 'uploaderId', 'uploaderName', 'originalUrl'];
   const sampleFields = [...attributionFields, 'visualSamples', 'visualHash', 'visualPHash',
@@ -187,6 +188,21 @@
   }
 
   function itemIdentities(item) {
+    // Snapshot values, including array entries: listings and learned file hashes
+    // can update an existing object without replacing its arrays.
+    const values = [item.key, item.contentHash, item.groupKey, item.pixivGroupKey, item.originalUrl,
+      (item.memberKeys || []).length, ...(item.memberKeys || []),
+      (item.identityKeys || []).length, ...(item.identityKeys || []),
+      (item.images || []).length, ...(item.images || []),
+      (item.imageRecords || []).length, ...(item.imageRecords || []).flatMap(record => [record?.url, record?.hash])];
+    const cached = identityCache.get(item);
+    if (cached && values.length === cached.values.length &&
+        values.every((value, index) => value === cached.values[index])) return cached.result;
+    const result = buildItemIdentities(item);
+    identityCache.set(item, { values, result });
+    return result;
+  }
+  function buildItemIdentities(item) {
     const hash = /^[a-f0-9]{32}$/i.test(item.contentHash || '')
       ? `hash:${item.contentHash.toLowerCase()}` : '';
     const members = [item.key, ...(item.memberKeys || [])].filter(key =>
@@ -199,6 +215,7 @@
       item.groupKey && `group:${item.groupKey}`,
       item.pixivGroupKey && `group:${item.pixivGroupKey}`,
       originalPostIdentity(item.originalUrl), hash,
+      ...itemImageRecords(item).map(record => mediaUrlIdentity(record.url)),
       ...itemImageRecords(item).filter(record => /^[a-f0-9]{32}$/i.test(record.hash || ''))
         .map(record => `hash:${record.hash.toLowerCase()}`)].filter(Boolean))];
   }
@@ -313,6 +330,62 @@
       if (file) return `https://sankakucomplex.com/media/original/${file[1].toLowerCase()}${url.search}`;
       return url.href;
     } catch { return value; }
+  }
+
+  const mediaIdentityCache = new Map();
+  const sha256Constants = new Uint32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ]);
+  function sha256Text(value) {
+    const input = new TextEncoder().encode(value);
+    const bytes = new Uint8Array(Math.ceil((input.length + 9) / 64) * 64);
+    bytes.set(input); bytes[input.length] = 0x80;
+    const view = new DataView(bytes.buffer);
+    view.setUint32(bytes.length - 8, Math.floor(input.length / 0x20000000));
+    view.setUint32(bytes.length - 4, input.length * 8);
+    const state = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+      0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
+    const words = new Uint32Array(64), rotate = (word, bits) => word >>> bits | word << (32 - bits);
+    for (let offset = 0; offset < bytes.length; offset += 64) {
+      for (let index = 0; index < 16; index++) words[index] = view.getUint32(offset + index * 4);
+      for (let index = 16; index < 64; index++) {
+        const a = words[index - 15], b = words[index - 2];
+        words[index] = words[index - 16] + (rotate(a, 7) ^ rotate(a, 18) ^ a >>> 3) +
+          words[index - 7] + (rotate(b, 17) ^ rotate(b, 19) ^ b >>> 10);
+      }
+      let [a, b, c, d, e, f, g, h] = state;
+      for (let index = 0; index < 64; index++) {
+        const first = (h + (rotate(e, 6) ^ rotate(e, 11) ^ rotate(e, 25)) +
+          (e & f ^ ~e & g) + sha256Constants[index] + words[index]) >>> 0;
+        const second = ((rotate(a, 2) ^ rotate(a, 13) ^ rotate(a, 22)) +
+          (a & b ^ a & c ^ b & c)) >>> 0;
+        h = g; g = f; f = e; e = (d + first) >>> 0;
+        d = c; c = b; b = a; a = (first + second) >>> 0;
+      }
+      [a, b, c, d, e, f, g, h].forEach((word, index) => { state[index] += word; });
+    }
+    return [...state].map(word => word.toString(16).padStart(8, '0')).join('');
+  }
+  function mediaUrlIdentity(value) {
+    try {
+      const url = new URL(mediaCacheKey(value));
+      if (!/^https?:$/.test(url.protocol)) return '';
+      url.hash = '';
+      const key = url.href;
+      if (!mediaIdentityCache.has(key)) {
+        // Keep signed URLs out of history tokens and stay within its 250-character limit.
+        mediaIdentityCache.set(key, `group:media:${sha256Text(key)}`);
+        while (mediaIdentityCache.size > 2000) mediaIdentityCache.delete(mediaIdentityCache.keys().next().value);
+      }
+      return mediaIdentityCache.get(key);
+    } catch { return ''; }
   }
 
   function signedMediaExpired(value, now = Date.now()) {
@@ -527,6 +600,7 @@
           // fields; retain missing fields and media learned from the older one.
           const previous = works[position];
           works[position] = { ...works[position], ...raw };
+          retainMediaEvidence(previous, raw, works[position]);
           for (const field of ['pixivGroupKey', 'originalUrl'])
             if (!raw[field] && previous[field]) works[position][field] = previous[field];
           if (raw.creatorTag && raw.creatorTag !== previous.creatorTag && !raw.participants?.length)
@@ -537,11 +611,32 @@
     }
     return works;
   }
+  function retainMediaEvidence(previous, incoming, merged) {
+    const oldUrls = new Set((previous.images || []).map(mediaCacheKey));
+    const urls = incoming.images || [];
+    const unchanged = !urls.length || oldUrls.size === urls.length &&
+      urls.every(url => oldUrls.has(mediaCacheKey(url)));
+    if (!unchanged || incoming.contentHash && previous.contentHash &&
+        incoming.contentHash.toLowerCase() !== previous.contentHash.toLowerCase()) return;
+    if (!incoming.contentHash && previous.contentHash) merged.contentHash = previous.contentHash;
+    if (!urls.length && previous.images?.length) merged.images = previous.images;
+    // An omitted listing field cannot erase a previously verified hash for that file.
+    merged.imageRecords = uniqueImageRecords([...itemImageRecords(incoming), ...itemImageRecords(previous)]);
+  }
+  function replacesMedia(previous, incoming) {
+    if (!incoming.images?.length || !previous.images?.length) return false;
+    const oldHash = String(previous.contentHash || '').toLowerCase();
+    const newHash = String(incoming.contentHash || '').toLowerCase();
+    if (/^[a-f0-9]{32}$/.test(oldHash) && /^[a-f0-9]{32}$/.test(newHash)) return oldHash !== newHash;
+    const oldUrls = new Set(previous.images.map(url => mediaUrlIdentity(url) || mediaCacheKey(url)));
+    return !incoming.images.some(url => oldUrls.has(mediaUrlIdentity(url) || mediaCacheKey(url)));
+  }
   function invalidateGrouping(items) {
     if (!Array.isArray(items)) return;
     groupedCache.delete(items);
     for (const item of items) if (item && typeof item === 'object') {
       groupingEvidenceCache.delete(item);
+      identityCache.delete(item);
       attributionCache.delete(item); sampleCache.delete(item); contentCache.delete(item);
     }
   }
@@ -833,9 +928,11 @@
     if (hasGroupMembers(previous) && !hasGroupMembers(incoming) && memberKeysOf(incoming).length > 1)
       return previous; // A late legacy cache response cannot restore a repaired union.
     const merged = { ...previous, ...incoming };
+    retainMediaEvidence(previous, incoming, merged);
+    const replacedMedia = memberKeysOf(previous).length === 1 && replacesMedia(previous, incoming);
     merged.memberKeys = [...new Set([previous.key, ...(previous.memberKeys || []),
       ...(incoming.memberKeys || [])].filter(Boolean))];
-    if (hasGroupMembers(previous)) {
+    if (hasGroupMembers(previous) && !replacedMedia) {
       const leaves = new Map((previous.groupMembers?.length ? previous.groupMembers :
         [{ ...previous, groupingVersion: 0, groupMembers: [], memberKeys: [previous.key] }]).map(member => [member.key, member]));
       for (const member of (hasGroupMembers(incoming) && incoming.groupMembers?.length ? incoming.groupMembers : [incoming])) {
@@ -847,14 +944,21 @@
       merged.images = [...new Set([...(previous.images || []), ...(incoming.images || [])])];
       merged.imageRecords = [...itemImageRecords(previous), ...itemImageRecords(incoming)];
     }
-    merged.visualHash = incoming.visualHash || previous.visualHash || '';
+    if (replacedMedia) {
+      merged.contentHash = incoming.contentHash || '';
+      merged.images = incoming.images;
+      merged.imageRecords = itemImageRecords(incoming);
+      merged.identityKeys = [];
+      merged.groupMembers = [];
+    }
+    merged.visualHash = incoming.visualHash || (!replacedMedia && previous.visualHash) || '';
     if (!(incoming.width > 0 && incoming.height > 0)) {
       merged.width = previous.width;
       merged.height = previous.height;
     }
-    merged.visualPHash = incoming.visualPHash || previous.visualPHash || '';
-    merged.visualAspectRatio = incoming.visualAspectRatio || previous.visualAspectRatio || 0;
-    merged.visualSamples = [...new Map([...itemVisualSamples(previous), ...itemVisualSamples(incoming)]
+    merged.visualPHash = incoming.visualPHash || (!replacedMedia && previous.visualPHash) || '';
+    merged.visualAspectRatio = incoming.visualAspectRatio || (!replacedMedia && previous.visualAspectRatio) || 0;
+    merged.visualSamples = [...new Map([...(replacedMedia ? [] : itemVisualSamples(previous)), ...itemVisualSamples(incoming)]
       .map(sample => [JSON.stringify(sample), sample])).values()].slice(0, 100);
     if (merged.memberKeys.length > 1) merged.allTags = [...new Set([
       ...(previous.allTags || previous.tags || []), ...(incoming.allTags || []), ...(incoming.tags || [])])];

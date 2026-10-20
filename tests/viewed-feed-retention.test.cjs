@@ -67,3 +67,25 @@ test('a work outside the viewport does not gain a display hold', () => {
   context.viewedTokens.add(`key:${item.key}`);
   assert.equal(context.filterFeedWorks([item], tab).length, 0);
 });
+
+test('a display hold belongs to its original card, not a later copy in another slot', () => {
+  const { context, item, tab } = fixture();
+  context.retainFeedWork(tab, item);
+  context.viewedTokens.add(`hash:${item.contentHash}`);
+  const copy = { ...item, key: 'rule34:late-copy', source: 'rule34' };
+  assert.equal(context.isRetainedFeedWork(tab, copy), false);
+  assert.deepEqual(Array.from(context.filterFeedWorks([item, copy], tab, true), x => x.key), [item.key]);
+});
+
+test('an unloaded card keeps one placeholder without granting a later copy another slot', () => {
+  const { context, item, tab, rect } = fixture();
+  context.retainFeedWork(tab, item);
+  context.viewedTokens.add(`hash:${item.contentHash}`);
+  rect.top = -1900; rect.bottom = -1640;
+  context.expireRetainedFeedWorks(tab);
+  const copy = { ...item, key: 'sankaku:late-copy', source: 'sankaku' };
+  assert.equal(context.isExpiredFeedWork(tab, copy), false);
+  const enriched = { ...item, key: copy.key, memberKeys: [item.key, copy.key] };
+  assert.equal(context.isExpiredFeedWork(tab, enriched), true);
+  assert.deepEqual(Array.from(context.filterFeedWorks([item, copy], tab, true), x => x.key), [item.key]);
+});

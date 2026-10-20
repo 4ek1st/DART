@@ -57,6 +57,49 @@ test('source failure is retryable and previous works remain available', async ()
   assert.equal(route.state.previous, true);
   fails = false; assert.equal((await route.move(1)).id, 3);
 });
+
+test('rapid next requests count visible works when a shared page begins with a hidden work', async () => {
+  let items = [work(1)], resolve;
+  const route = Navigation.create({ items, current: items[0], read: () => items,
+    more: () => items.length === 1, allowed: item => !item.hidden,
+    load: () => new Promise(done => { resolve = () => {
+      items.push({ ...work(2), hidden: true }, work(3), work(4)); done();
+    }; }) });
+  const first = route.move(1), second = route.move(1);
+  await Promise.resolve(); resolve();
+  assert.equal(await first, null);
+  assert.equal((await second).id, 4);
+  assert.equal((await route.move(-1)).id, 3);
+});
+
+test('reversing one of several pending next requests retains the remaining visible steps', async () => {
+  let items = [work(1)], resolve, calls = 0;
+  const route = Navigation.create({ items, current: items[0], read: () => items,
+    more: () => items.length === 1, load: () => { calls++; return new Promise(done => {
+      resolve = () => { items.push(work(2), work(3), work(4)); done(); };
+    }); } });
+  const first = route.move(1), second = route.move(1), third = route.move(1);
+  const reverse = route.move(-1);
+  await Promise.resolve(); assert.equal(calls, 1); resolve();
+  assert.deepEqual(await Promise.all([first, second, third]), [null, null, null]);
+  assert.equal((await reverse)?.id, 3);
+  assert.equal(route.state.busy, false);
+});
+
+test('queued next requests stop at the last visible work when the source becomes exhausted', async () => {
+  let items = [work(1)], resolve;
+  const route = Navigation.create({ items, current: items[0], read: () => items,
+    more: () => items.length === 1, allowed: item => !item.hidden,
+    load: () => new Promise(done => { resolve = () => {
+      items.push(work(2), work(3), { ...work(4), hidden: true }); done();
+    }; }) });
+  const first = route.move(1), second = route.move(1), third = route.move(1);
+  await Promise.resolve(); resolve();
+  assert.deepEqual(await Promise.all([first, second]), [null, null]);
+  assert.equal((await third)?.id, 3);
+  assert.equal(route.state.next, false);
+  assert.equal(await route.move(1), null);
+});
 test('cancelled navigation cannot open an artwork after leaving the viewer', async () => {
   let items = [work(1)], resolve;
   const route = Navigation.create({ items, current: items[0], read: () => items, more: () => true,

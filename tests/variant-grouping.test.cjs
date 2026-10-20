@@ -30,7 +30,8 @@ test('Discord attachment identity joins reencoded mirrors and preserves distinct
   assert.equal(works[0].memberKeys.length, 6);
   assert.deepEqual(new Set(logic.workSources(works[0]).map(x => x.source)), new Set(['danbooru', 'gelbooru', 'rule34']));
   const different = { ...items[2], key: 'rule34:separate', groupKey: '', contentHash: '',
-    visualHash: '', visualSamples: [], originalUrl: items[2].originalUrl.replace('1550829244970704996', '1550829244970704997') };
+    visualHash: '', visualSamples: [], images: ['https://example.test/distinct-attachment.png'],
+    originalUrl: items[2].originalUrl.replace('1550829244970704996', '1550829244970704997') };
   assert.equal(logic.groupWorks([items[2], different]).length, 2);
 });
 
