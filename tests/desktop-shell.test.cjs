@@ -28,13 +28,20 @@ test('desktop window controls send only native allowlisted commands', () => {
 function updateFixture(t, responses, extraWindow = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
   const events = new Map(), requests = [];
-  const element = () => ({ hidden: true, title: '', attributes: {}, handlers: new Map(),
+  const element = () => ({ hidden: true, title: '', textContent: '', disabled: false, attributes: {}, handlers: new Map(),
     setAttribute(name, value) { this.attributes[name] = value; },
     addEventListener(name, handler) { this.handlers.set(name, handler); } });
+  const panels = [];
   const install = element(), controls = element(), main = { querySelector: () => null };
   const document = { hidden: false, documentElement: { classList: { toggle() {} } },
     getElementById: id => ({ 'install-update-button': install, 'window-controls': controls, main })[id],
-    addEventListener: (name, action) => events.set(name, action) };
+    addEventListener: (name, action) => events.set(name, action), body: { append() {}, appendChild() {} },
+    createElement: () => {
+      const panel = element(), children = new Map();
+      panel.querySelector = selector => { if (!children.has(selector)) children.set(selector, element()); return children.get(selector); };
+      panel.showModal = () => { panel.open = true; }; panel.close = () => { panel.open = false; };
+      panels.push(panel); return panel;
+    } };
   const window = { document, setTimeout, clearTimeout, setInterval,
     addEventListener: (name, action) => events.set(name, action),
     MutationObserver: class { observe() {} },
@@ -45,7 +52,7 @@ function updateFixture(t, responses, extraWindow = {}) {
       return { ok: true, json: async () => value || { available: false } };
     }, ...extraWindow };
   shell.mount(window);
-  return { install, controls, requests, events, document,
+  return { install, controls, requests, events, document, panels,
     settle: () => new Promise(resolve => setImmediate(resolve)) };
 }
 const available = { available: true, verified: true, version: '0.2.6', configured: true };
@@ -107,4 +114,86 @@ test('reconnecting the network retries a failed check immediately', async t => {
   await fixture.settle();
   assert.equal(fixture.install.hidden, false);
   assert.equal(fixture.requests.length, 2);
+});
+
+test('server retry time prevents timer, focus, online and manual polling until the deadline', async t => {
+  const retryAt = new Date(1_000_000 + 10 * 60 * 1000).toISOString();
+  const fixture = updateFixture(t, [{ configured: true, error: 'GitHub API rate limit reached.',
+    rateLimited: true, retryAt }, available]);
+  await fixture.settle();
+  assert.equal(fixture.install.hidden, false, 'waiting must be inspectable from the top bar');
+  assert.equal(fixture.install.attributes['data-update-state'], 'waiting');
+  fixture.install.onclick(); await fixture.settle();
+  const panel = fixture.panels[0];
+  assert.equal(panel.querySelector('[data-update-check]').disabled, true);
+  assert.equal(panel.querySelector('[data-update-install]').hidden, true);
+  assert.doesNotMatch(panel.querySelector('[data-update-status]').textContent, /последняя|latest verified/i);
+  assert.equal(panel.querySelector('[data-update-retry]').hidden, false);
+  assert.match(panel.querySelector('[data-update-retry]').textContent, /\d{2}:\d{2}/);
+  t.mock.timers.tick(9 * 60 * 1000);
+  fixture.events.get('focus')(); fixture.events.get('online')(); fixture.events.get('visibilitychange')();
+  panel.querySelector('[data-update-check]').onclick(); await fixture.settle();
+  assert.equal(fixture.requests.length, 1, 'force paths must not bypass the server deadline');
+  t.mock.timers.tick(60 * 1000); await fixture.settle();
+  assert.equal(fixture.requests.length, 2);
+  assert.equal(fixture.install.hidden, false);
+  assert.equal(fixture.install.attributes['data-update-state'], 'available');
+  assert.equal(panel.querySelector('[data-update-check]').disabled, false);
+  assert.equal(panel.querySelector('[data-update-install]').hidden, false);
+});
+
+test('a signed fallback offer stays installable during the API cooldown', async t => {
+  const fixture = updateFixture(t, [{ ...available, rateLimited: true,
+    retryAt: new Date(1_000_000 + 600_000).toISOString(), notice: 'Using the signed public release.' }]);
+  await fixture.settle(); fixture.install.onclick(); await fixture.settle();
+  const panel = fixture.panels[0];
+  assert.equal(fixture.install.hidden, false);
+  assert.equal(fixture.install.attributes['data-update-state'], 'available');
+  assert.equal(panel.querySelector('[data-update-install]').hidden, false);
+  assert.equal(panel.querySelector('[data-update-install]').disabled, false);
+  assert.equal(panel.querySelector('[data-update-check]').disabled, true);
+  assert.match(panel.querySelector('[data-update-notice]').textContent, /signed public release/);
+  fixture.events.get('online')(); await fixture.settle();
+  assert.equal(fixture.requests.length, 1);
+});
+
+test('invalid retry metadata keeps a bounded ordinary retry instead of a timer loop', async t => {
+  const fixture = updateFixture(t, [{ configured: true, error: 'Temporarily unavailable', retryAt: 'not-a-date' }, available]);
+  await fixture.settle(); t.mock.timers.tick(59_999); await fixture.settle();
+  assert.equal(fixture.requests.length, 1);
+  t.mock.timers.tick(1); await fixture.settle();
+  assert.equal(fixture.requests.length, 2);
+  assert.equal(fixture.install.hidden, false);
+});
+
+test('a transient server pause is visible even without a rate-limit or error flag', async t => {
+  const fixture = updateFixture(t, [{ configured: true, available: false, verified: false,
+    retryAt: new Date(1_000_000 + 120_000).toISOString(), rateLimited: false, error: '', notice: 'Temporarily unavailable' }]);
+  await fixture.settle();
+  assert.equal(fixture.install.hidden, false);
+  assert.equal(fixture.install.attributes['data-update-state'], 'waiting');
+  fixture.install.onclick(); await fixture.settle();
+  const panel = fixture.panels[0];
+  assert.doesNotMatch(panel.querySelector('[data-update-status]').textContent, /последняя|latest verified/i);
+  assert.equal(panel.querySelector('[data-update-check]').disabled, true);
+});
+
+test('background checks cannot unlock Install while the local session flush is pending', async t => {
+  let finish;
+  const fixture = updateFixture(t, [available, available, available], {
+    flushClientState: () => new Promise(resolve => { finish = resolve; })
+  });
+  await fixture.settle(); fixture.install.onclick(); await fixture.settle();
+  const panel = fixture.panels[0], install = panel.querySelector('[data-update-install]');
+  const pending = install.onclick();
+  assert.equal(fixture.install.hidden, true);
+  assert.equal(panel.querySelector('[data-update-check]').disabled, true);
+  const before = fixture.requests.length;
+  fixture.events.get('online')(); await fixture.settle();
+  assert.equal(fixture.requests.length, before);
+  assert.equal(install.disabled, true);
+  finish(false); await pending;
+  assert.equal(panel.querySelector('[data-update-check]').disabled, false);
+  assert.ok(fixture.requests.every(request => !request.url.endsWith('/install')),
+    'failed session persistence must not start installation');
 });

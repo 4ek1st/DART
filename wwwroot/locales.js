@@ -517,6 +517,14 @@ Could not save curation settings|Не удалось сохранить наст
 Check source connections in Settings.|Проверьте подключение источников в настройках.|Prüfen Sie die Quellenverbindungen in den Einstellungen.
 Sources are temporarily unavailable. Retrying automatically.|Источники временно недоступны. Повторим автоматически.|Quellen sind vorübergehend nicht erreichbar. Der nächste Versuch erfolgt automatisch.
 Automatic retries are paused.|Автоматические повторы приостановлены.|Automatische Wiederholungen sind pausiert.
+Updates temporarily unavailable|Проверка обновлений временно недоступна|Update-Prüfung vorübergehend nicht verfügbar
+Waiting to check for updates.|Ожидание проверки обновлений.|Warten auf die Update-Prüfung.
+Checking for updates…|Проверяем обновления…|Es wird nach Updates gesucht…
+Next automatic check:|Следующая автоматическая проверка:|Nächste automatische Prüfung:
+GitHub temporarily limited update checks.|GitHub временно ограничил частоту проверки обновлений.|GitHub hat die Häufigkeit der Update-Prüfungen vorübergehend begrenzt.
+Could not check GitHub. Check the repository and access, then try again later.|Не удалось проверить GitHub. Проверьте репозиторий и доступ, затем повторите позже.|GitHub konnte nicht geprüft werden. Prüfen Sie Repository und Zugriff und versuchen Sie es später erneut.
+The update service response is too large.|Слишком большой ответ службы обновлений.|Die Antwort des Update-Dienstes ist zu groß.
+Update settings changed. Check the release again.|Настройки обновлений изменились. Проверьте выпуск заново.|Die Update-Einstellungen haben sich geändert. Prüfen Sie die Version erneut.
 `; 
   root.DartMessages = rows.trim().split('\n').map(row => row.split('|'));
   if (typeof module !== 'undefined') module.exports = root.DartMessages;

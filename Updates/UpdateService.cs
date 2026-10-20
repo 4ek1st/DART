@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -16,18 +19,33 @@ internal sealed record UpdateStatus
     public bool Installing { get; init; }
     public string Notes { get; init; } = "";
     public string Error { get; init; } = "";
+    public DateTimeOffset? RetryAt { get; init; }
+    public bool RateLimited { get; init; }
+    public string Notice { get; init; } = "";
 }
 internal sealed record UpdateSource(string Repository, string Token = "");
-internal sealed class UpdateService(string? installationRoot, HttpClient? transport = null)
+internal sealed class UpdateService(string? installationRoot, HttpClient? transport = null, TimeProvider? timeProvider = null)
 {
     private readonly Installation? installation = installationRoot is null ? null : new(installationRoot);
     private readonly HttpClient http = transport ?? new(new HttpClientHandler
         { AutomaticDecompression = DecompressionMethods.All, MaxAutomaticRedirections = 5 }) { Timeout = TimeSpan.FromMinutes(8) };
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private DateTimeOffset checkedAt;
+    private string statusScope = "", candidateScope = "";
     private UpdateStatus status = new();
     private (ReleaseManifest Release, string Envelope, Uri Artifact)? candidate;
     private string SourceFile => Path.Combine(installation!.Root, "update-source.bin");
+    private string RetryFile => Path.Combine(installation!.Root, "update-retry.bin");
+    private const string UnavailableMessage = "Проверка обновлений временно недоступна. Повторите позже.";
+    private const string RateMessage = "GitHub временно ограничил частоту проверки обновлений.";
+    private sealed record RetryState(string Scope, DateTimeOffset? RetryAt = null, bool RateLimited = false,
+        int Failures = 0, string Error = "");
+    private sealed class DiscoveryUnavailable(bool rateLimited, DateTimeOffset? retryAt, string message) : Exception(message)
+    {
+        public bool RateLimited { get; } = rateLimited;
+        public DateTimeOffset? RetryAt { get; } = retryAt;
+    }
     public string? Root => installation?.Root;
     public static string RepositoryName(string value)
     {
@@ -56,7 +74,7 @@ internal sealed class UpdateService(string? installationRoot, HttpClient? transp
         var previous = Source();
         if (source.Token.Length == 0 && source.Repository == previous.Repository) source = source with { Token = previous.Token };
         ReleaseProtocol.WriteAtomic(SourceFile, UpdateProtection.Protect(JsonSerializer.SerializeToUtf8Bytes(source, ReleaseProtocol.Json)));
-        candidate = null; checkedAt = default;
+        candidate = null; candidateScope = statusScope = ""; checkedAt = default;
         }
         finally { gate.Release(); }
     }
@@ -85,47 +103,210 @@ internal sealed class UpdateService(string? installationRoot, HttpClient? transp
             throw new InvalidOperationException("Файл обновления расположен за пределами выбранного репозитория.");
         return uri;
     }
+    private static string Scope(UpdateSource source) => ReleaseProtocol.Hash(Encoding.UTF8.GetBytes(
+        RepositoryName(source.Repository).ToLowerInvariant() + "\n" + source.Token));
+    private async Task<FileStream> RetryLeaseAsync(CancellationToken cancellationToken)
+    {
+        // File ownership survives await and serializes independent windows/processes.
+        // A busy or inaccessible installation must not make the UI wait for a download timeout.
+        for (var attempt = 0; ; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try { return new FileStream(RetryFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException) when (attempt < 100) { await Task.Delay(50, cancellationToken); }
+        }
+    }
+    private RetryState ReadRetry(string scope)
+    {
+        if (!File.Exists(RetryFile)) return new(scope);
+        try
+        {
+            if (new FileInfo(RetryFile).Length > 16_000) return new(scope);
+            var saved = JsonSerializer.Deserialize<RetryState>(UpdateProtection.Unprotect(File.ReadAllBytes(RetryFile)), ReleaseProtocol.Json);
+            return saved is not null && saved.Scope == scope ? saved : new(scope);
+        }
+        catch (Exception error) when (error is JsonException or CryptographicException) { return new(scope); }
+    }
+    private void SaveRetry(RetryState retry) => ReleaseProtocol.WriteAtomic(RetryFile,
+        UpdateProtection.Protect(JsonSerializer.SerializeToUtf8Bytes(retry, ReleaseProtocol.Json)));
+    private DateTimeOffset BoundedDeadline(DateTimeOffset deadline)
+    {
+        var now = clock.GetUtcNow();
+        return deadline < now.AddSeconds(1) ? now.AddSeconds(1) : deadline > now.AddDays(1) ? now.AddDays(1) : deadline;
+    }
+    private RetryState Pause(RetryState previous, bool rateLimited, DateTimeOffset? requested, string error)
+    {
+        var now = clock.GetUtcNow();
+        var failures = Math.Clamp(previous.Failures, 0, 3) + 1;
+        var fallback = now.AddSeconds(rateLimited ? 60 : Math.Min(60 * (1 << (failures - 1)), 300));
+        var deadline = BoundedDeadline(requested ?? fallback);
+        var retry = new RetryState(previous.Scope, deadline, rateLimited, failures, error);
+        SaveRetry(retry); return retry;
+    }
+    private DateTimeOffset? RetryDeadline(HttpResponseMessage response, bool primaryLimit)
+    {
+        var now = clock.GetUtcNow(); DateTimeOffset? deadline = null;
+        if (response.Headers.TryGetValues("Retry-After", out var values))
+        {
+            var raw = values.FirstOrDefault();
+            if (long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
+                deadline = now.AddSeconds(Math.Clamp(seconds, 1, 86_400));
+            else if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal, out var date)) deadline = date;
+        }
+        if (primaryLimit && response.Headers.TryGetValues("X-RateLimit-Reset", out var resets) &&
+            long.TryParse(resets.FirstOrDefault(), NumberStyles.None, CultureInfo.InvariantCulture, out var reset) &&
+            reset is >= 0 and <= 253402300799)
+        {
+            var date = DateTimeOffset.FromUnixTimeSeconds(reset);
+            if (deadline is null || date > deadline) deadline = date;
+        }
+        return deadline;
+    }
+    private async Task<string> ReadRemoteAsync(Uri uri, UpdateSource source, bool binary, int limit,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        try
+        {
+            using var request = Request(uri, source, binary);
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            var exhausted = response.Headers.TryGetValues("X-RateLimit-Remaining", out var remaining) &&
+                remaining.Any(value => value.Trim() == "0");
+            var rateLimited = response.StatusCode == HttpStatusCode.TooManyRequests ||
+                response.StatusCode == HttpStatusCode.Forbidden &&
+                (response.Headers.Contains("Retry-After") || exhausted);
+            if (rateLimited || response.StatusCode == HttpStatusCode.RequestTimeout || (int)response.StatusCode >= 500)
+                throw new DiscoveryUnavailable(rateLimited, RetryDeadline(response, rateLimited && exhausted), rateLimited ? RateMessage : UnavailableMessage);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException("Не удалось проверить GitHub. Проверьте репозиторий и доступ, затем повторите позже.");
+            if (response.Content.Headers.ContentLength > limit)
+                throw new InvalidOperationException("Слишком большой ответ службы обновлений.");
+            await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
+            using var output = new MemoryStream(); var buffer = new byte[8192]; int count;
+            while ((count = await input.ReadAsync(buffer, timeout.Token)) != 0)
+            {
+                if (output.Length + count > limit) throw new InvalidOperationException("Слишком большой ответ службы обновлений.");
+                output.Write(buffer, 0, count);
+            }
+            return Encoding.UTF8.GetString(output.ToArray());
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception error) when (error is HttpRequestException or IOException or OperationCanceledException)
+        { throw new DiscoveryUnavailable(false, null, UnavailableMessage); }
+    }
+    private void ClearCandidate()
+    {
+        candidate = null; candidateScope = "";
+        status = status with { Available = false, Verified = false, Version = "", Notes = "" };
+    }
+    private void Offer(string envelope, ReleaseManifest current, string scope, Func<ReleaseManifest, Uri> artifact)
+    {
+        var manifest = ReleaseProtocol.Verify(envelope, installation!.Config.PublicKey);
+        if (manifest.BuildId == current.BuildId) { ClearCandidate(); return; }
+        ReleaseProtocol.CheckUpgrade(current, manifest);
+        candidate = (manifest, envelope, artifact(manifest)); candidateScope = scope;
+        status = status with { Available = true, Verified = true, Version = manifest.Version, Notes = manifest.Notes, Error = "" };
+    }
+    private void ReportPause(RetryState retry)
+    {
+        status = status with { RetryAt = retry.RetryAt, RateLimited = retry.RateLimited,
+            Notice = retry.RateLimited ? RateMessage : UnavailableMessage,
+            Error = candidate is null ? retry.Error : "" };
+    }
     public async Task<UpdateStatus> CheckAsync(bool force, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken);
         try
         {
             if (status.Installing) return status;
-            if (!force && checkedAt > DateTimeOffset.UtcNow.AddMinutes(-20)) return status;
             if (installation is null) return status;
             var current = installation.Current(); var source = Source();
-            status = new() { CurrentVersion = current.Version, Repository = source.Repository, Configured = source.Repository.Length > 0 };
-            candidate = null;
-            if (!status.Configured) return status;
+            if (source.Repository.Length == 0)
+            { ClearCandidate(); return status = new() { CurrentVersion = current.Version }; }
+            var scope = Scope(source); var now = clock.GetUtcNow();
+            if (candidateScope != scope) ClearCandidate();
+            if (candidate is { } retained)
+            {
+                try { ReleaseProtocol.CheckUpgrade(current, retained.Release); }
+                catch (InvalidOperationException) { ClearCandidate(); }
+            }
+            status = status with { CurrentVersion = current.Version };
+            if (statusScope == scope && status.RetryAt > now) return status;
+            if (statusScope == scope && !force && checkedAt > now.AddMinutes(-20) && status.Error.Length == 0 && status.RetryAt is null)
+                return status;
+            status = status with { CurrentVersion = current.Version, Repository = source.Repository, Configured = true,
+                RetryAt = null, RateLimited = false, Notice = "", Error = "" };
+            statusScope = scope;
+            await using var lease = await RetryLeaseAsync(cancellationToken);
+            var retry = ReadRetry(scope);
+            if (retry.RetryAt > clock.GetUtcNow()) { ReportPause(retry); return status; }
             try
             {
                 var repository = RepositoryName(source.Repository);
-                using var request = Request(new("https://api.github.com/repos/" + repository + "/releases/latest"), source);
-                using var response = await http.SendAsync(request, cancellationToken);
-                if (response.StatusCode == HttpStatusCode.NotFound) return status;
-                if (!response.IsSuccessStatusCode) throw new InvalidOperationException(
-                    "Не удалось проверить GitHub. Проверьте доступ и повторите позже.");
-                using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                using var json = JsonDocument.Parse(await ReadRemoteAsync(new("https://api.github.com/repos/" + repository + "/releases/latest"),
+                    source, false, 1_000_000, cancellationToken));
                 var release = json.RootElement;
-                if (release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean()) return status;
-                var assets = release.GetProperty("assets");
-                var signatureUri = Asset(assets, "signed-release.json", repository, source.Token.Length > 0);
-                using var signatureRequest = Request(signatureUri, source, true);
-                using var signatureResponse = await http.SendAsync(signatureRequest, cancellationToken);
-                signatureResponse.EnsureSuccessStatusCode();
-                var envelope = await signatureResponse.Content.ReadAsStringAsync(cancellationToken);
-                var manifest = ReleaseProtocol.Verify(envelope, installation.Config.PublicKey);
-                if (manifest.BuildId == current.BuildId) return status;
-                ReleaseProtocol.CheckUpgrade(current, manifest);
-                candidate = (manifest, envelope, Asset(assets, manifest.ArtifactName, repository, source.Token.Length > 0));
-                status = status with { Available = true, Verified = true, Version = manifest.Version, Notes = manifest.Notes };
+                if (release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean()) ClearCandidate();
+                else
+                {
+                    var assets = release.GetProperty("assets");
+                    var signatureUri = Asset(assets, "signed-release.json", repository, source.Token.Length > 0);
+                    var envelope = await ReadRemoteAsync(signatureUri, source, true, 128_000, cancellationToken);
+                    Offer(envelope, current, scope, manifest => Asset(assets, manifest.ArtifactName, repository, source.Token.Length > 0));
+                }
+                SaveRetry(new(scope)); checkedAt = clock.GetUtcNow();
+            }
+            catch (DiscoveryUnavailable error)
+            {
+                retry = Pause(retry, error.RateLimited, error.RetryAt, error.Message);
+                ReportPause(retry);
+                if (source.Token.Length == 0)
+                {
+                    try
+                    {
+                        var repository = RepositoryName(source.Repository);
+                        var envelope = await ReadRemoteAsync(new("https://github.com/" + repository +
+                            "/releases/latest/download/signed-release.json"), source, true, 128_000, cancellationToken);
+                        // latest identifies only the signed manifest. The verified version pins the executable.
+                        Offer(envelope, current, scope, manifest => new("https://github.com/" + repository +
+                            "/releases/download/" + Uri.EscapeDataString("v" + manifest.Version) + "/" + manifest.ArtifactName));
+                        status = status with { Error = "" };
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                    catch (DiscoveryUnavailable fallbackError)
+                    {
+                        // Both endpoints must respect their server deadlines; this is one failed check.
+                        var deadline = BoundedDeadline(fallbackError.RetryAt ?? clock.GetUtcNow().AddSeconds(60));
+                        if (retry.RetryAt is { } previousDeadline && previousDeadline > deadline) deadline = previousDeadline;
+                        var limited = retry.RateLimited || fallbackError.RateLimited;
+                        retry = retry with { RetryAt = deadline, RateLimited = limited,
+                            Error = limited ? RateMessage : UnavailableMessage };
+                        SaveRetry(retry); ReportPause(retry);
+                    }
+                    catch (Exception fallbackError) when (fallbackError is InvalidOperationException or JsonException)
+                    {
+                        ClearCandidate(); status = status with { Error = fallbackError is InvalidOperationException ? fallbackError.Message : UnavailableMessage };
+                        SaveRetry(retry with { Error = status.Error });
+                    }
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception error) when (error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException)
-            { status = status with { Error = error is InvalidOperationException ? error.Message : "Проверка обновлений временно недоступна. Повторите позже." }; }
+            catch (Exception error) when (error is InvalidOperationException or JsonException or KeyNotFoundException)
+            {
+                ClearCandidate();
+                ReportPause(Pause(retry, false, null, error is InvalidOperationException ? error.Message : UnavailableMessage));
+            }
             return status;
         }
-        finally { checkedAt = DateTimeOffset.UtcNow; gate.Release(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or CryptographicException)
+        {
+            status = status with { RetryAt = clock.GetUtcNow().AddMinutes(1), RateLimited = false,
+                Notice = UnavailableMessage, Error = candidate is null ? UnavailableMessage : "" };
+            return status;
+        }
+        finally { gate.Release(); }
     }
     public async Task<string> PrepareAsync(CancellationToken cancellationToken)
     {
@@ -134,12 +315,14 @@ internal sealed class UpdateService(string? installationRoot, HttpClient? transp
         {
             if (installation is null || candidate is not { } update || !status.Available || !status.Verified)
                 throw new InvalidOperationException("Проверенного обновления пока нет.");
+            var source = Source();
+            if (candidateScope != Scope(source)) throw new InvalidOperationException("Настройки обновлений изменились. Проверьте выпуск заново.");
             ReleaseProtocol.CheckUpgrade(installation.Current(), update.Release);
             status = status with { Installing = true };
             var folder = Path.Combine(installation.Root, "staging", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(folder);
             var target = Path.Combine(folder, update.Release.ArtifactName);
-            using var request = Request(update.Artifact, Source(), true);
+            using var request = Request(update.Artifact, source, true);
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
             await using (var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None))

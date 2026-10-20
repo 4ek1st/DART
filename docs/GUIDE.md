@@ -11,6 +11,17 @@ and run it. The EXE includes the app and .NET; you also need the
 If DART is installed, use its Desktop or Start menu shortcut. The shortcut
 launches the active release with your existing profile.
 
+Updates are checked automatically. A blue download arrow indicates a verified
+new version; an amber arrow opens the reason a check is waiting and its next
+automatic retry time. GitHub retry limits apply to manual checks, returning to
+the window, network recovery and restarts. There is no need to keep pressing Check.
+
+For a public repository, temporary API failures can use its signed release asset
+directly. The app still checks the signing key, release history, version, file
+size and hash before installation. An available verified update remains
+installable while an API retry is paused. Updates install only when you choose
+Install and restart, after the current session has been saved.
+
 ## Connect sources
 
 Open the app's source settings.
