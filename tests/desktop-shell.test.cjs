@@ -119,7 +119,7 @@ test('reconnecting the network retries a failed check immediately', async t => {
 test('server retry time prevents timer, focus, online and manual polling until the deadline', async t => {
   const retryAt = new Date(1_000_000 + 10 * 60 * 1000).toISOString();
   const fixture = updateFixture(t, [{ configured: true, error: 'GitHub API rate limit reached.',
-    rateLimited: true, retryAt }, available]);
+    notice: 'GitHub API rate limit reached.', rateLimited: true, retryAt }, available]);
   await fixture.settle();
   assert.equal(fixture.install.hidden, false, 'waiting must be inspectable from the top bar');
   assert.equal(fixture.install.attributes['data-update-state'], 'waiting');
@@ -128,6 +128,8 @@ test('server retry time prevents timer, focus, online and manual polling until t
   assert.equal(panel.querySelector('[data-update-check]').disabled, true);
   assert.equal(panel.querySelector('[data-update-install]').hidden, true);
   assert.doesNotMatch(panel.querySelector('[data-update-status]').textContent, /последняя|latest verified/i);
+  assert.equal(panel.querySelector('[data-update-notice]').hidden, true,
+    'the same waiting reason must appear only once');
   assert.equal(panel.querySelector('[data-update-retry]').hidden, false);
   assert.match(panel.querySelector('[data-update-retry]').textContent, /\d{2}:\d{2}/);
   t.mock.timers.tick(9 * 60 * 1000);
@@ -153,6 +155,8 @@ test('a signed fallback offer stays installable during the API cooldown', async 
   assert.equal(panel.querySelector('[data-update-install]').disabled, false);
   assert.equal(panel.querySelector('[data-update-check]').disabled, true);
   assert.match(panel.querySelector('[data-update-notice]').textContent, /signed public release/);
+  assert.equal(panel.querySelector('[data-update-notice]').hidden, false,
+    'a fallback explanation must remain visible beside the available version');
   fixture.events.get('online')(); await fixture.settle();
   assert.equal(fixture.requests.length, 1);
 });

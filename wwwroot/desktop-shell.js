@@ -94,7 +94,8 @@
             'Настройка обновлений доступна в установленной DART.');
       const notice = dialog.querySelector('[data-update-notice]');
       notice.textContent = translate(status.notice || '');
-      notice.hidden = !status.notice;
+      notice.hidden = !notice.textContent || notice.textContent ===
+        translate(dialog.querySelector('[data-update-status]').textContent);
       const retry = dialog.querySelector('[data-update-retry]');
       const retryAt = retryTime();
       retry.hidden = !retryAt;
