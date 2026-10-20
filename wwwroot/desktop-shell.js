@@ -77,8 +77,10 @@
     function openPanel() {
       if (!dialog) {
         dialog = document.createElement('dialog');
+        dialog.id = 'dart-update-dialog';
+        dialog.setAttribute('aria-labelledby', 'dart-update-title');
         dialog.className = 'update-dialog';
-        dialog.innerHTML = `<div class="update-dialog-head"><h2>Обновления DART</h2><button type="button" data-update-close aria-label="Закрыть">×</button></div>
+        dialog.innerHTML = `<div class="update-dialog-head"><h2 id="dart-update-title">Обновления DART</h2><button type="button" data-update-close aria-label="Закрыть">×</button></div>
           <p data-update-current></p><p data-update-status role="status"></p><p data-update-notes class="update-notes"></p>
           <div class="update-dialog-actions"><button type="button" data-update-check>Проверить обновления</button><button type="button" data-update-install hidden>Установить и перезапустить</button></div>`;
         document.body.appendChild(dialog);
@@ -102,8 +104,9 @@
       if (!sections || sections.querySelector('[data-desktop-updates]')) return;
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'settings-section'; button.dataset.desktopUpdates = '';
-      button.innerHTML = 'Обновления<span>Версия и установка</span>'; button.onclick = openPanel;
-      sections.appendChild(button);
+      button.setAttribute('aria-haspopup', 'dialog'); button.setAttribute('aria-controls', 'dart-update-dialog');
+      button.innerHTML = '<span class="settings-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg></span><span class="settings-section-copy"><strong>Обновления</strong><small>Версия и установка</small></span>'; button.onclick = openPanel;
+      sections.insertBefore(button, sections.querySelector('.settings-language-section'));
     }).observe(main, { childList: true, subtree: true });
     check(true);
     function checkOnReturn() {

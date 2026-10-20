@@ -17,6 +17,13 @@ icons.list = '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>';
 icons.bookmark = '<path d="M6 3h12v18l-6-4-6 4V3Z"/>';
 icons.hide = '<path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.8 5.2A10 10 0 0 1 12 5c6 0 10 7 10 7a18 18 0 0 1-3 3.8M6.2 6.2A20 20 0 0 0 2 12s4 7 10 7a11 11 0 0 0 5-1.3"/>';
 icons.star = '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>';
+icons.image = '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5-7 7-3-3-3 3"/>';
+icons.curation = '<path d="M3 6h4m6 0h8M3 12h10m6 0h2M3 18h2m6 0h10"/><circle cx="10" cy="6" r="3"/><circle cx="16" cy="12" r="3"/><circle cx="8" cy="18" r="3"/>';
+icons.plug = '<path d="M9 3v5m6-5v5M7 8h10v4a5 5 0 0 1-10 0V8Zm5 9v4"/>';
+icons.panels = '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/>';
+icons.palette = '<path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.4-3.4 1.5 1.5 0 0 1 1.1-2.6H18a3 3 0 0 0 3-3 9 9 0 0 0-9-9Z"/><circle cx="7.5" cy="11" r=".6"/><circle cx="10" cy="7.5" r=".6"/><circle cx="14.5" cy="7.5" r=".6"/><circle cx="17" cy="11" r=".6"/>';
+icons.shield = '<path d="m12 3 8 3v6c0 4.6-5.2 7.8-8 9-2.8-1.2-8-4.4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>';
+icons.language = '<path d="M3 5h12M9 3v2m3 0c-1 5-4 8-8 10M6 9c2 3 4 5 8 6m0 6 4-10h1l4 10m-7-3h5"/>';
 const svg = name => `<svg viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${icons[name]}</svg>`;
 const names = { danbooru: 'Danbooru', gelbooru: 'Gelbooru', rule34: 'Rule34', sankaku: 'Sankaku' };
 let favoriteTags = [];
@@ -4028,7 +4035,7 @@ function formatDate(value) {
 function renderCurationSettings() {
   const preferences = CatalogLogic.normalizeCurationPreferences(contentPreferences.curation);
   const active = ['popularity', 'personal', 'freshness', 'resolution'].filter(key => preferences[key]).length;
-  return `<div class="settings-card"><h2>Curation</h2><p>Bring promising works higher using catalog metadata and your local likes.</p>
+  return `<div class="settings-card"><h2 class="settings-heading">${svg('curation')}<span>Curation</span></h2><p>Bring promising works higher using catalog metadata and your local likes.</p>
     <label class="settings-toggle"><input type="checkbox" name="curation-enabled" ${preferences.enabled ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''} aria-describedby="curation-status"><span><strong>Enable curation</strong><small>Applies the selected factors across every artwork list.</small></span></label>
     <p id="curation-status" class="settings-hint" role="status">${!preferences.enabled ? 'Curation is off.' : active ? 'Curation is on. Selected factors are applied together.' : 'Select at least one factor. Base order is used while all factors are off.'}</p>
     </div><div class="settings-card"><fieldset class="curation-factors" ${!preferences.enabled || contentPreferencesSaving ? 'disabled' : ''}><legend>Ranking factors</legend>
@@ -4051,25 +4058,28 @@ function renderSettings() {
   const hideAssisted = contentPreferences.aiMode === 'generated-and-assisted';
   const excluded = contentPreferences.excludedTags || [];
   const hiddenAuthors = contentPreferences.hiddenAuthors || [];
+  const sections = [
+    ['content', 'image', 'Контент', 'AI, фурри и исключённые теги'],
+    ['curation', 'curation', 'Curation', 'Ratings and personal taste'],
+    ['authors', 'users', 'Авторы', 'Автор, источник и загрузчик'],
+    ['sources', 'plug', 'Источники', 'Подключения и ключи'],
+    ['tabs', 'panels', 'Вкладки', 'Просмотр и закрепление'],
+    ['appearance', 'palette', 'Оформление', 'Цвет и тема'],
+    ['privacy', 'shield', 'Privacy', 'Screen capture'],
+    ['language', 'language', 'Язык', 'English · Русский · Deutsch']
+  ];
   return `<div class="content settings-panel"><h1>Настройки</h1><p class="section-sub">Фильтры и подключения хранятся на этом компьютере.</p>
     <div class="settings-layout">
       <nav class="settings-sections" aria-label="Разделы настроек" role="tablist">
-        <button type="button" id="settings-tab-content" role="tab" aria-selected="${section === 'content'}" aria-controls="settings-panel" class="settings-section ${section === 'content' ? 'active' : ''}" data-action="settings-section" data-section="content">Контент<span>AI, фурри и исключённые теги</span></button>
-        <button type="button" id="settings-tab-curation" role="tab" aria-selected="${section === 'curation'}" aria-controls="settings-panel" class="settings-section ${section === 'curation' ? 'active' : ''}" data-action="settings-section" data-section="curation">Curation<span>Ratings and personal taste</span></button>
-        <button type="button" id="settings-tab-authors" role="tab" aria-selected="${section === 'authors'}" aria-controls="settings-panel" class="settings-section ${section === 'authors' ? 'active' : ''}" data-action="settings-section" data-section="authors">Авторы<span>Автор, источник и загрузчик</span></button>
-        <button type="button" id="settings-tab-sources" role="tab" aria-selected="${section === 'sources'}" aria-controls="settings-panel" class="settings-section ${section === 'sources' ? 'active' : ''}" data-action="settings-section" data-section="sources">Источники<span>Подключения и ключи</span></button>
-        <button type="button" id="settings-tab-tabs" role="tab" aria-selected="${section === 'tabs'}" aria-controls="settings-panel" class="settings-section ${section === 'tabs' ? 'active' : ''}" data-action="settings-section" data-section="tabs">Вкладки<span>Просмотр и закрепление</span></button>
-        <button type="button" id="settings-tab-appearance" role="tab" aria-selected="${section === 'appearance'}" aria-controls="settings-panel" class="settings-section ${section === 'appearance' ? 'active' : ''}" data-action="settings-section" data-section="appearance">Оформление<span>Цвет и тема</span></button>
-        <button type="button" id="settings-tab-privacy" role="tab" aria-selected="${section === 'privacy'}" aria-controls="settings-panel" class="settings-section ${section === 'privacy' ? 'active' : ''}" data-action="settings-section" data-section="privacy">Privacy<span>Screen capture</span></button>
-        <button type="button" id="settings-tab-language" role="tab" aria-selected="${section === 'language'}" aria-controls="settings-panel" class="settings-section settings-language-section ${section === 'language' ? 'active' : ''}" data-action="settings-section" data-section="language">Язык<span data-no-i18n>English · Русский · Deutsch</span></button>
+        ${sections.map(([key, icon, label, description]) => `<button type="button" id="settings-tab-${key}" role="tab" aria-selected="${section === key}" aria-controls="settings-panel" class="settings-section ${key === 'language' ? 'settings-language-section ' : ''}${section === key ? 'active' : ''}" data-action="settings-section" data-section="${key}"><span class="settings-section-icon" aria-hidden="true">${svg(icon)}</span><span class="settings-section-copy"><strong>${label}</strong><small${key === 'language' ? ' data-no-i18n' : ''}>${description}</small></span></button>`).join('')}
       </nav>
       <div class="settings-view" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${section}">
         ${section === 'curation' ? renderCurationSettings() : ''}
-        ${section === 'privacy' ? `<div class="settings-card"><h2>Screen capture protection</h2><p>Hide the DART window from supported screenshots and screen sharing apps while it stays visible on your display.</p>
+        ${section === 'privacy' ? `<div class="settings-card"><h2 class="settings-heading">${svg('shield')}<span>Screen capture protection</span></h2><p>Hide the DART window from supported screenshots and screen sharing apps while it stays visible on your display.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideFromScreenCapture" ${privacyStatus.requested ? 'checked' : ''} ${privacyLoading || privacySaving || !privacyStatus.available && !privacyStatus.requested ? 'disabled' : ''}><span><strong>Hide DART from screen capture</strong><small>Applies to the entire DART window. The choice is saved for future launches.</small></span></label>
           <p class="privacy-status ${privacyStatus.error ? 'privacy-status-error' : privacyStatus.active ? 'privacy-status-active' : ''}" role="status">${privacyLoading ? 'Checking protection status…' : privacyStatus.error ? privacyErrors[privacyStatus.error] || 'Capture protection is unavailable.' : privacyStatus.active ? 'Protection is active.' : privacyStatus.available ? 'Protection is off.' : 'Open the DART desktop window to change this setting.'}</p>
           <p class="settings-hint">Windows 10 version 2004 or later is required. Some capture tools and external cameras can still record the display.</p></div>` : ''}
-        ${section === 'appearance' ? `<div class="settings-card"><h2>Тема оформления</h2><p>Системный режим автоматически выбирает светлую или тёмную тему по настройке Windows. Можно выбрать постоянную тему вручную.</p>
+        ${section === 'appearance' ? `<div class="settings-card"><h2 class="settings-heading">${svg('palette')}<span>Тема оформления</span></h2><p>Системный режим автоматически выбирает светлую или тёмную тему по настройке Windows. Можно выбрать постоянную тему вручную.</p>
           <div class="theme-choices" role="group" aria-label="Тема оформления">
             ${[
               ['system', 'Системная', 'Следует цвету Windows'],
@@ -4078,14 +4088,14 @@ function renderSettings() {
               ['list', 'Лист', 'Графит, холодный голубой и полутоновые точки']
             ].map(([value, label, description]) => `<button type="button" class="theme-choice" data-action="theme-choice" data-theme-choice="${value}" aria-pressed="${themePreference === value}"><span class="theme-swatch theme-swatch-${value}" aria-hidden="true"></span><span class="theme-choice-copy"><strong>${label}</strong><small>${description}</small></span></button>`).join('')}
           </div><p class="settings-hint">Выбор применяется сразу и сохраняется на этом компьютере.</p></div>` : ''}
-        ${section === 'language' ? `<div class="settings-card"><h2>Язык интерфейса</h2><p>Выберите язык интерфейса. Названия работ, имена авторов и поисковые теги остаются на языке источника.</p>
+        ${section === 'language' ? `<div class="settings-card"><h2 class="settings-heading">${svg('language')}<span>Язык интерфейса</span></h2><p>Выберите язык интерфейса. Названия работ, имена авторов и поисковые теги остаются на языке источника.</p>
           <label class="language-picker">Язык<select name="interfaceLanguage" aria-label="Язык интерфейса">
             <option value="en" ${contentPreferences.language === 'en' ? 'selected' : ''}>English</option>
             <option value="ru" ${contentPreferences.language === 'ru' ? 'selected' : ''}>Русский</option>
             <option value="de" ${contentPreferences.language === 'de' ? 'selected' : ''}>Deutsch</option>
           </select></label><p class="settings-hint">Выбор сохраняется в этом профиле и применяется сразу.</p><p class="settings-hint">Английский — язык по умолчанию.</p></div>` : ''}
         ${section === 'content' ? `
-        <div class="settings-card"><h2>AI изображения</h2><p>Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах, понравившихся и закладках. Сохранённые работы остаются на месте.</p>
+        <div class="settings-card"><h2 class="settings-heading">${svg('image')}<span>AI изображения</span></h2><p>Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах, понравившихся и закладках. Сохранённые работы остаются на месте.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideGenerated" ${hideGenerated ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать AI-generated</strong><small>Работы с метками AI генерации и известных генераторов.</small></span></label>
           <label class="settings-toggle settings-toggle-child"><input type="checkbox" name="hideAssisted" ${hideAssisted ? 'checked' : ''} ${!hideGenerated || contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать также AI-assisted</strong><small>Если выключено, работы с участием AI остаются видимыми.</small></span></label>
           <p class="settings-hint">Учитываются метки вроде #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai и #ai-assisted. Работа без такой метки не определяется автоматически как AI.</p>
@@ -4103,7 +4113,7 @@ function renderSettings() {
           ${excluded.length ? `<div class="excluded-tags-list">${excluded.map(tag => `<button type="button" class="excluded-tag" data-action="remove-excluded-tag" data-tag="${escapeHtml(tag)}" data-i18n-keep="${escapeHtml(JSON.stringify([tag]))}" aria-label="Убрать тег ${escapeHtml(tag)}"><span data-no-i18n>#${escapeHtml(tag.replaceAll(' ', '_'))}</span> <span aria-hidden="true">×</span></button>`).join('')}</div>` : '<p class="settings-hint">Список пуст. Можно ввести несколько тегов через запятую.</p>'}
           <p class="settings-hint">Фильтр проверяет все теги объединённой работы из Danbooru, Gelbooru, Rule34 и Sankaku.</p>
         </div>` : section === 'authors' ? `
-        <div class="settings-card"><h2>Hidden authors</h2><p>Right-click an author and choose Hide to hide their works in every section. You can unhide them here.</p>
+        <div class="settings-card"><h2 class="settings-heading">${svg('users')}<span>Hidden authors</span></h2><p>Right-click an author and choose Hide to hide their works in every section. You can unhide them here.</p>
           ${hiddenAuthors.length ? `<ul class="hidden-authors-list">${hiddenAuthors.map(author => `<li ${authorContextData(author)}><span><strong data-no-i18n>${escapeHtml(author.name || author.artistId)}</strong><small>${author.source === 'artist' ? 'All catalogs' : `${escapeHtml(names[author.source] || author.source)} · <span>Uploader</span>`}</small></span><button type="button" class="secondary-button" data-action="unhide-author" data-author-key="${escapeHtml(CatalogLogic.hiddenAuthorKey(author))}"${contentPreferencesSaving ? ' disabled' : ''}>Unhide</button></li>`).join('')}</ul>` : '<p class="settings-hint">No hidden authors.</p>'}
         </div>
         <div class="settings-card"><h2>Кого показывать первым</h2><p>На карточке и в шапке работы можно первым показать художника, сайт оригинальной публикации или загрузчика. На странице работы все известные данные остаются видимыми отдельно.</p>
@@ -4114,11 +4124,11 @@ function renderSettings() {
           ].map(([value, label, hint]) => `<label class="settings-toggle"><input type="radio" name="attributionPriority" value="${value}" ${contentPreferences.attributionPriority === value ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>${label}</strong><small>${hint}</small></span></label>`).join('')}
           <p class="settings-hint">Подписка на художника использует подтверждённый тег. Для определения художника Rule34 нужны ключи Gelbooru и Rule34: список кандидатов берётся из категорий Gelbooru и проверяется на Rule34. Поле owner считается загрузчиком; по нему подписка на художника не создаётся.</p>
         </div>` : section === 'tabs' ? `
-        <div class="settings-card"><h2>Как открывать работы</h2>
+        <div class="settings-card"><h2 class="settings-heading">${svg('panels')}<span>Как открывать работы</span></h2>
           <label class="settings-toggle"><input type="radio" name="artworkTabs" value="preview" ${tabPreferences.artworkTabs === 'preview' ? 'checked' : ''}><span><strong>Одна временная вкладка просмотра</strong><small>Следующий арт заменяет временную вкладку. «Назад» возвращает предыдущую работу и место в выдаче.</small></span></label>
           <label class="settings-toggle"><input type="radio" name="artworkTabs" value="new" ${tabPreferences.artworkTabs === 'new' ? 'checked' : ''}><span><strong>Каждая работа в отдельной вкладке</strong><small>Открытые работы остаются в верхней строке до закрытия.</small></span></label>
         </div><div class="settings-card"><h2>Управление вкладками</h2><p>Ctrl + клик или средняя кнопка мыши открывает работу в отдельной фоновой вкладке. Ctrl + Shift + клик сразу переключает на неё.</p><p>Двойной клик по временной вкладке или значок закрепления оставляет её открытой. Закреплённые вкладки защищены от команд «Закрыть остальные» и «Закрыть справа».</p><p>Кнопка списка рядом с «+» показывает все вкладки с полными названиями и поиском. Меню по правому клику помогает закрывать несколько вкладок.</p></div>` : section === 'sources' ? `
-        <div class="settings-card"><h2>Источники</h2><p>Danbooru доступен без ключа. Gelbooru и Rule34 требуют ваши user ID и API key.</p>
+        <div class="settings-card"><h2 class="settings-heading">${svg('plug')}<span>Источники</span></h2><p>Danbooru доступен без ключа. Gelbooru и Rule34 требуют ваши user ID и API key.</p>
           <div class="source-filters"><span class="filter-button active">Danbooru</span><span class="filter-button ${settings.hasApiKey ? 'active' : ''}">Gelbooru ${settings.hasApiKey ? 'подключён' : 'требует ключ'}</span><span class="filter-button ${settings.hasRule34ApiKey ? 'active' : ''}">Rule34 ${settings.hasRule34ApiKey ? 'подключён' : 'требует ключ'}</span><span class="filter-button ${settings.hasSankakuSession ? 'active' : ''}">Sankaku ${settings.hasSankakuSession ? 'вход выполнен' : 'гостевой доступ'}</span></div>
         </div>
         <form id="sankaku-login-form" class="settings-card"><h2>Sankaku</h2><p>Открытые работы доступны без входа. Для ограниченных работ и расширенного поиска авторизуйтесь. Доступные функции зависят от аккаунта Sankaku.</p>

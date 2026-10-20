@@ -154,7 +154,7 @@
 :root[data-theme='light'] .profile-banner .section-sub { color: #e3eaf0; }
 :root[data-theme='light'] .settings-section:hover { background: var(--theme-hover); }
 :root[data-theme='light'] .settings-section.active { background: #e0eef8; border-color: #99bfdb; color: #194d72; }
-:root[data-theme='light'] .settings-section.active span { color: #376f97; }
+:root[data-theme='light'] .settings-section.active .settings-section-copy small { color: #376f97; }
 :root[data-theme='light'] .settings-card p,
 :root[data-theme='light'] .settings-card .settings-hint,
 :root[data-theme='light'] .settings-toggle small,
@@ -224,7 +224,7 @@
 :root[data-theme='list'] .creator-panel { background: #252b2f; border: 2px solid #84969e; border-radius: 4px; box-shadow: 4px 4px 0 #0c1114; }
 :root[data-theme='list'] .settings-card { background-image: radial-gradient(circle, #abb9be18 .7px, transparent 1px); background-size: 6px 6px; background-position: right top; }
 :root[data-theme='list'] .settings-section.active { background: #c6d6dc; border-color: #c6d6dc; color: #26363e; }
-:root[data-theme='list'] .settings-section.active span { color: #4b6571; }
+:root[data-theme='list'] .settings-section.active .settings-section-copy small { color: #4b6571; }
 :root[data-theme='list'] .settings-toggle,
 :root[data-theme='list'] .filter-button,
 :root[data-theme='list'] .sort-button,

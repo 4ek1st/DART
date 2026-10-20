@@ -12,6 +12,7 @@ assert.ok(start >= 0 && end > start);
 
 function privacySettings(status, loading = false) {
   const context = {
+    svg: () => '',
     currentTab: () => ({ kind: 'settings', settingsSection: 'privacy' }),
     globalThis: { DartTheme: { preference: 'system' } },
     contentPreferences: { aiMode: 'all', excludedTags: [], hiddenAuthors: [] },

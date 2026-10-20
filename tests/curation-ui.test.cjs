@@ -14,7 +14,7 @@ const section = (start, end) => {
 test('settings expose a master and four independent factors with honest disabled states', () => {
   const context = { CatalogLogic, currentTab: () => ({ kind: 'settings', settingsSection: 'curation' }),
     contentPreferences: { curation: { enabled: false, popularity: false } },
-    contentPreferencesSaving: false, globalThis: {}, tabPreferences: {}, settings: {}, escapeHtml: value => value };
+    contentPreferencesSaving: false, globalThis: {}, tabPreferences: {}, settings: {}, escapeHtml: value => value, svg: () => '' };
   const helper = source.includes('function renderCurationSettings(')
     ? section('function renderCurationSettings(', '\nfunction renderSettings()') : '';
   const render = vm.runInNewContext(helper + section('function renderSettings()', '\nconst sankakuMediaRecovery =') +

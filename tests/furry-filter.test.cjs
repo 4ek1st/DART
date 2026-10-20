@@ -129,7 +129,7 @@ test('saving sends the furry flag and a failed save retains the previous value',
 test('Content settings render an accessible switch, pending state and translations', () => {
   const context = { currentTab: () => ({ kind: 'settings', settingsSection: 'content' }),
     contentPreferences: { aiMode: 'all', hideFurry: true }, contentPreferencesSaving: true,
-    escapeHtml: String };
+    escapeHtml: String, svg: () => '' };
   const render = appFunction('function renderSettings()', '\nconst sankakuMediaRecovery =', 'renderSettings', context);
   const html = render();
   assert.match(html, /name="hideFurry"[^>]*aria-describedby="furry-filter-hint"[^>]*checked[^>]*disabled/);
