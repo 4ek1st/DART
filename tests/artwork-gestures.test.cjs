@@ -126,12 +126,15 @@ function savedFixture() {
   let saved = false, release;
   const methods = [], messages = [], item = { key: 'danbooru:1', source: 'danbooru', memberKeys: [] };
   const pending = new Promise(resolve => { release = () => { saved = true; resolve({ saved: true }); }; });
-  const context = vm.createContext({ savedWorkPending: new Set(), tabs: [], likes: [], bookmarks: [],
+  const context = vm.createContext({ CatalogLogic: require('../wwwroot/catalog-logic.js'),
+    savedWorkPending: new Set(), tabs: [], likes: [], bookmarks: [],
     contentPreferences: {}, currentTab: () => null, visibleFeedCard: () => null,
     isSavedWork: () => saved, syncSavedWorkButtons() {},
     request: async (_url, options) => { methods.push(options.method); return pending; },
     setSavedWorks() {}, recordViewedWorks() {}, refreshSavedWorks() {},
     toast: message => messages.push(message) });
+  vm.runInContext(app.slice(app.indexOf('function pendingSavedWorkKeys('),
+    app.indexOf('\nfunction savedWorkButton(')), context);
   vm.runInContext(app.slice(app.indexOf('async function toggleSavedWork('),
     app.indexOf('\nfunction syncSavedWorkButtons(')), context);
   return { context, methods, messages, item, release, setSaved: value => { saved = value; } };

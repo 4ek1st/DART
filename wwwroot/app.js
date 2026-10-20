@@ -692,32 +692,50 @@ function closeTab(id) {
   const index = tabs.findIndex(tab => tab.id === id);
   if (index < 0) return;
   const wasActive = activeId === id;
+  if (wasActive) {
+    tabs[index].artworkRoute?.engine.cancel();
+    tabs[index].artworkRoute?.navigationController?.abort();
+    tabs[index].artworkRoute?.warmController?.abort();
+  }
   abortTab(tabs[index]);
   tabs.splice(index, 1);
   const removedBefore = navigation.slice(0, navPosition + 1).filter(entry => entry.id === id).length;
   navigation = navigation.filter(entry => entry.id !== id);
   navPosition = Math.max(-1, navPosition - removedBefore);
   if (wasActive) {
-    activeId = tabs[Math.max(0, index - 1)]?.id || tabs[0]?.id || null;
-    if (!activeId) { createTab('home', 'Главная'); return; }
-    if (currentTab()?.started) currentTab().resumePrefetchAt = currentTab().scrollTop || 0;
-    if (navigation[navPosition]?.id !== activeId) {
+    const successor = tabs[Math.max(0, index - 1)] || tabs[0];
+    if (!successor) {
+      activeId = null; createTab('home', 'Главная'); pruneArtworkRoutes(); return;
+    }
+    if (!sameNavigationView(navigation[navPosition], successor)) {
       navigation = navigation.slice(0, navPosition + 1);
-      navigation.push(navigationEntry(currentTab()));
+      navigation.push(navigationEntry(successor));
       navPosition = navigation.length - 1;
     }
+    activate(successor.id, false);
+    pruneArtworkRoutes();
+    return;
   }
   render();
-  if (wasActive) main.scrollTop = currentTab()?.scrollTop || 0;
   startTab(currentTab());
   saveSession();
   pruneArtworkRoutes();
 }
 
+function sameNavigationView(entry, tab) {
+  return !!tab && entry?.id === tab.id && (tab.kind !== 'detail' || entry.view === tab);
+}
+
+function navigationTarget(direction) {
+  const current = currentTab();
+  for (let target = navPosition + direction; target >= 0 && target < navigation.length; target += direction)
+    if (findTab(navigation[target].id) && !sameNavigationView(navigation[target], current)) return target;
+  return -1;
+}
+
 function travel(direction) {
-  let target = navPosition + direction;
-  while (target >= 0 && target < navigation.length && !findTab(navigation[target].id)) target += direction;
-  if (target < 0 || target >= navigation.length) return;
+  const target = navigationTarget(direction);
+  if (target < 0) return;
   navPosition = target;
   activate(navigation[target].id, false, navigation[target].view);
   renderChrome();
@@ -2582,10 +2600,20 @@ async function prepareArtworkMedia(item, signal) {
   // for offline/expired media. A newer arrow cancels this consumer immediately.
   const bounded = AbortSignal.any([signal, AbortSignal.timeout(4500)]);
   const release = imageLoader.pin?.(url) || (() => {});
+  let cancelled;
+  const cancellation = new Promise(resolve => {
+    cancelled = () => { release(); resolve(); };
+    bounded.addEventListener('abort', cancelled, { once: true });
+    if (bounded.aborted) cancelled();
+  });
   try {
-    const entry = imageLoader.cached(url) || imageLoader.rememberBlob(url, await readMediaBlob(url, bounded));
-    if (!bounded.aborted) await imageLoader.decode(entry);
+    await Promise.race([cancellation, (async () => {
+      if (bounded.aborted) return;
+      const entry = imageLoader.cached(url) || imageLoader.rememberBlob(url, await readMediaBlob(url, bounded));
+      if (!bounded.aborted) await imageLoader.decode(entry);
+    })()]);
   } catch { /* The normal viewer retains its retry/error behavior. */ }
+  finally { bounded.removeEventListener('abort', cancelled); }
   return release;
 }
 
@@ -2678,14 +2706,53 @@ function openDetail(item, options = {}) {
 
 function isSavedWork(item, collection) {
   const keys = collection === 'likes' ? likedKeys : savedKeys;
-  return [item.key, ...(item.memberKeys || [])].some(key => keys.has(key));
+  if ([item.key, ...(item.memberKeys || [])].some(key => keys.has(key))) return true;
+  const index = savedWorkIdentityIndex(collection);
+  return CatalogLogic.workHistoryTokens(item).some(token => index.has(token));
+}
+
+function pendingSavedWorkKeys(item, collection) {
+  return CatalogLogic.workHistoryTokens(item).map(token => `${collection}:${token}`);
+}
+
+function savedWorkIdentityIndex(collection) {
+  const items = collection === 'likes' ? likes : bookmarks;
+  const caches = savedWorkIdentityIndex.collections ||= {};
+  if (caches[collection]?.items === items) return caches[collection].index;
+  const index = new Map();
+  for (const item of items) for (const token of CatalogLogic.workHistoryTokens(item)) {
+    if (!index.has(token)) index.set(token, []);
+    index.get(token).push(item);
+  }
+  caches[collection] = { items, index };
+  return index;
+}
+
+function isSavedWorkPending(item, collection) {
+  return pendingSavedWorkKeys(item, collection).some(key => savedWorkPending.has(key));
+}
+
+function savedWorkAliases(item, collection) {
+  const index = savedWorkIdentityIndex(collection);
+  const tokens = CatalogLogic.workHistoryTokens(item), visited = new Set(), aliases = new Set();
+  for (let offset = 0; offset < tokens.length; offset++) {
+    const token = tokens[offset];
+    if (visited.has(token)) continue;
+    visited.add(token);
+    for (const saved of index.get(token) || []) {
+      if (aliases.has(saved)) continue;
+      aliases.add(saved);
+      tokens.push(...CatalogLogic.workHistoryTokens(saved));
+    }
+  }
+  return [...aliases];
 }
 
 function savedWorkButton(item, collection, detail = false) {
   const like = collection === 'likes';
   const saved = isSavedWork(item, collection);
   const label = like ? saved ? 'Unlike' : 'Like' : saved ? 'Remove bookmark' : 'Add bookmark';
-  return `<button type="button" class="${detail ? 'detail-save-button ' : ''}${like ? 'heart-button' : 'bookmark-button'}${saved ? ' saved' : ''}" data-action="${like ? 'like' : 'bookmark'}" data-key="${escapeHtml(item.key)}" title="${label}" aria-label="${label}" aria-pressed="${saved}"${savedWorkPending.has(collection + ':' + item.key) ? ' disabled' : ''}>${svg(like ? 'heart' : 'bookmark')}</button>`;
+  return `<button type="button" class="${detail ? 'detail-save-button ' : ''}${like ? 'heart-button' : 'bookmark-button'}${saved ? ' saved' : ''}" data-action="${like ? 'like' : 'bookmark'}" data-key="${escapeHtml(item.key)}" title="${label}" aria-label="${label}" aria-pressed="${saved}"${isSavedWorkPending(item, collection) ? ' disabled' : ''}>${svg(like ? 'heart' : 'bookmark')}</button>`;
 }
 
 function quickPreviewShortcutAllowed(event, focused) {
@@ -2908,9 +2975,11 @@ async function toggleSavedWork(item, collection, likeOnly = false) {
     toast('Добавлено в понравившиеся');
     return;
   }
-  const pendingKey = collection + ':' + item.key;
-  if (savedWorkPending.has(pendingKey)) return;
-  savedWorkPending.add(pendingKey);
+  if (isSavedWorkPending(item, collection)) return;
+  let aliases = savedWorkAliases(item, collection);
+  const pendingKeys = new Set([item, ...aliases].flatMap(saved => pendingSavedWorkKeys(saved, collection)));
+  if ([...pendingKeys].some(key => savedWorkPending.has(key))) return;
+  for (const key of pendingKeys) savedWorkPending.add(key);
   syncSavedWorkButtons();
   const sourceTab = currentTab();
   const clickedVisibleFeedCard = visibleFeedCard(sourceTab, item);
@@ -2922,6 +2991,15 @@ async function toggleSavedWork(item, collection, likeOnly = false) {
         item = rememberItem(CatalogLogic.mergeDetailPages(item, detail));
       } catch { /* Retain the available preview and tag names if details are restricted. */ }
     }
+    aliases = savedWorkAliases(item, collection);
+    const learnedKeys = [item, ...aliases].flatMap(saved => pendingSavedWorkKeys(saved, collection));
+    if (learnedKeys.some(key => !pendingKeys.has(key) && savedWorkPending.has(key))) return;
+    for (const key of learnedKeys) { pendingKeys.add(key); savedWorkPending.add(key); }
+    syncSavedWorkButtons();
+    // The native library mutates by post keys. Include already-saved aliases
+    // confirmed by the same file/group evidence used to render this control.
+    item = { ...item, memberKeys: [...new Set([item.key, ...(item.memberKeys || []),
+      ...aliases.flatMap(saved => [saved.key, ...(saved.memberKeys || [])])])] };
     const response = await request(`/api/${collection}`, {
       method: likeOnly ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item)
     });
@@ -2956,7 +3034,7 @@ async function toggleSavedWork(item, collection, likeOnly = false) {
     toast(collection === 'likes' ? response.saved ? 'Добавлено в понравившиеся' : 'Лайк удалён'
       : response.saved ? 'Добавлено в закладки' : 'Удалено из закладок');
   } catch { toast(collection === 'likes' ? 'Не удалось изменить лайк' : 'Не удалось изменить закладки'); }
-  finally { savedWorkPending.delete(pendingKey); syncSavedWorkButtons(); }
+  finally { for (const key of pendingKeys) savedWorkPending.delete(key); syncSavedWorkButtons(); }
 }
 
 function syncSavedWorkButtons() {
@@ -2969,7 +3047,7 @@ function syncSavedWorkButtons() {
     button.setAttribute('aria-pressed', String(saved));
     button.setAttribute('aria-label', label);
     button.title = label;
-    button.disabled = savedWorkPending.has(collection + ':' + button.dataset.key);
+    button.disabled = isSavedWorkPending(itemIndex.get(button.dataset.key) || { key: button.dataset.key }, collection);
     globalThis.DartI18n?.translateTree(button);
   });
 }
@@ -3043,8 +3121,8 @@ function renderChrome() {
   listButton.innerHTML = `${svg('list')}<span>${tabs.length}</span>`;
   listButton.setAttribute('aria-label', `Все вкладки: ${tabs.length}`);
   renderTabList();
-  document.getElementById('back-button').disabled = navPosition <= 0;
-  document.getElementById('forward-button').disabled = navPosition >= navigation.length - 1;
+  document.getElementById('back-button').disabled = navigationTarget(-1) < 0;
+  document.getElementById('forward-button').disabled = navigationTarget(1) < 0;
   document.querySelectorAll('.side-link').forEach(button => {
     const current = currentTab();
     const nav = button.dataset.nav;

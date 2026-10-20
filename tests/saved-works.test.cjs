@@ -36,6 +36,7 @@ test('recommendation preferences come from likes and never from bookmark-only ta
 test('detail and card actions have distinct icon buttons and reflect grouped source membership', () => {
   const item = { key: 'sankaku:mirror', memberKeys: ['danbooru:1', 'sankaku:mirror'] };
   const context = { likedKeys: new Set(['danbooru:1']), savedKeys: new Set(),
+    CatalogLogic, likes: [], bookmarks: [],
     savedWorkPending: new Set(), escapeHtml: String, svg: name => `<svg data-icon="${name}"></svg>` };
   const button = vm.runInNewContext(between('function isSavedWork(', '\nasync function toggleSavedWork(')
     + '\nsavedWorkButton', context);

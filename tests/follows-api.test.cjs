@@ -388,3 +388,88 @@ test('content preferences save separately from API credentials and survive a res
     fs.rmSync(resolved, { recursive: true, force: true });
   }
 });
+
+test('client state accepts full metadata sessions through 16 MiB and preserves them after rejected writes', async () => {
+  // The publisher runs the build tests above before this capacity regression.
+  const logic = require('../wwwroot/catalog-logic.js');
+  const http = require('node:http');
+  const crypto = require('node:crypto');
+  const limit = 16 * 1024 * 1024;
+  const dataDirectory = fs.mkdtempSync(path.join(project, 'test-data-client-capacity-'));
+  let server;
+  const tabs = Array.from({ length: 9 }, (_, tab) => {
+    const hash = (tab + 1).toString(16).padStart(32, '0');
+    const members = Array.from({ length: 40 }, (_, index) => {
+      const id = String(10000 + tab * 100 + index);
+      const url = `https://cdn.donmai.us/original/${hash}.png`;
+      return { source: 'danbooru', key: 'danbooru:' + id, id, title: 'Synthetic artwork ' + id,
+        creatorTag: 'capacity_fixture_artist', creatorName: 'Capacity fixture', rating: 'g',
+        thumbnail: `https://cdn.donmai.us/preview/${hash}.jpg`, images: [url],
+        imageRecords: [{ url, hash }], contentHash: hash,
+        tags: Array.from({ length: 90 }, (_, tag) => `synthetic_metadata_tag_${String(tag).padStart(4, '0')}_detail`),
+        published: '2026-01-01T00:00:00Z' };
+    });
+    const grouped = logic.groupWorks(members);
+    assert.equal(grouped.length, 1);
+    assert.equal(grouped[0].groupMembers.length, 40);
+    return { kind: 'detail', title: 'Capacity group ' + tab, item: grouped[0],
+      selectedSources: ['danbooru', 'gelbooru', 'rule34', 'sankaku'], rating: 'general',
+      sort: 'recent', feed: 'illustrations', pinned: true, preview: false, scrollTop: 123 };
+  });
+  const state = { marker: 'full-metadata-capacity', session: { tabs, activeIndex: 8, savedWorksVersion: 1 }, recent: [] };
+  const metadataBody = JSON.stringify(state);
+  const expectedSession = JSON.parse(metadataBody).session;
+  assert.ok(Buffer.byteLength(metadataBody) > 1_200_000 && Buffer.byteLength(metadataBody) < 2_000_000);
+  try {
+    server = await startServer(dataDirectory);
+    const read = async () => {
+      const response = await fetch(server.origin + '/api/client-state');
+      assert.equal(response.status, 200);
+      return response.text();
+    };
+    const post = (body, origin = server.origin) => fetch(server.origin + '/api/client-state', {
+      method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body
+    });
+    const postChunked = body => new Promise((resolve, reject) => {
+      const request = http.request(server.origin + '/api/client-state', { method: 'POST', headers: {
+        Origin: server.origin, 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked'
+      } }, response => { response.resume(); response.once('end', () => resolve(response.statusCode)); });
+      request.once('error', reject);
+      request.setTimeout(15000, () => request.destroy(new Error('Chunked client-state request timed out')));
+      request.end(body);
+    });
+    assert.equal((await post(metadataBody)).status, 200, 'Full group metadata must not make an ordinary session unsavable');
+    const restored = JSON.parse(await read());
+    assert.deepEqual(restored.session, expectedSession, 'Keep every group member, tag, image record and tab position');
+
+    const atLimit = { ...state, capacityPadding: '' };
+    atLimit.capacityPadding = 'x'.repeat(limit - Buffer.byteLength(JSON.stringify(atLimit)));
+    const boundaryBody = JSON.stringify(atLimit);
+    assert.equal(Buffer.byteLength(boundaryBody), limit);
+    assert.equal((await post(boundaryBody)).status, 200, 'The complete 16 MiB boundary remains supported');
+    const boundaryState = JSON.parse(await read());
+    assert.equal(boundaryState.capacityPadding.length, atLimit.capacityPadding.length, 'Do not silently truncate compatible fields');
+    assert.deepEqual(boundaryState.session, expectedSession);
+    const digest = text => crypto.createHash('sha256').update(text).digest('hex');
+    const savedDigest = digest(await read());
+    assert.equal((await post('{}', 'https://elsewhere.test')).status, 403);
+    for (const invalid of ['{"session":', '[]', 'null']) {
+      assert.equal((await post(invalid)).status, 400);
+      assert.equal(digest(await read()), savedDigest, 'Malformed input must retain the prior complete state');
+    }
+    const oversized = JSON.stringify({ marker: 'must-not-replace-state', unicode: 'é'.repeat(limit / 2) });
+    assert.ok(oversized.length < limit && Buffer.byteLength(oversized) > limit,
+      'Exercise the byte limit independently of UTF-16 string length');
+    assert.equal((await post(oversized)).status, 413);
+    assert.equal(await postChunked(oversized), 413, 'Enforce the byte limit when Content-Length is absent');
+    assert.equal(digest(await read()), savedDigest, 'Oversized requests must retain the prior complete state');
+    await stopServer(server);
+    server = await startServer(dataDirectory);
+    assert.equal(digest(await read()), savedDigest, 'The full state must also survive a native server restart');
+  } finally {
+    await stopServer(server);
+    const resolved = fs.realpathSync(dataDirectory);
+    assert.ok(resolved.startsWith(project + path.sep));
+    fs.rmSync(resolved, { recursive: true, force: true });
+  }
+});

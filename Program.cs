@@ -189,10 +189,20 @@ internal static class Program
         app.MapPost("/api/client-state", async (HttpContext context, LocalStore store) =>
         {
             if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
-            if (context.Request.ContentLength is > 1_000_000) return Results.StatusCode(413);
-            using var reader = new StreamReader(context.Request.Body);
+            const int maxClientStateBytes = 16 * 1024 * 1024;
+            if (context.Request.ContentLength is > maxClientStateBytes) return Results.StatusCode(413);
+            using var payload = new MemoryStream();
+            var buffer = new byte[64 * 1024];
+            while (true)
+            {
+                var count = await context.Request.Body.ReadAsync(buffer.AsMemory(), context.RequestAborted);
+                if (count == 0) break;
+                if (payload.Length + count > maxClientStateBytes) return Results.StatusCode(413);
+                payload.Write(buffer, 0, count);
+            }
+            payload.Position = 0;
+            using var reader = new StreamReader(payload);
             var raw = await reader.ReadToEndAsync(context.RequestAborted);
-            if (raw.Length > 1_000_000) return Results.StatusCode(413);
             try
             {
                 using var parsed = System.Text.Json.JsonDocument.Parse(raw);

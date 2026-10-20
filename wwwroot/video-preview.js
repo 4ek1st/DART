@@ -174,7 +174,8 @@
     }
     async function show(card, entry, revision, index = 0) {
       if (!current(card, revision)) return;
-      try { await decode(entry.urls[index]); } catch { stop(); return; }
+      try { await decode(entry.urls[index]); }
+      catch { if (current(card, revision)) stop(); return; }
       if (!current(card, revision)) return;
       const overlay = card.querySelector('.video-preview-frame');
       if (!overlay) return;

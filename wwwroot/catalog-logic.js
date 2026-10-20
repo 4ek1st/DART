@@ -1,5 +1,6 @@
 (function (root) {
   const supportedSources = Object.freeze(['danbooru', 'gelbooru', 'rule34', 'sankaku']);
+  const ordinaryRatings = Object.freeze(['g', 'general', 's', 'sensitive', 'safe', 'sfw']);
 
   const attributionCache = new WeakMap(), sampleCache = new WeakMap(), contentCache = new WeakMap();
   const identityCache = new WeakMap();
@@ -693,7 +694,7 @@
           ? Number(key.slice(prefix.length)) : NaN;
       });
       const rating = ['e', 'explicit', 'q', 'questionable'].includes(item.rating)
-        ? 'adult' : ['g', 'general', 'safe'].includes(item.rating) ? 'general' : '';
+        ? 'adult' : ordinaryRatings.includes(item.rating) ? 'general' : '';
       if (!supportedSources.includes(item.source) ||
           !Number.isSafeInteger(id) || id < 1 || !Number.isFinite(time) ||
           !creator || !knownUploader(uploader) || !rating || tags.size < 12 ||
@@ -1056,7 +1057,15 @@
     if (!hidden.size) return false;
     const authors = contentEvidence(item).authors;
     for (const key of hidden) if (authors.has(key)) return true;
+    // Mirrors keep their own uploader identity. Read nested provenance directly
+    // so a corrected member cannot leave a previously cached group visible.
+    for (const member of item?.groupMembers || [])
+      if (hidden.has(uploaderAuthorKey(member))) return true;
     return false;
+  }
+  function uploaderAuthorKey(item) {
+    return hiddenAuthorKey({ source: item?.source,
+      artistId: item?.uploaderId || (item?.source !== 'danbooru' ? item?.artistId : '') });
   }
 
   function contentEvidence(item) {
@@ -1065,10 +1074,9 @@
         .map(normalizeFilterTag).filter(Boolean))];
       const artists = [...workParticipants(item).map(person => person.tag), item?.followedArtistTag,
         ...(item?.tags || []), ...(item?.allTags || [])];
-      const uploader = item?.uploaderId || (item?.source !== 'danbooru' ? item?.artistId : '');
       return { tags, authors: new Set([...artists.map(artistId =>
         hiddenAuthorKey({ source: 'artist', artistId })),
-        hiddenAuthorKey({ source: item?.source, artistId: uploader })].filter(Boolean)) };
+        uploaderAuthorKey(item)].filter(Boolean)) };
     });
   }
 
@@ -1425,7 +1433,7 @@
     if (rating === 'all') return true;
     return rating === 'explicit'
       ? ['q', 'questionable', 'e', 'explicit'].includes(item.rating)
-      : ['g', 'general'].includes(item.rating);
+      : ordinaryRatings.includes(item.rating);
   }
 
   function recommendationVariety(key, seed) {
@@ -1713,7 +1721,7 @@
     const members = item => [...new Map((item.groupMembers?.length ? item.groupMembers : [item])
       .filter(member => member?.key).map(member => [member.key, member])).values()];
     const votes = new Map();
-    const ratingKey = rating => ['g', 's', 'safe', 'general', 'sensitive'].includes(rating) ? 'g' :
+    const ratingKey = rating => ordinaryRatings.includes(rating) ? 'g' :
       ['q', 'questionable'].includes(rating) ? 'q' : ['e', 'explicit'].includes(rating) ? 'e' : 'u';
     const evidence = new Map();
     if (preferences.popularity) for (const item of items || []) {
