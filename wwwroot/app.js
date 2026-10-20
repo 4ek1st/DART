@@ -882,7 +882,7 @@ function scheduleRule34Recovery(tab) {
     if (tab.pausedSources?.rule34) retryAt = tab.rule34RetryAt;
   } else if (tab.kind === 'recommendations') {
     const times = Object.values(tab.recommendationPools || {}).flat()
-      .flatMap(group => group.streams).filter(stream => stream.sources.includes('rule34'))
+      .flatMap(group => group.streams).filter(stream => stream.sources.length && stream.error)
       .map(stream => stream.retryAt).filter(value => Number.isFinite(value) && value > 0);
     if (times.length) retryAt = Math.min(...times);
   }
@@ -891,6 +891,7 @@ function scheduleRule34Recovery(tab) {
     tab.rule34RecoveryTimer = null;
     if (findTab(tab.id) !== tab || activeId !== tab.id || tab.loading) return;
     if (tab.kind === 'recommendations') {
+      tab.loadError = false;
       tab.recommendationPaused = false;
       tab.emptyRecommendationRounds = 0;
       return loadRecommendations(tab, true);
@@ -1205,6 +1206,74 @@ function recommendationPoolsHaveMore(pools) {
     group.streams.some(stream => stream.sources.length)));
 }
 
+function deferRecommendationSource(group, stream, source, message, serverRetryAt) {
+  const failed = stream.sources.length === 1 ? stream :
+    { nextPage: stream.nextPage, sources: [source] };
+  failed.error = String(message || 'Источник сейчас недоступен.');
+  failed.failures = (stream.failures || 0) + 1;
+  failed.needsSettings = /HTTP 40[13]|user id|api key|ключ API|авторизуйтесь|unauthorized/i.test(failed.error);
+  failed.querySpecific = /HTTP (?:400|413|414|422)\b/i.test(failed.error);
+  // Three paced retries are enough to recover a short outage. Keep the page
+  // available for an explicit Retry after that, or after changing credentials.
+  failed.retryAt = failed.needsSettings || failed.failures > 3 ? Infinity :
+    Math.max(Number.isFinite(serverRetryAt) ? serverRetryAt : 0,
+      Date.now() + Math.min(60000, 15000 * 2 ** (failed.failures - 1)));
+  failed.sources = [source];
+  if (failed !== stream) group.streams.push(failed);
+  return failed;
+}
+
+function settleRecommendationSourceRetries(tab, failures, successful = new Set()) {
+  for (const group of Object.values(tab.recommendationPools || {}).flat())
+    for (const stream of [...group.streams]) {
+      for (const source of [...stream.sources]) {
+        const failed = failures.get(source);
+        if (failed) {
+          // A source outage applies to every tag query. Splitting untouched
+          // streams keeps healthy peers available at their original page.
+          const paused = stream.sources.length === 1 ? stream :
+            { nextPage: stream.nextPage, sources: [source] };
+          Object.assign(paused, { error: failed.error, failures: failed.failures,
+            retryAt: failed.retryAt, needsSettings: failed.needsSettings });
+          if (paused !== stream) {
+            stream.sources = stream.sources.filter(value => value !== source);
+            group.streams.push(paused);
+          }
+        } else if (successful.has(source) && stream.error && !stream.querySpecific) {
+          stream.retryAt = 0;
+          stream.failures = 0;
+          delete stream.error;
+          delete stream.needsSettings;
+        }
+      }
+    }
+}
+
+function retryRecommendationSources(tab, sources = null, load = true) {
+  if (sources && !tab.selectedSources?.some(source => sources.includes(source))) return;
+  if (tab.loading) {
+    if (load) return;
+    // An old-credential response must not re-block a source after settings have
+    // been saved. Keep the visit and pages; discard only that in-flight request.
+    tab.recommendationController?.abort();
+    tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
+    tab.loading = false;
+  }
+  for (const group of Object.values(tab.recommendationPools || {}).flat())
+    for (const stream of group.streams)
+      if (stream.error && (!sources || stream.sources.some(source => sources.includes(source)))) {
+        stream.failures = 0;
+        stream.retryAt = Date.now();
+        stream.needsSettings = false;
+      }
+  tab.loadError = false;
+  tab.emptyRecommendationRounds = 0;
+  tab.recommendationPaused = false;
+  tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
+  if (load) return loadRecommendations(tab, true);
+  if (typeof scheduleRule34Recovery === 'function') scheduleRule34Recovery(tab);
+}
+
 async function loadRecommendationBackground(tab, signal) {
   const key = `${tab.rating}:${[...tab.selectedSources].sort().join(',')}`;
   if (tab.recommendationBackgroundKey === key && Date.now() - tab.recommendationBackgroundAt < 600000)
@@ -1263,6 +1332,16 @@ function selectRecommendationGroups(tab) {
     if (group) { chosen.push(group); excluded.add(group.tag); }
     return !!group;
   };
+  // A recovery timer must retry its due page rather than rotate through unrelated
+  // queries while the failed page remains overdue and keeps waking the timer.
+  const recovery = Object.values(tab.recommendationPools || {}).flat().find(group =>
+    group.streams.some(stream => stream.sources.length && stream.error && stream.retryAt <= Date.now()));
+  if (recovery) { chosen.push(recovery); excluded.add(recovery.tag); }
+  if (recovery) {
+    if (!add('priority'))
+      for (const kind of ['other', 'names', 'copyright', 'combinations']) if (add(kind)) break;
+    return chosen;
+  }
   if (add('priority')) {
     const second = ['combinations', 'other', 'names', 'copyright'][tab.recommendationRound++ % 4];
     if (!add(second)) for (const kind of ['other', 'names', 'copyright', 'combinations']) if (add(kind)) break;
@@ -1304,6 +1383,12 @@ function prepareRecommendationProfile(tab, liked = CatalogLogic.filterWorks(
       const old = previous.get(`${group.kind}:${group.query}`);
       if (old) group.streams = old.streams;
     }
+    const failures = new Map();
+    for (const group of Object.values(previousPools || {}).flat())
+      for (const stream of group.streams)
+        if (stream.error && !stream.querySpecific) for (const source of stream.sources)
+          if (!failures.has(source) || failures.get(source).retryAt < stream.retryAt) failures.set(source, stream);
+    settleRecommendationSourceRetries(tab, failures);
   }
   const start = kind => {
     const count = tab.recommendationPools[kind].length;
@@ -1408,35 +1493,11 @@ async function loadRecommendations(tab, append = false) {
     if (!alive() || version !== tab.recommendationVersion ||
         controller.signal.aborted) return;
     const candidateGroups = groups.map(group => ({ kind: group.kind, items: [] }));
-    tab.loadError = false;
-    for (const { group, stream, response, error } of results) {
-      if (error) {
-        if (error.name !== 'AbortError') tab.loadError = true;
-        continue;
-      }
-      candidateGroups[groups.indexOf(group)].items.push(...(response.items || []));
-      const requestedSources = [...stream.sources];
-      for (const source of requestedSources)
-        if (!response.errors?.[source] && !response.notices?.[source]) delete tab.errors[source];
-      Object.assign(tab.errors, response.notices || {}, response.errors || {});
-      const failedRule34 = requestedSources.includes('rule34') && response.errors?.rule34;
-      const failedPage = stream.nextPage;
-      stream.nextPage++;
-      stream.sources = stream.nextPage < 100 ? response.hasMoreSources || [] : [];
-      stream.retryAt = 0;
-      if (failedRule34) {
-        const paused = requestedSources.length === 1 ? stream :
-          { nextPage: failedPage, sources: ['rule34'] };
-        paused.nextPage = failedPage;
-        paused.sources = ['rule34'];
-        paused.retryAt = /user id|api key|ключ API/i.test(failedRule34) ? Infinity :
-          response.retryAt?.rule34 || Date.now() + 15000;
-        if (paused !== stream) group.streams.push(paused);
-      }
-    }
+    for (const { group, response } of results)
+      if (response) candidateGroups[groups.indexOf(group)].items.push(...(response.items || []));
     const previousCount = tab.items.length;
     const background = await backgroundTask;
-    if (version !== tab.recommendationVersion || controller.signal.aborted) return;
+    if (!alive() || version !== tab.recommendationVersion || controller.signal.aborted) return;
     let ranked, rankingCuration;
     do {
       rankingCuration = contentPreferences.curation;
@@ -1445,6 +1506,47 @@ async function loadRecommendations(tab, append = false) {
         { background, recentKeys: tab.recommendationRecentKeys, curation: rankingCuration });
       if (!alive() || version !== tab.recommendationVersion || controller.signal.aborted) return;
     } while (JSON.stringify(rankingCuration) !== JSON.stringify(contentPreferences.curation));
+    // Commit page cursors, retries, errors and cards together after the final
+    // await. An interrupted sample/worker must leave discarded pages retryable.
+    const sourceFailures = new Map(), successfulSources = new Set();
+    tab.loadError = false;
+    for (const { group, stream, response, error } of results) {
+      if (error) {
+        if (error.name !== 'AbortError') tab.loadError = true;
+        continue;
+      }
+      const requestedSources = [...stream.sources];
+      for (const source of requestedSources)
+        if (!response.errors?.[source]) {
+          successfulSources.add(source);
+          if (!response.notices?.[source]) delete tab.errors[source];
+        }
+      Object.assign(tab.errors, response.notices || {}, response.errors || {});
+      const failedPage = stream.nextPage;
+      const failedSources = requestedSources.filter(source => response.errors?.[source]);
+      for (const source of failedSources) {
+        // Split a failed source before advancing successful peers. Each source
+        // resumes at its own page and a partial failure never discards cards.
+        const paused = deferRecommendationSource(group, stream, source,
+          response.errors[source], response.retryAt?.[source]);
+        if (!paused.querySpecific) {
+          const previous = sourceFailures.get(source);
+          sourceFailures.set(source, { error: paused.error, failures: paused.failures,
+            retryAt: Math.max(previous?.retryAt || 0, paused.retryAt), needsSettings: paused.needsSettings });
+        }
+      }
+      if (requestedSources.length !== 1 || !failedSources.length) {
+        stream.nextPage = failedPage + 1;
+        stream.sources = stream.nextPage < 100 ? (response.hasMoreSources || [])
+          .filter(source => requestedSources.includes(source) && !failedSources.includes(source)) : [];
+        stream.retryAt = 0;
+        stream.failures = 0;
+        delete stream.error;
+        delete stream.needsSettings;
+        delete stream.querySpecific;
+      }
+    }
+    settleRecommendationSourceRetries(tab, sourceFailures, successfulSources);
     tab.items = CatalogLogic.filterWorks(ranked, contentPreferences);
     if (contentPreferences.hideViewedAndSaved)
       tab.items = tab.items.filter(item => !CatalogLogic.workHistoryTokens(item)
@@ -1453,7 +1555,9 @@ async function loadRecommendations(tab, append = false) {
     tab.emptyRecommendationRounds = tab.items.length === previousCount
       ? (tab.emptyRecommendationRounds || 0) + 1 : 0;
     tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
-    tab.recommendationPaused = tab.hasMore && tab.emptyRecommendationRounds >= 4;
+    const ready = Object.values(tab.recommendationPools || {}).flat().some(group =>
+      group.streams.some(stream => stream.sources.length && (!stream.retryAt || stream.retryAt <= Date.now())));
+    tab.recommendationPaused = tab.hasMore && (!ready || tab.emptyRecommendationRounds >= 4);
     rememberItems(tab.items);
   } finally {
     if (version === tab.recommendationVersion) {
@@ -2752,7 +2856,8 @@ function savedWorkButton(item, collection, detail = false) {
   const like = collection === 'likes';
   const saved = isSavedWork(item, collection);
   const label = like ? saved ? 'Unlike' : 'Like' : saved ? 'Remove bookmark' : 'Add bookmark';
-  return `<button type="button" class="${detail ? 'detail-save-button ' : ''}${like ? 'heart-button' : 'bookmark-button'}${saved ? ' saved' : ''}" data-action="${like ? 'like' : 'bookmark'}" data-key="${escapeHtml(item.key)}" title="${label}" aria-label="${label}" aria-pressed="${saved}"${isSavedWorkPending(item, collection) ? ' disabled' : ''}>${svg(like ? 'heart' : 'bookmark')}</button>`;
+  const shortcut = like ? 'F' : 'B';
+  return `<button type="button" class="${detail ? 'detail-save-button ' : ''}${like ? 'heart-button' : 'bookmark-button'}${saved ? ' saved' : ''}" data-action="${like ? 'like' : 'bookmark'}" data-key="${escapeHtml(item.key)}" title="${label}${detail ? ` (${shortcut})` : ''}" aria-label="${label}"${detail ? ` aria-keyshortcuts="${shortcut}"` : ''} aria-pressed="${saved}"${isSavedWorkPending(item, collection) ? ' disabled' : ''}>${svg(like ? 'heart' : 'bookmark')}</button>`;
 }
 
 function quickPreviewShortcutAllowed(event, focused) {
@@ -3020,8 +3125,6 @@ async function toggleSavedWork(item, collection, likeOnly = false) {
       if (collection !== 'likes') continue;
       tab.recommendationController?.abort();
       tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
-      if (!contentPreferences.hideViewedAndSaved)
-        tab.items = tab.items.filter(entry => !isSavedWork(entry, 'likes'));
       tab.loading = false;
       tab.loadError = false;
       tab.recommendationProfileDirty = true;
@@ -3046,7 +3149,8 @@ function syncSavedWorkButtons() {
     button.classList.toggle('saved', saved);
     button.setAttribute('aria-pressed', String(saved));
     button.setAttribute('aria-label', label);
-    button.title = label;
+    button.title = label + (button.classList.contains('detail-save-button')
+      ? ` (${collection === 'likes' ? 'F' : 'B'})` : '');
     button.disabled = isSavedWorkPending(itemIndex.get(button.dataset.key) || { key: button.dataset.key }, collection);
     globalThis.DartI18n?.translateTree(button);
   });
@@ -3491,6 +3595,10 @@ function renderRecommendations(tab) {
   const copyrights = groups.copyright || [];
   const visibleCopyrights = tab.showMoreRecommendationCopyright ? copyrights : copyrights.slice(0, 3);
   const hiddenCopyrightCount = Math.max(0, copyrights.length - 3);
+  const recovery = Object.values(tab.recommendationPools || {}).flat().flatMap(group => group.streams)
+    .filter(stream => stream.sources.length && stream.error);
+  const waitingForRetry = recovery.some(stream => Number.isFinite(stream.retryAt));
+  const waitingForSettings = recovery.length && recovery.every(stream => stream.needsSettings);
   return `<div class="content"><h1>Рекомендации</h1>
     <p class="section-sub">Подборка по тегам изображений, которые вы отметили сердечком. Понравившиеся работы не повторяются.</p>
     ${!likes.length && !hasChoices ? '<div class="empty feature-empty">Поставьте лайк сердечком, и здесь появятся рекомендации.</div>' : !visibleLikes.length && !hasChoices ? '<div class="empty feature-empty">Все понравившиеся работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.</div>' : !tags.length && !hasChoices ? '<div class="empty feature-empty">У понравившихся работ пока нет подходящих тегов для подбора.</div>' : `
@@ -3502,9 +3610,9 @@ function renderRecommendations(tab) {
         <div class="source-filters">${Object.entries(names).map(([source, name]) => `<button class="filter-button ${tab.selectedSources.includes(source) ? 'active' : ''}" data-action="recommendation-source" data-source="${source}" aria-pressed="${tab.selectedSources.includes(source)}">${name}${sourceKeyHint(source)}</button>`).join('')}</div>
       </div>
       <section class="section"><div class="section-head"><h2>Для вас</h2><button class="text-button" data-action="recommendation-refresh">Обновить</button></div>
-        ${renderErrors(tab.errors)}
+        ${renderErrors(tab.errors, 'recommendation-more-retry')}
          ${tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'recommendations') : contentPreferences.hideViewedAndSaved ? '<div class="empty">Непросмотренных работ по этим тегам пока нет. Попробуйте другой тег или источник.</div>' : '<div class="empty">По выбранным тегам пока нет подходящих работ. Попробуйте другой рейтинг или источник.</div>'}
-        ${tab.loading && tab.items.length ? '<div class="feed-status">Подбираем ещё…</div>' : tab.loadError ? '<div class="feed-status">Не удалось продолжить подбор. <button data-action="recommendation-more-retry">Повторить</button></div>' : tab.hasMore && tab.recommendationPaused ? '<div class="feed-status">Новых совпадений пока нет. <button data-action="recommendation-continue">Искать дальше</button></div>' : tab.hasMore ? `<div class="feed-sentinel" data-auto-load="recommendations" data-tab-id="${tab.id}" aria-hidden="true"></div>` : tab.items.length ? '<div class="feed-status">Все доступные рекомендации загружены</div>' : ''}
+        ${tab.loading && tab.items.length ? '<div class="feed-status">Подбираем ещё…</div>' : tab.loadError ? '<div class="feed-status">Не удалось продолжить подбор. <button data-action="recommendation-more-retry">Повторить</button></div>' : tab.hasMore && tab.recommendationPaused && recovery.length ? `<div class="feed-status" role="status">${waitingForSettings ? 'Проверьте подключение источников в настройках.' : waitingForRetry ? 'Источники временно недоступны. Повторим автоматически.' : 'Автоматические повторы приостановлены.'} <button data-action="${waitingForSettings ? 'settings' : 'recommendation-more-retry'}">${waitingForSettings ? 'Настроить' : 'Повторить'}</button></div>` : tab.hasMore && tab.recommendationPaused ? '<div class="feed-status">Новых совпадений пока нет. <button data-action="recommendation-continue">Искать дальше</button></div>' : tab.hasMore ? `<div class="feed-sentinel" data-auto-load="recommendations" data-tab-id="${tab.id}" aria-hidden="true"></div>` : tab.items.length ? '<div class="feed-status">Все доступные рекомендации загружены</div>' : ''}
       </section>`}
   </div>`;
 }
@@ -3736,25 +3844,25 @@ function visibleFeedCard(tab, item) {
 }
 
 function retainFeedWork(tab, item, visibleHeight = 0) {
-  if (!contentPreferences.hideViewedAndSaved || !tab || tab.kind === 'detail') return;
+  if (!tab) return;
   const card = visibleFeedCard(tab, item);
   if (!visibleHeight && !card) return;
+  rememberRenderedFeedWork(tab, item, tab.kind === 'detail' ? 'related' : '');
+}
+
+function rememberRenderedFeedWork(tab, item, gridKey = '') {
+  if (!isHideableFeed(tab, gridKey)) return;
   tab.retainedFeedWorks ||= new Map();
-  tab.retainedFeedWorks.set(item.key, new Set(CatalogLogic.workHistoryTokens(item)));
-  const height = card?.getBoundingClientRect().height || visibleHeight;
-  if (height) {
-    tab.retainedFeedHeights ||= new Map();
-    tab.retainedFeedHeights.set(item.key, height);
-  }
+  // Retain only keys that occupied a rendered slot in this result generation.
+  // The result reset clears these small records; scrolling and navigation do not.
+  for (const key of [item.key, ...(item.memberKeys || [])])
+    if (key) tab.retainedFeedWorks.set(key, true);
 }
 
 function isRetainedFeedWork(tab, item) {
   if (!tab?.retainedFeedWorks?.size) return false;
-  // A hold preserves one existing viewport slot. Shared file/series evidence
-  // hides later mirrors, but must not grant those mirrors additional slots.
-  const tokens = [item.key, ...(item.memberKeys || [])].map(key => `key:${key}`);
-  return [...tab.retainedFeedWorks.values()].some(held =>
-    tokens.some(token => held.has(token)));
+  // Shared hashes hide incoming mirrors without granting them a second slot.
+  return [item.key, ...(item.memberKeys || [])].some(key => tab.retainedFeedWorks.has(key));
 }
 
 function expiredFeedSlot(tab, item) {
@@ -3772,35 +3880,8 @@ function expiredFeedSlot(tab, item) {
 function isExpiredFeedWork(tab, item) { return !!expiredFeedSlot(tab, item); }
 
 function expireRetainedFeedWorks(tab) {
-  if (!tab?.retainedFeedWorks?.size) return false;
-  const bounds = main.getBoundingClientRect();
-  const margin = Math.max(450, main.clientHeight || 900);
-  const cards = [...main.querySelectorAll('.card[data-work-key]')].map(card => ({
-    card, tokens: [card.dataset.workKey,
-      ...(itemIndex.get(card.dataset.workKey)?.memberKeys || [])].map(key => `key:${key}`)
-  }));
-  let knownTokens;
-  let changed = false;
-  for (const [key, held] of tab.retainedFeedWorks) {
-    const shown = cards.find(entry => entry.tokens.some(token => held.has(token)));
-    const rect = shown?.card.getBoundingClientRect();
-    if (!rect || rect.bottom < bounds.top - margin || rect.top > bounds.bottom + margin) {
-      tab.retainedFeedWorks.delete(key);
-      knownTokens ||= knownWorkTokens();
-      if ([...held].some(token => knownTokens.has(token))) {
-        tab.expiredFeedWorks ||= new Map();
-        tab.expiredFeedTokens ||= new Map();
-        tab.expiredFeedWorks.set(key, {
-          height: tab.retainedFeedHeights?.get(key) || rect?.height || 0
-        });
-        for (const token of held)
-          if (token.startsWith('key:')) tab.expiredFeedTokens.set(token, key);
-      }
-      tab.retainedFeedHeights?.delete(key);
-      changed = true;
-    }
-  }
-  return changed;
+  // A known card remains a real card until this result generation is replaced.
+  return false;
 }
 
 function curateFeedWorks(works, tab, gridKey = '') {
@@ -3841,8 +3922,7 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepO
   const hideKnown = contentPreferences.hideViewedAndSaved && isHideableFeed(tab, gridKey);
   if (!hideKnown) return keepOrder ? works : curateFeedWorks(works, tab, gridKey);
   const knownTokens = knownWorkTokens();
-  const related = tab?.kind === 'detail' && gridKey === 'related';
-  const visible = works.filter(item => !related && isRetainedFeedWork(tab, item) || isExpiredFeedWork(tab, item) ||
+  const visible = works.filter(item => isRetainedFeedWork(tab, item) ||
     !CatalogLogic.workHistoryTokens(item).some(token => knownTokens.has(token)));
   return keepOrder ? visible : curateFeedWorks(visible, tab, gridKey);
 }
@@ -3870,7 +3950,7 @@ function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false
   const attribute = key ? ` data-grid-key="${escapeHtml(key)}"` : '';
   if (!key || works.length <= 160 || !tab)
     return `<div${attribute}><div class="grid" data-render-key="cards">${works.map(item =>
-      renderFeedCard(item, tab, newKeys)).join('')}</div></div>`;
+      renderFeedCard(item, tab, newKeys, key)).join('')}</div></div>`;
   tab.virtualState ||= {};
   const state = tab.virtualState[key] ||= { cols: 7, pitch: 260, startRow: 0, endRow: 0 };
   const cols = Math.max(1, state.cols);
@@ -3889,16 +3969,11 @@ function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false
   const top = Math.round(state.startRow * state.pitch);
   const bottom = Math.round(Math.max(0, totalRows - state.endRow) * state.pitch);
   return `<div class="virtual-grid"${attribute}><div class="virtual-spacer" data-render-key="top" style="height:${top}px"></div><div class="grid" data-render-key="cards">${visible.map(item =>
-    renderFeedCard(item, tab, newKeys)).join('')}</div><div class="virtual-spacer" data-render-key="bottom" style="height:${bottom}px"></div></div>`;
+    renderFeedCard(item, tab, newKeys, key)).join('')}</div><div class="virtual-spacer" data-render-key="bottom" style="height:${bottom}px"></div></div>`;
 }
 
-function renderFeedCard(item, tab, newKeys) {
-  const expired = tab?.expiredFeedWorks?.size ? expiredFeedSlot(tab, item) : null;
-  if (expired) {
-    const height = Number.isFinite(expired.height) && expired.height > 0
-      ? ` style="height:${Math.round(expired.height)}px"` : '';
-    return `<article class="card feed-placeholder" data-work-key="${escapeHtml(item.key)}" aria-hidden="true"${height}></article>`;
-  }
+function renderFeedCard(item, tab, newKeys, gridKey = '') {
+  rememberRenderedFeedWork(tab, item, gridKey);
   return renderCard(item, (item.memberKeys || [item.key]).some(key => newKeys.has(key)));
 }
 
@@ -5056,12 +5131,18 @@ document.addEventListener('keydown', event => {
   const blocked = dialog && dialog !== quickPreview || !tabListPanel.hidden ||
     !tabContextMenu.hidden || !recommendationTagMenu.hidden || !popover.hidden ||
     document.activeElement?.closest?.('.tabs-bar');
-  const action = DartArtworkNavigation.shortcut(event, document.activeElement, blocked);
+  const focused = document.activeElement;
+  // Native video controls retain Space, volume and playback keys. Artwork
+  // shortcuts must still work after interacting with the modal player.
+  const shortcutFocus = quickPreview.open && focused?.tagName === 'VIDEO' && quickPreview.contains(focused)
+    ? null : focused;
+  const action = DartArtworkNavigation.shortcut(event, shortcutFocus, blocked);
   if (!action) return;
   const route = quickPreview.open ? quickPreviewRoute : tab.artworkRoute;
   if (!route || event.repeat && route.engine.state.busy) return;
   event.preventDefault(); event.stopImmediatePropagation();
   if (action === 'like') void toggleSavedWork(quickPreview.open ? quickPreviewWork : tab.item, 'likes');
+  else if (action === 'bookmark') void toggleSavedWork(quickPreview.open ? quickPreviewWork : tab.item, 'bookmarks');
   else void moveArtwork(action === 'previous' ? -1 : 1);
 }, true);
 
@@ -5429,6 +5510,8 @@ main.addEventListener('submit', async event => {
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login, password }) });
       toast('Вход в Sankaku выполнен');
       for (const tab of tabs.filter(tab => tab.kind === 'detail' && tab.item?.source === 'sankaku')) loadDetail(tab);
+      for (const tab of tabs.filter(tab => tab.kind === 'recommendations'))
+        retryRecommendationSources(tab, ['sankaku'], false);
     } catch (error) { sankakuLoginError = error.message; }
     finally { sankakuSigningIn = false; render(); }
     return;
@@ -5440,6 +5523,8 @@ main.addEventListener('submit', async event => {
     settings = await request('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: form.get('userId'), apiKey: form.get('apiKey'),
         rule34UserId: form.get('rule34UserId'), rule34ApiKey: form.get('rule34ApiKey') }) });
+    for (const tab of tabs.filter(tab => tab.kind === 'recommendations'))
+      retryRecommendationSources(tab, ['gelbooru', 'rule34'], false);
     render(); toast('Настройки сохранены');
   } catch { toast('Не удалось сохранить настройки'); }
 });
@@ -5568,7 +5653,7 @@ main.addEventListener('click', event => {
     render();
   }
   else if (action === 'recommendation-more-retry' && tab?.kind === 'recommendations') {
-    tab.loadError = false; loadRecommendations(tab, true);
+    retryRecommendationSources(tab);
   }
   else if (action === 'recommendation-continue' && tab?.kind === 'recommendations') {
     tab.emptyRecommendationRounds = 0;

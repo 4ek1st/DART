@@ -14,7 +14,7 @@ function fixture() {
   const other = { key: 'rule34:3', source: 'rule34', id: '3', images: ['https://fixture.test/other.png'] };
   const controls = [first, mirror, other].map(item => ({
     dataset: { action: 'like', key: item.key }, attributes: {}, disabled: false,
-    setAttribute(name, value) { this.attributes[name] = value; }, classList: { toggle() {} }
+    setAttribute(name, value) { this.attributes[name] = value; }, classList: { toggle() {}, contains: () => false }
   }));
   const writes = [], messages = [];
   const context = vm.createContext({ CatalogLogic, savedWorkPending: new Set(),

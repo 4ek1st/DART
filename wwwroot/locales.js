@@ -514,6 +514,9 @@ Ranks available results without extra image downloads. Works with missing data r
 Works in the catalog, search, recommendations, related works, Following, artist profiles, Liked, Bookmarks and history.|Работает в каталоге, поиске, рекомендациях, похожих работах, подписках, профилях художников, лайках, закладках и истории.|Wirkt im Katalog, in der Suche, in Empfehlungen, ähnlichen Werken, Abonnements, Künstlerprofilen, Likes, Lesezeichen und im Verlauf.
 New works stay first in Following. New and Popular choose the source ordering; curation refines the available results.|Новые работы остаются первыми в подписках. «Новые» и «Популярные» задают порядок запроса к источникам; отбор сортирует полученные результаты.|Neue Werke bleiben in Abonnements an erster Stelle. „Neu“ und „Beliebt“ bestimmen die Abfragereihenfolge der Quellen; die Auswahl sortiert die verfügbaren Ergebnisse.
 Could not save curation settings|Не удалось сохранить настройки отбора|Die Auswahleinstellungen konnten nicht gespeichert werden
+Check source connections in Settings.|Проверьте подключение источников в настройках.|Prüfen Sie die Quellenverbindungen in den Einstellungen.
+Sources are temporarily unavailable. Retrying automatically.|Источники временно недоступны. Повторим автоматически.|Quellen sind vorübergehend nicht erreichbar. Der nächste Versuch erfolgt automatisch.
+Automatic retries are paused.|Автоматические повторы приостановлены.|Automatische Wiederholungen sind pausiert.
 `; 
   root.DartMessages = rows.trim().split('\n').map(row => row.split('|'));
   if (typeof module !== 'undefined') module.exports = root.DartMessages;

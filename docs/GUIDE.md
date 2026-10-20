@@ -42,6 +42,21 @@ a connection. A post's details can link to its entries on other sources.
 Videos open in the built-in player with seeking, sound, and full-screen mode.
 Format support depends on the codecs available to WebView2.
 
+When viewing a work, use **A / Left arrow** for the previous artwork,
+**D / Right arrow** for the next, **F** to toggle its like, and **B** to toggle
+its bookmark. The physical letter keys also work with another keyboard layout.
+Typing in a text field does not trigger these commands. Hold A/D or the arrows
+to browse; holding B/F does not repeatedly change the saved state.
+
+Press **Space** over a thumbnail for quick preview. Navigation and save shortcuts
+also work in that preview, including after interacting with its video player.
+Space on the focused preview video still controls playback.
+
+Cards already shown in the current results remain in place after viewing,
+liking or bookmarking, including when scrolling away and returning. With
+known-work hiding enabled, the next search, filter change or explicit refresh
+excludes those works. Newly arriving known copies do not gain additional slots.
+
 Hover over a video thumbnail to cycle through five still frames from across
 the clip. Moving the pointer away restores its normal thumbnail. Preview frames
 are prepared after a short hover delay and reused from a bounded memory cache;

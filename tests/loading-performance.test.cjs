@@ -143,7 +143,10 @@ test('large grids render the viewport with surrounding rows and still reach the 
   const tab = { id: 1, kind: 'bookmarks' };
   const main = { clientHeight: 1300, dataset: { tabId: '1' }, scrollTop: 0 };
   const items = Array.from({ length: 600 }, (_, i) => ({ key: 'work:' + i }));
-  const render = vm.runInNewContext(source.slice(start, end) + '\nrenderGrid', {
+  const retentionStart = source.indexOf('function isHideableFeed(');
+  const retentionEnd = source.indexOf('\nfunction isRetainedFeedWork(', retentionStart);
+  const render = vm.runInNewContext(source.slice(retentionStart, retentionEnd) + '\n' +
+    source.slice(start, end) + '\nrenderGrid', {
     currentTab: () => tab, main, escapeHtml: v => String(v), filterFeedWorks: items => items,
     renderCard: item => `<article data-key="${item.key}"></article>`
   });

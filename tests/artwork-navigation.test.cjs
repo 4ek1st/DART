@@ -180,6 +180,28 @@ test('shortcuts accept the physical F key and preserve text, video, menus and mo
   assert.equal(Navigation.shortcut(event, null, true), '');
 });
 
+test('A/D browse and B bookmarks using physical keys across keyboard layouts', () => {
+  for (const [event, expected] of [
+    [{ key: 'ф', code: 'KeyA' }, 'previous'],
+    [{ key: 'в', code: 'KeyD' }, 'next'],
+    [{ key: 'и', code: 'KeyB' }, 'bookmark'],
+    [{ key: 'A' }, 'previous'], [{ key: 'd' }, 'next'], [{ key: 'B' }, 'bookmark']
+  ]) assert.equal(Navigation.shortcut(event), expected);
+  assert.equal(Navigation.shortcut({ code: 'KeyA', repeat: true }), 'previous');
+  assert.equal(Navigation.shortcut({ code: 'KeyD', repeat: true }), 'next');
+  assert.equal(Navigation.shortcut({ code: 'KeyB', repeat: true }), '');
+});
+
+test('new viewer shortcuts do not steal editing, control shortcuts or composition', () => {
+  for (const code of ['KeyA', 'KeyD', 'KeyB']) {
+    for (const flag of ['ctrlKey', 'altKey', 'metaKey', 'shiftKey', 'isComposing', 'defaultPrevented'])
+      assert.equal(Navigation.shortcut({ code, [flag]: true }), '');
+    assert.equal(Navigation.shortcut({ code }, { isContentEditable: true }), '');
+    assert.equal(Navigation.shortcut({ code }, { closest: () => ({}) }), '');
+    assert.equal(Navigation.shortcut({ code }, null, true), '');
+  }
+});
+
 test('a Following snapshot preserves in-flight cursors and their group references after closing the feed', () => {
   const follow = { key: 'gelbooru::fixture_artist', source: 'gelbooru', artistId: 'fixture_artist' };
   const group = { follow, items: [work(1)] };

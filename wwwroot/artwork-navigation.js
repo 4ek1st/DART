@@ -114,8 +114,10 @@
     if (blocked || event.defaultPrevented || event.isComposing || event.ctrlKey ||
         event.metaKey || event.altKey || event.shiftKey || focused?.isContentEditable ||
         focused?.closest?.('input, textarea, select, [contenteditable], video, [role="slider"]')) return '';
-    if (event.key === 'ArrowLeft') return 'previous';
-    if (event.key === 'ArrowRight') return 'next';
+    const key = String(event.key).toLowerCase();
+    if (event.key === 'ArrowLeft' || event.code === 'KeyA' || key === 'a') return 'previous';
+    if (event.key === 'ArrowRight' || event.code === 'KeyD' || key === 'd') return 'next';
+    if (!event.repeat && (event.code === 'KeyB' || key === 'b')) return 'bookmark';
     if (!event.repeat && (event.code === 'KeyF' || String(event.key).toLowerCase() === 'f')) return 'like';
     return '';
   }

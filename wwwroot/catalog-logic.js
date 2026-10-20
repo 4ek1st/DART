@@ -89,12 +89,18 @@
     'hair ornament', 'bar censor', 'mosaic censoring', 'ahoge',
     'tail', 'very long hair', 'barefoot', 'pointy ears', 'tongue out',
     'teeth', 'on back', 'hair between eyes', 'white background',
-    'toes', 'collarbone', 'dark skin'
+    'toes', 'collarbone', 'dark skin',
+    // Catalogs use different spellings for equally broad attributes. Keep
+    // their raw tags for searching and explicit choices, but not as taste.
+    'clothing', 'clothes', 'busty', 'vagina', 'bodily fluids', 'straight',
+    'female focus', 'male focus', 'legwear', 'flat chest'
   ]);
 
   function isBroadRecommendationTag(tag) {
     const normalized = normalizeTag(tag);
     return broadRecommendationTags.has(normalized) ||
+      /^(?:(?:very|extremely|absolutely|incredibly|ridiculously|ultra) )*(?:lowres|highres|absurdres|(?:low|high|absurd|huge|original|full) resolution)$/.test(normalized) ||
+      /^(?:(?:very|extremely|ultra|large|huge|massive|small|medium|high|low) )*(?:filesize|file size)$/.test(normalized) ||
       /^(?:black|brown|blonde|red|blue|green|grey|gray|white|pink|purple|silver|orange|yellow|golden|multicolored) (?:hair|eyes)$/.test(normalized);
   }
 
@@ -1390,8 +1396,9 @@
 
   function recommendationQueryGroups(liked, preferences = {}, background = []) {
     let groups = recommendationTagGroups(liked, 2, preferences);
+    const weights = recommendationWeights(liked, preferences, background);
     const usable = ({ tag }) => preferences[tag] !== 'disabled' &&
-      (!isBroadRecommendationTag(tag) || preferences[tag] === 'priority');
+      (!isBroadRecommendationTag(tag) || preferences[tag] === 'priority') && weights.has(tag);
     if (![...groups.names, ...groups.copyright, ...groups.other].some(usable))
       groups = recommendationTagGroups(liked, 1, preferences);
     const active = entries => entries.filter(usable);
@@ -1402,9 +1409,7 @@
       Math.ceil(Math.log2((liked || []).length + 1)) - 1);
     const names = active(groups.names).filter(({ tag, count }) =>
       preferences[tag] !== 'priority' && count >= minimumNameCount);
-    const minimumContentCount = Math.max(2, Math.min(8,
-      Math.ceil(Math.log2((liked || []).length + 1) / 2)));
-    const weights = recommendationWeights(liked, preferences, background);
+    const minimumContentCount = recommendationMinimumEvidence((liked || []).length);
     const copyright = active(groups.copyright).filter(({ tag, count }) =>
       preferences[tag] !== 'priority' && count >= minimumNameCount);
     const other = active(groups.other).filter(({ tag, count }) => preferences[tag] !== 'priority' &&
@@ -1450,6 +1455,7 @@
   function recommendationWeights(liked, preferences, background = []) {
     const profile = recommendationProfile(liked);
     const state = recommendationProfiles.get(liked);
+    const minimumEvidence = recommendationMinimumEvidence(state?.total || (liked || []).length);
     const minimumNameCount = Math.max(3, Math.ceil(Math.log2((liked || []).length + 1)) - 1);
     const ordinary = groupWorks(background);
     const prevalence = new Map();
@@ -1458,6 +1464,10 @@
     const weights = new Map();
     for (const { tag, count, support } of profile) {
       if (preferences[tag] === 'disabled' || isBroadRecommendationTag(tag) && preferences[tag] !== 'priority') continue;
+      // A large collection contains many incidental one-off details. Only
+      // recurring independent evidence can admit a work automatically; an
+      // explicit priority remains effective even without supporting likes.
+      if (preferences[tag] !== 'priority' && support < minimumEvidence) continue;
       // Repeated versions by one creator provide less independent evidence than
       // matching interests across many artists. Smooth small samples strongly.
       let weight = Math.max(0.25, Math.log2(support + 1) - 0.75) * (support / (support + 1)) ** 2;
@@ -1487,6 +1497,12 @@
       .map(normalizeTag).filter(tag => preferences[tag] === 'priority')])];
   }
 
+  function recommendationMinimumEvidence(total) {
+    // Cold start still explores the few interests available. As evidence
+    // grows, share the existing query confidence rule with ranking.
+    return total < 12 ? 1 : Math.max(2, Math.min(8, Math.ceil(Math.log2(total + 1) / 2)));
+  }
+
   function recommendationCombinations(liked, preferences = {}, background = []) {
     const profile = recommendationProfile(liked);
     const state = recommendationProfiles.get(liked);
@@ -1498,9 +1514,8 @@
       const minimum = Math.max(3, Math.min(6, Math.ceil(Math.log2(state.total + 1) / 2)));
       const blocked = new Set([...excludedContentTags(Object.entries(preferences)
         .filter(([, mode]) => mode === 'disabled').map(([tag]) => tag))].map(normalizeTag));
-      const technical = tag => /^(?:(?:very|extremely|ultra) )?(?:low|high|absurd|huge|original) resolution$/.test(tag);
       const usable = profile.filter(entry => entry.count >= minimum && !blocked.has(entry.tag) &&
-        (!(isBroadRecommendationTag(entry.tag) || technical(entry.tag)) || preferences[entry.tag] === 'priority'));
+        (!isBroadRecommendationTag(entry.tag) || preferences[entry.tag] === 'priority'));
       const identity = tag => state.names.has(tag) || state.copyrights.has(tag);
       const strongest = entries => entries.sort((a, b) => b.support - a.support || a.tag.localeCompare(b.tag));
       const focused = new Set([

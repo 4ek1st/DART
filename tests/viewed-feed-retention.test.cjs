@@ -30,7 +30,7 @@ function fixture() {
   return { context, item, other, tab, rect, card };
 }
 
-test('opened visible work keeps its feed slot after unloading, without showing its image', () => {
+test('opened visible work keeps its real feed card after scrolling away', () => {
   const { context, item, other, tab, rect } = fixture();
   assert.equal(context.filterFeedWorks([item, other], tab).length, 2);
   context.retainFeedWork(tab, item);
@@ -39,9 +39,10 @@ test('opened visible work keeps its feed slot after unloading, without showing i
   assert.equal(context.expireRetainedFeedWorks(tab), false);
   rect.top = -1900;
   rect.bottom = -1640;
-  assert.equal(context.expireRetainedFeedWorks(tab), true);
+  assert.equal(context.expireRetainedFeedWorks(tab), false);
   assert.equal(context.filterFeedWorks([item, other], tab).length, 2);
-  assert.equal(context.isExpiredFeedWork(tab, item), true);
+  assert.equal(context.isExpiredFeedWork(tab, item), false);
+  assert.equal(context.isRetainedFeedWork(tab, item), true);
   assert.equal(context.isExpiredFeedWork(tab, other), false);
 });
 
@@ -54,9 +55,10 @@ test('saved visible group keeps its slot after unloading, including grouped sour
   assert.equal(context.filterFeedWorks([group], tab, true).length, 1);
   rect.top = 1700;
   rect.bottom = 1960;
-  assert.equal(context.expireRetainedFeedWorks(tab), true);
+  assert.equal(context.expireRetainedFeedWorks(tab), false);
   assert.equal(context.filterFeedWorks([group], tab, true).length, 1);
-  assert.equal(context.isExpiredFeedWork(tab, group), true);
+  assert.equal(context.isExpiredFeedWork(tab, group), false);
+  assert.equal(context.isRetainedFeedWork(tab, group), true);
 });
 
 test('a work outside the viewport does not gain a display hold', () => {
@@ -77,7 +79,7 @@ test('a display hold belongs to its original card, not a later copy in another s
   assert.deepEqual(Array.from(context.filterFeedWorks([item, copy], tab, true), x => x.key), [item.key]);
 });
 
-test('an unloaded card keeps one placeholder without granting a later copy another slot', () => {
+test('scrolling away retains one real card without granting a later copy another slot', () => {
   const { context, item, tab, rect } = fixture();
   context.retainFeedWork(tab, item);
   context.viewedTokens.add(`hash:${item.contentHash}`);
@@ -86,6 +88,7 @@ test('an unloaded card keeps one placeholder without granting a later copy anoth
   const copy = { ...item, key: 'sankaku:late-copy', source: 'sankaku' };
   assert.equal(context.isExpiredFeedWork(tab, copy), false);
   const enriched = { ...item, key: copy.key, memberKeys: [item.key, copy.key] };
-  assert.equal(context.isExpiredFeedWork(tab, enriched), true);
+  assert.equal(context.isExpiredFeedWork(tab, enriched), false);
+  assert.equal(context.isRetainedFeedWork(tab, enriched), true);
   assert.deepEqual(Array.from(context.filterFeedWorks([item, copy], tab, true), x => x.key), [item.key]);
 });

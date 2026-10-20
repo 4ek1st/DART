@@ -104,8 +104,11 @@ function parseElements(markup) {
 function gridHarness() {
   const tab = { id: 1, kind: 'bookmarks' };
   const main = { clientHeight: 900, scrollTop: 0, dataset: { tabId: '1' } };
+  const isHideableFeed = extract('function isHideableFeed(', '\nfunction visibleFeedCard(', 'isHideableFeed');
+  const rememberRenderedFeedWork = extract('function rememberRenderedFeedWork(',
+    '\nfunction isRetainedFeedWork(', 'rememberRenderedFeedWork', { isHideableFeed });
   const renderGrid = extract('function renderGrid(', '\nfunction measureVirtualGrids(', 'renderGrid', {
-    currentTab: () => tab, main, CatalogLogic, escapeHtml: String,
+    currentTab: () => tab, main, CatalogLogic, escapeHtml: String, rememberRenderedFeedWork,
     filterFeedWorks: items => items,
     renderCard: item => `<article class="card" data-work-key="${item.key}"><button class="card-art"><img data-image-url="https://example.org/${item.key}.jpg"><img class="video-preview-frame" hidden></button></article>`
   });

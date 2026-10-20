@@ -45,6 +45,10 @@ test('detail and card actions have distinct icon buttons and reflect grouped sou
   assert.match(like, /data-action="like"/);
   assert.match(bookmark, /aria-pressed="false"/);
   assert.match(bookmark, /data-icon="bookmark"/);
+  assert.match(like, /aria-keyshortcuts="F"/);
+  assert.match(bookmark, /aria-keyshortcuts="B"/);
+  assert.match(bookmark, /title="Add bookmark \(B\)"/);
+  assert.doesNotMatch(button(item, 'likes'), /aria-keyshortcuts|\(F\)/);
   assert.doesNotMatch(like + bookmark, />Add bookmark<|>Like</);
   for (const language of ['en', 'ru', 'de']) {
     I18n.setLanguage(language);

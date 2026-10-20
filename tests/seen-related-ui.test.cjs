@@ -56,15 +56,16 @@ test('disabled hiding still displays saved related works', () => {
   assert.match(context.renderGrid([copy], 'related'), /gelbooru:copy/);
 });
 
-test('unloaded viewed work holds an empty slot without changing later artwork positions', () => {
-  const context = fixture({ viewed: ['key:rule34:fresh'] });
+test('a rendered related work remains a real card after viewing and scrolling', () => {
+  const context = fixture();
   const tab = context.currentTab();
-  tab.expiredFeedWorks = new Map([[fresh.key, { height: 260 }]]);
-  tab.expiredFeedTokens = new Map([['key:rule34:fresh', fresh.key]]);
+  context.renderGrid([fresh, copy], 'related');
+  context.viewedTokens.add('key:rule34:fresh');
+  context.expireRetainedFeedWorks(tab);
   const html = context.renderGrid([fresh, copy], 'related');
-  assert.match(html, /class="card feed-placeholder" data-work-key="rule34:fresh"[^>]*height:260px/);
+  assert.match(html, /data-key="rule34:fresh"/);
   assert.match(html, /data-key="gelbooru:copy"/);
-  assert.doesNotMatch(html, /data-image-url="[^"]*fresh/);
+  assert.doesNotMatch(html, /feed-placeholder/);
 });
 
 test('liked copies are also hidden in discovery feeds when hiding is enabled', () => {
@@ -72,12 +73,13 @@ test('liked copies are also hidden in discovery feeds when hiding is enabled', (
   assert.doesNotMatch(context.renderGrid([copy, fresh], 'related'), /gelbooru:copy/);
 });
 
-test('a visible retained related card cannot bypass the viewed or liked filter on return',()=>{
- for(const savedState of [{viewed:['key:'+copy.key]},{likes:[saved]}]){
+test('a retained related card survives viewing or liking while an incoming copy stays hidden',()=>{
+ for(const savedState of [{viewed:['key:'+copy.key,'hash:'+copy.contentHash]},{likes:[saved]}]){
   const context=fixture(savedState),tab=context.currentTab();
   tab.retainedFeedWorks=new Map([[copy.key,new Set(CatalogLogic.workHistoryTokens(copy))]]);
-  assert.doesNotMatch(context.renderGrid([copy,fresh],'related'),/data-key="gelbooru:copy"/);
+  assert.match(context.renderGrid([copy,fresh],'related'),/data-key="gelbooru:copy"/);
   assert.match(context.renderGrid([copy,fresh],'related'),/data-key="rule34:fresh"/);
+  assert.doesNotMatch(context.renderGrid([saved,fresh],'related'),/data-key="danbooru:saved"/);
  }
 });
 
@@ -102,7 +104,7 @@ test('all four catalogs hide confirmed liked file copies in related results',()=
  }
 });
 
-test('view recording refreshes loaded related results before the write finishes, with one update per frame',async()=>{
+test('view recording preserves rendered related cards before the write finishes, with one update per frame',async()=>{
  const context=fixture({tab:{related:[copy,fresh]}}),frames=[];
  context.main.dataset={tabId:'1'};context.requestAnimationFrame=fn=>frames.push(fn);
  let html=context.renderGrid([copy,fresh],'related'),finish;
@@ -111,10 +113,10 @@ test('view recording refreshes loaded related results before the write finishes,
  const write=context.recordViewedWorks([copy]);
  context.scheduleRelatedKnownRefresh();
  assert.equal(frames.length,1);
- frames.shift()();assert.doesNotMatch(html,/data-key="gelbooru:copy"/);
+ frames.shift()();assert.match(html,/data-key="gelbooru:copy"/);
  assert.match(html,/data-key="rule34:fresh"/);
  finish({saved:true});await write;frames.shift()();
- assert.doesNotMatch(html,/data-key="gelbooru:copy"/);
+ assert.match(html,/data-key="gelbooru:copy"/);
 });
 
 test('likes, bookmarks, history, profile and the open artwork are not filtered as related', () => {
@@ -124,12 +126,12 @@ test('likes, bookmarks, history, profile and the open artwork are not filtered a
   }
 });
 
-test('saving a related work hides it immediately and hides its later source copy', async () => {
+test('saving retains the current related card and hides its later source copy', async () => {
   const context = fixture();
   let html = context.renderGrid([copy, fresh], 'related');
   context.render = () => { html = context.renderGrid([copy, fresh], 'related'); };
   await context.toggleSavedWork(copy, 'bookmarks');
-  assert.doesNotMatch(html, /gelbooru:copy/);
+  assert.match(html, /gelbooru:copy/);
   assert.match(html, /rule34:fresh/);
   assert.doesNotMatch(context.renderGrid([saved, fresh], 'related'), /danbooru:saved/);
 });
