@@ -11,6 +11,14 @@ internal static class CurationFixtureTests
         var change = storeType.GetMethod("UpdateCurationPreferences")
             ?? throw new Exception("Curation preferences must have an independent persistent update");
         var updateType = change.GetParameters()[0].ParameterType;
+        var cleanState = assembly.GetType("ArtCatalog.CatalogState")!.GetMethod("CleanClientState",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+        using var migrated = JsonDocument.Parse((string)cleanState.Invoke(null, ["""
+            {"session":{"savedWorksVersion":1,"tabs":[{"kind":"search","sort":"curated","curationBaseSort":"popular"}],"activeIndex":0}}
+            """])!);
+        var migratedTab = migrated.RootElement.GetProperty("session").GetProperty("tabs")[0];
+        if (migratedTab.GetProperty("sort").GetString() != "popular" || migratedTab.TryGetProperty("curationBaseSort", out _))
+            throw new Exception("Curation: a legacy Curated session must migrate to its normal source ordering");
         var directory = Path.Combine(Path.GetTempPath(), "DART-curation-fixture-" + Guid.NewGuid());
         Directory.CreateDirectory(directory);
         try

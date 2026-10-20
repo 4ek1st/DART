@@ -16,10 +16,11 @@ test('curation is opt-in and disabling it preserves the input order', () => {
   assert.deepEqual(keys(logic.rankCuratedWorks(items, factor('none'), { now })), ['danbooru:1', 'danbooru:2']);
 });
 
-test('session cleanup retains the source ordering behind a curated search', () => {
+test('session cleanup migrates legacy curated search to its normal source ordering', () => {
   const state = logic.cleanClientState({ session: { savedWorksVersion: 1, activeIndex: 0,
     tabs: [{ kind: 'search', sort: 'curated', curationBaseSort: 'popular', selectedSources: ['sankaku'] }] } });
-  assert.equal(state.session.tabs[0].curationBaseSort, 'popular');
+  assert.equal(state.session.tabs[0].sort, 'popular');
+  assert.equal('curationBaseSort' in state.session.tabs[0], false);
 });
 
 test('community ratings compare relative standing within each source and rating', () => {

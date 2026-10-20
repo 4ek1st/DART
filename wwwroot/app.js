@@ -429,7 +429,7 @@ function captureClientState() {
     kind: tab.kind, title: tab.title, query: tab.query || '',
     searchQuery: tab.kind === 'detail' ? tab.searchQuery || '' : undefined,
     selectedSources: tab.selectedSources, rating: tab.rating || 'general',
-    sort: tab.sort || 'recent', curationBaseSort: tab.curationBaseSort || 'recent', feed: tab.feed || 'illustrations',
+    sort: CatalogLogic.catalogSort(tab), feed: tab.feed || 'illustrations',
     item: tab.kind === 'detail' ? tab.item : undefined,
     profileRef: tab.kind === 'profile' ? tab.profileRef : undefined,
     settingsSection: tab.kind === 'settings' ? tab.settingsSection || 'content' : undefined,
@@ -544,9 +544,7 @@ function restoreSession() {
       searchQuery: String(saved.searchQuery || '').slice(0, 200),
       selectedSources,
       rating: ['general', 'explicit', 'all'].includes(saved.rating) ? saved.rating : 'general',
-      sort: saved.sort === 'curated' && contentPreferences.curation?.enabled ? 'curated' :
-        saved.sort === 'popular' || saved.sort === 'curated' && saved.curationBaseSort === 'popular' ? 'popular' : 'recent',
-      curationBaseSort: saved.curationBaseSort === 'popular' ? 'popular' : 'recent',
+      sort: CatalogLogic.catalogSort(saved),
       feed: 'illustrations',
       item: saved.item?.key ? rememberItem(saved.item) : saved.item,
       profileRef: saved.profileRef,
@@ -576,9 +574,7 @@ function matchingTab(kind, extra) {
     if (tab.kind !== kind) return false;
     if (['home', 'bookmarks', 'likes', 'follows', 'recommendations', 'recent', 'settings'].includes(kind)) return true;
     if (kind === 'search') return (tab.query || '') === (extra.query || '') &&
-      tab.rating === (extra.rating || 'general') && tab.sort === (extra.sort ||
-        (contentPreferences.curation?.enabled ? 'curated' : 'recent')) &&
-      (tab.sort !== 'curated' || (tab.curationBaseSort || 'recent') === (extra.curationBaseSort || 'recent')) &&
+      tab.rating === (extra.rating || 'general') && tab.sort === CatalogLogic.catalogSort(extra) &&
       tab.feed === (extra.feed || 'illustrations') && sameSources(tab);
     if (kind === 'profile') return tab.profileRef?.source === extra.profileRef?.source &&
       tab.profileRef?.artist === extra.profileRef?.artist &&
@@ -592,8 +588,9 @@ function createTab(kind, title, extra = {}, options = {}) {
   if (existing) { if (!options.background) activate(existing.id); return existing; }
   const tab = { id: nextId++, kind, title, items: [], errors: {}, page: 0,
     loading: false, scrollTop: 0, selectedSources: [...defaultSources],
-    rating: 'general', sort: ['home', 'search'].includes(kind) && contentPreferences.curation?.enabled
-      ? 'curated' : 'recent', feed: 'illustrations', ...extra };
+    rating: 'general', sort: 'recent', feed: 'illustrations', ...extra };
+  tab.sort = CatalogLogic.catalogSort(tab);
+  delete tab.curationBaseSort;
   tabs.push(tab);
   if (options.background) { render(); saveSession(); }
   else activate(tab.id);
@@ -898,7 +895,7 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   if (!append) {
     delete tab.resumePrefetchAt;
     tab.page = 0; tab.items = []; tab.errors = {}; tab.hasMore = true;
-    tab.curationOriginalItems = [];
+    delete tab.curationViews;
     tab.loadError = false;
     tab.virtualState = {};
     tab.retainedFeedWorks = new Map();
@@ -923,14 +920,9 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   let published = append;
   const receive = (response, batch) => {
     if (!alive() || version !== tab.requestVersion || controller.signal.aborted) return;
-    const previous = published ? tab.items : [];
-    const merged = [...previous, ...(response.items || [])];
+    const merged = published ? [...tab.items, ...(response.items || [])] : response.items || [];
     published = true;
-    if (tab.sort === 'curated') {
-      tab.curationOriginalItems = CatalogLogic.mergeGroupedWorks(tab.curationOriginalItems, response.items || []);
-      tab.items = CatalogLogic.mergeCuratedWorks(previous, response.items || [],
-        contentPreferences.curation, curationContext());
-    } else tab.items = [...new Map(merged.map(item => [item.key, item])).values()];
+    tab.items = [...new Map(merged.map(item => [item.key, item])).values()];
     const errors = { ...tab.errors };
     delete errors.network;
     for (const source of batch) {
@@ -958,8 +950,7 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
     const params = new URLSearchParams({ q: query, page: String(page),
       pages: batch.map(source => `${source}:${requestedPages[source]}`).join(','),
       sources: batch.join(','), rating: tab.rating || 'general',
-      sort: tab.sort === 'curated' ? tab.curationBaseSort || 'recent' : tab.sort || 'recent',
-      kind: tab.feed || 'illustrations' });
+      sort: tab.sort || 'recent', kind: tab.feed || 'illustrations' });
     try {
       receive(await request(`/api/search?${params}`, { signal: controller.signal }), batch);
     } catch (error) {
@@ -1911,19 +1902,12 @@ function applyContentPreferences(saved) {
   if (curationChanged) {
     const context = curationContext();
     for (const tab of tabs) {
-      if (['home', 'search'].includes(tab.kind)) {
-        if (contentPreferences.curation.enabled && !before.curation?.enabled) {
-          tab.curationBaseSort = tab.sort === 'popular' ? 'popular' : 'recent';
-          tab.curationOriginalItems = [...tab.items];
-          tab.sort = 'curated';
-        }
-        if (tab.sort === 'curated') {
-          const original = CatalogLogic.stableFeedItems(tab.curationOriginalItems || [], CatalogLogic.groupWorks(tab.items));
-          tab.items = CatalogLogic.rankCuratedWorks(original, contentPreferences.curation, context);
-          if (!contentPreferences.curation.enabled) tab.sort = tab.curationBaseSort || 'recent';
-          tab.virtualState = {};
-        }
-      } else if (tab.kind === 'recommendations' && tab.items.length) {
+      delete tab.curationViews;
+      delete tab.profileGridItems;
+      delete tab.profileGridRating;
+      tab.virtualState = {};
+      tab.artworkLists?.clear();
+      if (tab.kind === 'recommendations' && tab.items.length) {
         const items = tab.items, version = tab.recommendationVersion;
         const revision = tab.curationRankRevision = (tab.curationRankRevision || 0) + 1;
         // A large recommendation profile is already ranked in a worker during
@@ -2100,7 +2084,7 @@ async function loadCreatorWorks(tab, retryFailed = false) {
           if (findTab(tab.id) !== tab || controller.signal.aborted) return;
           tab.creatorCandidates = [...new Map([...tab.creatorCandidates, ...(response.items || [])]
             .map(entry => [entry.key, entry])).values()];
-          tab.creatorWorks = selectCreatorWorks(item, tab.creatorCandidates);
+          tab.creatorWorks = selectCreatorWorks(item, tab.creatorCandidates, tab);
           if (response.errors?.[source] || response.notices?.[source]) tab.creatorErrors[source] = response.errors?.[source] || response.notices[source];
           else delete tab.creatorErrors[source];
           const progress = CatalogLogic.advanceSearchSources(tab.creatorPages,
@@ -2126,7 +2110,7 @@ async function loadCreatorWorks(tab, retryFailed = false) {
   }
 }
 
-function selectCreatorWorks(item, candidates) {
+function selectCreatorWorks(item, candidates, tab = null) {
   const currentKeys = new Set([item.key, ...(item.memberKeys || [])]);
   const works = CatalogLogic.filterWorks(CatalogLogic.groupWorks([item, ...(candidates || [])]),
     contentPreferences).filter(entry =>
@@ -2140,9 +2124,9 @@ function selectCreatorWorks(item, candidates) {
   for (let index = 0; [...buckets.values()].some(bucket => bucket.length > index); index++) {
     for (const bucket of buckets.values())
       if (bucket[index]) selected.push(bucket[index]);
-    if (selected.length >= 12) break;
+    if (selected.length >= 12 && !contentPreferences.curation?.enabled) break;
   }
-  return selected.slice(0, 12);
+  return (contentPreferences.curation?.enabled ? curateFeedWorks(selected, tab, 'creator') : selected).slice(0, 12);
 }
 
 async function loadRelated(tab, append = false) {
@@ -2289,6 +2273,7 @@ async function loadProfile(tab, append = false) {
   tab.loading = true;
   if (!append) {
     tab.items = []; tab.page = 0; tab.profileError = false;
+    delete tab.curationViews;
     tab.hasMore = true; tab.loadError = false;
     tab.virtualState = {};
   }
@@ -2396,7 +2381,8 @@ function artworkSourceItems(route) {
   if (route.readRaw === raw && route.readRawLength === raw.length && route.readPreferences === contentPreferences)
     return route.readItems;
   const fullRead = route.readPreferences !== contentPreferences;
-  const changed = fullRead ? raw : raw.filter(item => route.readVersions.get(item.key) !== item);
+  const changed = fullRead || contentPreferences.curation?.enabled
+    ? raw : raw.filter(item => route.readVersions.get(item.key) !== item);
   const added = changed.some(item => !route.readVersions.has(item.key));
   route.readRaw = raw; route.readRawLength = raw.length; route.readPreferences = contentPreferences;
   route.readVersions = new Map(raw.map(item => [item.key, item]));
@@ -2468,7 +2454,7 @@ function createArtworkRoute(from, item, origin = null) {
   const list = related ? creator ? 'creator' : 'related' : from.kind;
   // Each viewer owns its position, including works opened in background tabs.
   const snapshot = from.kind === 'home' ? filterFeedWorks(from.items || [], from) :
-    creator ? selectCreatorWorks(from.item, from.creatorCandidates || from.creatorWorks || []) :
+    creator ? selectCreatorWorks(from.item, from.creatorCandidates || from.creatorWorks || [], from) :
     related ? filterFeedWorks(from.related || [], from, false, 'related') :
     from.artworkLists?.get(origin?.closest?.('[data-grid-key]')?.dataset.gridKey || from.kind) ||
     filterFeedWorks(from.kind === 'recent' ? recent : from.items || [], from, from.kind === 'follows');
@@ -3160,8 +3146,7 @@ function renderHome(tab) {
   const grouped = filterFeedWorks(tab.items, tab);
   const first = grouped.slice(0, 7);
   const rest = grouped.slice(7);
-  const headline = tab.sort === 'curated' ? (tab.rating === 'explicit' ? 'Curated NSFW illustrations' : 'Curated illustrations') :
-    tab.rating === 'explicit' ? `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} NSFW иллюстрации` :
+  const headline = tab.rating === 'explicit' ? `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} NSFW иллюстрации` :
     tab.rating === 'all' ? 'Все изображения' :
     `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} иллюстрации`;
   return `<div class="content">
@@ -3169,7 +3154,7 @@ function renderHome(tab) {
     <div class="mode-tabs">
       ${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([mode, label]) => `<button class="mode-tab ${mode === tab.rating && tab.feed === 'illustrations' || mode === tab.feed ? 'active' : ''}" data-action="mode" data-mode="${mode}">${label}</button>`).join('')}
     </div>
-    <section class="section"><div class="section-head"><h2>${headline}</h2><div class="section-head-actions">${contentPreferences.curation?.enabled ? `<button class="text-button ${tab.sort === 'curated' ? 'selected' : ''}" data-action="sort" data-sort="curated" aria-pressed="${tab.sort === 'curated'}">Curated</button>` : ''}${`<button class="text-button ${tab.sort === 'popular' ? 'selected' : ''}" data-action="sort" data-sort="${tab.sort === 'popular' ? 'recent' : 'popular'}">${tab.sort === 'popular' ? 'Сначала новые' : 'Популярные'}</button>`}${tab.sort === 'curated' ? '<button class="text-button" data-action="sort" data-sort="recent">Новые</button>' : ''}<button class="text-button" data-action="all">Показать все</button></div></div>
+    <section class="section"><div class="section-head"><h2>${headline}</h2><div class="section-head-actions">${`<button class="text-button ${tab.sort === 'popular' ? 'selected' : ''}" data-action="sort" data-sort="${tab.sort === 'popular' ? 'recent' : 'popular'}">${tab.sort === 'popular' ? 'Сначала новые' : 'Популярные'}</button>`}<button class="text-button" data-action="all">Показать все</button></div></div>
       ${renderErrors(tab.errors)}${tab.loading && !tab.items.length ? skeletons(7) : !first.length && hasResultError(tab.errors) ? '<div class="empty">Результаты не получены. Повторите поиск.</div>' : !first.length && tab.items.length ? emptyFeedMessage(tab) : renderGrid(first, '', new Set(), true)}
     </section>
     ${rest.length ? `<section class="section"><div class="section-head"><h2>Ещё из каталога</h2></div>${renderGrid(rest, 'home-rest', new Set(), true)}</section>` : ''}
@@ -3189,7 +3174,7 @@ function renderSearch(tab) {
     <div class="search-tools">
       <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="category" data-category="${rating}">${label}</button>`).join('')}</div>
        ${`<div class="source-filters">${Object.entries(names).map(([source, name]) => `<button class="filter-button ${tab.selectedSources.includes(source) ? 'active' : ''}" data-action="filter" data-source="${source}" aria-pressed="${tab.selectedSources.includes(source)}">${name}${sourceKeyHint(source)}</button>`).join('')}</div>`}
-      ${`<div class="sort-row"><button class="sort-button ${tab.sort === 'recent' ? 'active' : ''}" data-action="sort" data-sort="recent">Новые</button><button class="sort-button ${tab.sort === 'popular' ? 'active' : ''}" data-action="sort" data-sort="popular">Популярные</button>${contentPreferences.curation?.enabled ? `<button class="sort-button ${tab.sort === 'curated' ? 'active' : ''}" data-action="sort" data-sort="curated">Curated</button>` : ''}<span>${tab.sort === 'curated' ? 'Available results ranked by your curation factors.' : tab.sort === 'popular' ? 'Danbooru, Gelbooru и Rule34 — по оценкам за всё время. Sankaku — официальный порядок популярности сайта.' : 'Последние публикации всех выбранных источников.'}</span></div>`}
+      ${`<div class="sort-row"><button class="sort-button ${tab.sort === 'recent' ? 'active' : ''}" data-action="sort" data-sort="recent">Новые</button><button class="sort-button ${tab.sort === 'popular' ? 'active' : ''}" data-action="sort" data-sort="popular">Популярные</button><span>${tab.sort === 'popular' ? 'Danbooru, Gelbooru и Rule34 — по оценкам за всё время. Sankaku — официальный порядок популярности сайта.' : 'Последние публикации всех выбранных источников.'}</span></div>`}
     </div>
     ${renderErrors(tab.errors)}
     ${!blockedQuery && (tab.items.length || Object.keys(tab.searchPageStats || {}).length) ? renderSearchSummary(tab) : ''}
@@ -3641,16 +3626,48 @@ function expireRetainedFeedWorks(tab) {
   return changed;
 }
 
-function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '') {
+function curateFeedWorks(works, tab, gridKey = '') {
+  // These two lists already include a bounded curation boost in their relevance
+  // scores. Applying another pure quality sort would erase that relevance.
+  if (tab?.kind === 'recommendations' || tab?.kind === 'detail' && gridKey === 'related') return works;
+  const key = gridKey || tab?.kind || 'works';
+  if (!contentPreferences.curation?.enabled || !works.length) {
+    tab?.curationViews?.delete(key);
+    return works;
+  }
+  const signature = JSON.stringify([CatalogLogic.normalizeCurationPreferences(contentPreferences.curation),
+    tab?.kind, tab?.query, tab?.rating, tab?.sort, tab?.selectedSources, tab?.profileRef, tab?.followVersion]);
+  const newKeys = tab?.kind === 'follows' ? tab.newKeys || new Set() : new Set();
+  const newSignature = tab?.kind === 'follows' ? [...newKeys].sort().join('|') : '';
+  const cached = tab?.curationViews?.get(key);
+  const reusable = cached?.signature === signature;
+  if (reusable && cached.newSignature === newSignature && cached.base.length === works.length &&
+      works.every((item, index) => item === cached.base[index])) return cached.items;
+  let ranked = CatalogLogic.rankCuratedWorks(works, contentPreferences.curation, curationContext());
+  if (newKeys.size) {
+    const isNew = item => [item.key, ...(item.memberKeys || [])].some(key => newKeys.has(key));
+    ranked = ranked.map(item => ({ item, isNew: isNew(item) }))
+      .sort((a, b) => Number(b.isNew) - Number(a.isNew)).map(entry => entry.item);
+  }
+  const items = reusable ? CatalogLogic.stableFeedItems(cached.items, ranked, newKeys) : ranked;
+  if (tab) {
+    tab.curationViews ||= new Map();
+    tab.curationViews.set(key, { signature, newSignature, base: works, items });
+  }
+  return items;
+}
+
+function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepOrder = false) {
   const supported = CatalogLogic.filterCatalogItems(items);
   const works = CatalogLogic.filterWorks(
     alreadyGrouped ? supported : CatalogLogic.groupWorks(supported), contentPreferences);
   const hideKnown = contentPreferences.hideViewedAndSaved && isHideableFeed(tab, gridKey);
-  if (!hideKnown) return works;
+  if (!hideKnown) return keepOrder ? works : curateFeedWorks(works, tab, gridKey);
   const knownTokens = knownWorkTokens();
   const related = tab?.kind === 'detail' && gridKey === 'related';
-  return works.filter(item => !related && isRetainedFeedWork(tab, item) || isExpiredFeedWork(tab, item) ||
+  const visible = works.filter(item => !related && isRetainedFeedWork(tab, item) || isExpiredFeedWork(tab, item) ||
     !CatalogLogic.workHistoryTokens(item).some(token => knownTokens.has(token)));
+  return keepOrder ? visible : curateFeedWorks(visible, tab, gridKey);
 }
 
 function emptyFeedMessage(tab, gridKey = '') {
@@ -3664,7 +3681,7 @@ function emptyFeedMessage(tab, gridKey = '') {
 function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false) {
   if (!items.length) return '<div class="empty">Здесь пока нет изображений. Измените запрос или выберите другой источник.</div>';
   const tab = currentTab();
-  let works = filterFeedWorks(items, tab, alreadyGrouped, key);
+  let works = filterFeedWorks(items, tab, alreadyGrouped, key, tab?.kind === 'home' && alreadyGrouped);
   if (tab?.kind === 'profile' && key === 'profile') {
     works = CatalogLogic.stableFeedItems(tab.profileGridRating === tab.rating
       ? tab.profileGridItems : [], works);
@@ -3796,7 +3813,7 @@ function renderDetail(tab) {
   const images = galleryImages(item);
   const tags = CatalogLogic.artworkTags(item, tab.searchQuery);
   const visibleTags = tab.showAllTags ? tags : tags.slice(0, 40);
-  const visibleCreatorWorks = selectCreatorWorks(item, tab.creatorCandidates || tab.creatorWorks || []);
+  const visibleCreatorWorks = selectCreatorWorks(item, tab.creatorCandidates || tab.creatorWorks || [], tab);
   const attribution = CatalogLogic.workAttribution(item, contentPreferences.attributionPriority);
   const primary = attribution.primary;
   const primaryRole = primary.roleLabel || { creator: 'Автор', uploader: 'Загрузчик', original: 'Исходная площадка',
@@ -4012,8 +4029,8 @@ function renderCurationSettings() {
   const preferences = CatalogLogic.normalizeCurationPreferences(contentPreferences.curation);
   const active = ['popularity', 'personal', 'freshness', 'resolution'].filter(key => preferences[key]).length;
   return `<div class="settings-card"><h2>Curation</h2><p>Bring promising works higher using catalog metadata and your local likes.</p>
-    <label class="settings-toggle"><input type="checkbox" name="curation-enabled" ${preferences.enabled ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''} aria-describedby="curation-status"><span><strong>Enable curation</strong><small>Adds Curated to discovery and refines recommendations and related works.</small></span></label>
-    <p id="curation-status" class="settings-hint" role="status">${!preferences.enabled ? 'Curation is off.' : active ? 'Curation is on. Selected factors are applied together.' : 'Select at least one factor. Source order is used while all factors are off.'}</p>
+    <label class="settings-toggle"><input type="checkbox" name="curation-enabled" ${preferences.enabled ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''} aria-describedby="curation-status"><span><strong>Enable curation</strong><small>Applies the selected factors across every artwork list.</small></span></label>
+    <p id="curation-status" class="settings-hint" role="status">${!preferences.enabled ? 'Curation is off.' : active ? 'Curation is on. Selected factors are applied together.' : 'Select at least one factor. Base order is used while all factors are off.'}</p>
     </div><div class="settings-card"><fieldset class="curation-factors" ${!preferences.enabled || contentPreferencesSaving ? 'disabled' : ''}><legend>Ranking factors</legend>
     ${[
       ['popularity', 'Community ratings', 'Compares votes within the same catalog and rating. Missing votes are neutral; mirrored copies add no points.'],
@@ -4022,7 +4039,8 @@ function renderCurationSettings() {
       ['resolution', 'Original resolution', 'Uses original dimensions when available. Thumbnails, sketches, line art and pixel art are not penalized.']
     ].map(([key, title, hint]) => `<label class="settings-toggle"><input type="checkbox" name="curation-${key}" ${preferences[key] ? 'checked' : ''}><span><strong>${title}</strong><small>${hint}</small></span></label>`).join('')}
     </fieldset><p class="settings-hint">Ranks available results without extra image downloads. Works with missing data remain eligible.</p>
-    <p class="settings-hint">Following, artist profiles and saved lists keep their order. New and Popular remain available in discovery.</p></div>`;
+    <p class="settings-hint">Works in the catalog, search, recommendations, related works, Following, artist profiles, Liked, Bookmarks and history.</p>
+    <p class="settings-hint">New works stay first in Following. New and Popular choose the source ordering; curation refines the available results.</p></div>`;
 }
 
 function renderSettings() {
@@ -4863,7 +4881,7 @@ function currentSearchOptions() {
   const tab = currentTab();
   return tab?.kind === 'search'
     ? { rating: tab.rating, selectedSources: [...tab.selectedSources],
-        sort: tab.sort, curationBaseSort: tab.curationBaseSort || 'recent', feed: tab.feed }
+        sort: tab.sort, feed: tab.feed }
     : { rating: tab?.rating === 'explicit' ? 'explicit' : 'all' };
 }
 
@@ -5283,7 +5301,7 @@ main.addEventListener('click', event => {
   }
   else if (action === 'all') openSearch('', { rating: tab?.rating || 'general',
     selectedSources: tab?.selectedSources || [...defaultSources],
-    sort: tab?.sort || 'recent', curationBaseSort: tab?.curationBaseSort || 'recent', feed: tab?.feed || 'illustrations' });
+    sort: tab?.sort || 'recent', feed: tab?.feed || 'illustrations' });
   else if (action === 'more-retry' && tab && !tab.loading) { tab.loadError = false; loadSearch(tab, true); }
   else if (action === 'retry-search' && tab && !tab.loading) {
     if (tab.kind === 'recommendations') loadRecommendations(tab);
@@ -5372,9 +5390,7 @@ main.addEventListener('click', event => {
     loadSearch(tab);
   }
   else if (action === 'sort' && tab && tab.sort !== control.dataset.sort) {
-    if (!['recent', 'popular', 'curated'].includes(control.dataset.sort) ||
-        control.dataset.sort === 'curated' && !contentPreferences.curation?.enabled) return;
-    if (control.dataset.sort === 'curated') tab.curationBaseSort = tab.sort === 'popular' ? 'popular' : 'recent';
+    if (!['recent', 'popular'].includes(control.dataset.sort)) return;
     tab.sort = control.dataset.sort;
     saveSession();
     loadSearch(tab);
@@ -5385,7 +5401,7 @@ main.addEventListener('click', event => {
     tab.feed = 'illustrations';
     if (tab.feed === 'illustrations') tab.rating = mode;
     tab.selectedSources = [...defaultSources];
-    tab.sort = contentPreferences.curation?.enabled ? 'curated' : 'recent';
+    tab.sort = 'recent';
     saveSession();
     loadSearch(tab);
   }

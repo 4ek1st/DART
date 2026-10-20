@@ -28,6 +28,11 @@
     return filtered.length === items.length ? items : filtered;
   }
 
+  function catalogSort(tab) {
+    return tab?.sort === 'popular' || tab?.sort === 'curated' && tab.curationBaseSort === 'popular'
+      ? 'popular' : 'recent';
+  }
+
   function cleanClientState(value) {
     const state = value && typeof value === 'object' ? { ...value } : {};
     if (Array.isArray(state.recent)) state.recent = filterCatalogItems(state.recent);
@@ -36,7 +41,7 @@
     const kinds = ['home', 'search', 'detail', 'profile', 'bookmarks', 'likes',
       'recommendations', 'follows', 'recent', 'settings'];
     const fields = ['kind', 'title', 'query', 'searchQuery', 'selectedSources', 'rating',
-      'sort', 'curationBaseSort', 'feed', 'item', 'profileRef', 'settingsSection', 'preview', 'pinned', 'scrollTop'];
+      'sort', 'feed', 'item', 'profileRef', 'settingsSection', 'preview', 'pinned', 'scrollTop'];
     const originalActive = Number(state.session.activeIndex) || 0;
     let activeIndex = -1;
     const tabs = [];
@@ -50,6 +55,7 @@
         ? [...new Set(tab.selectedSources.filter(source => supportedSources.includes(source)))] : [];
       if (tab.selectedSources?.length && !sources.length && ['home', 'search'].includes(tab.kind)) return;
       const clean = Object.fromEntries(fields.filter(field => field in tab).map(field => [field, tab[field]]));
+      if (tab.sort === 'curated') clean.sort = catalogSort(tab);
       if (legacyBookmarks && clean.kind === 'bookmarks') {
         clean.kind = 'likes'; clean.title = 'Liked';
       }
@@ -1859,7 +1865,7 @@
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,
     sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType, previewMedia,
     mediaCacheKey, signedMediaExpired, renewWorkMedia, needsVisualFingerprint, perceptualImageHash,
-    supportedSources, filterCatalogItems, cleanClientState, navigationSection,
+    supportedSources, filterCatalogItems, catalogSort, cleanClientState, navigationSection,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,
     recommendationQueryGroups, recommendationCombinations, rankRecommendations, mergeRecommendations,

@@ -32,7 +32,7 @@ internal static class CatalogState
         string[] kinds = ["home", "search", "detail", "profile", "bookmarks", "likes",
             "recommendations", "follows", "recent", "settings"];
         string[] fields = ["kind", "title", "query", "searchQuery", "selectedSources", "rating",
-            "sort", "curationBaseSort", "feed", "item", "profileRef", "settingsSection", "preview", "pinned", "scrollTop"];
+            "sort", "feed", "item", "profileRef", "settingsSection", "preview", "pinned", "scrollTop"];
         for (var original = 0; original < tabs.Count; original++)
         {
             if (tabs[original] is not JsonObject tab) continue;
@@ -49,6 +49,8 @@ internal static class CatalogState
             var clean = new JsonObject();
             foreach (var field in fields)
                 if (tab.ContainsKey(field)) clean[field] = tab[field]?.DeepClone();
+            if (Text(tab, "sort") == "curated")
+                clean["sort"] = Text(tab, "curationBaseSort") == "popular" ? "popular" : "recent";
             if (legacyBookmarks && kind == "bookmarks")
             { clean["kind"] = "likes"; clean["title"] = "Liked"; }
             clean["feed"] = "illustrations";

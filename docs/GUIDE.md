@@ -154,11 +154,18 @@ Open **Settings > Curation** and enable **Enable curation** to try optional
 ranking. Choose community ratings, your local likes, publication age and original
 resolution independently. Settings are saved on this computer.
 
-Discovery gains a **Curated** mode alongside **New** and **Popular**. It ranks the
-available results using the selected factors and retains the source ordering
-you started from. New pages append without moving existing cards. The factors
-also refine recommendations and related works; Following, artist profiles and
-saved lists keep their ordering.
+Curation is a global setting for Home, the catalog, search, recommendations,
+related works, Following, artist profiles, Liked, Bookmarks and history. The
+catalog keeps **New** and **Popular** as its source ordering options; the selected
+factors refine the available results. Recommendations and related works retain
+their relevance and explicit tag priorities, with curation included in their
+scores. **New** works remain first in Following.
+
+New pages append without moving existing cards. Changing the curation factors
+reranks cached views without reloading them from the catalogs. Turning curation
+off restores the original ordering without changing the order stored in your
+liked works, bookmarks or history. Sessions from the earlier Curated mode
+automatically return to their previous New or Popular source ordering.
 
 Votes are compared within each catalog and content rating. Copies do not add
 extra votes. Unknown scores, dates and dimensions are neutral. The resolution
