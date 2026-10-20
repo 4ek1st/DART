@@ -48,9 +48,8 @@
     function showStatus(value) {
       status = installPending ? { ...value, installing: true } : value;
       const available = canInstall(status);
-      const waiting = !available && status.configured && !!(status.error || status.rateLimited || retryTime());
-      install.hidden = status.installing || !available && !waiting;
-      install.setAttribute('data-update-state', available ? 'available' : waiting ? 'waiting' : 'idle');
+      install.hidden = !available;
+      install.setAttribute('data-update-state', available ? 'available' : 'idle');
       const label = available ? `Version available · DART ${status.version}` : translate('Updates temporarily unavailable');
       install.title = label;
       install.setAttribute('aria-label', label);

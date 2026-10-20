@@ -32,7 +32,9 @@ function updateFixture(t, responses, extraWindow = {}) {
     setAttribute(name, value) { this.attributes[name] = value; },
     addEventListener(name, handler) { this.handlers.set(name, handler); } });
   const panels = [];
-  const install = element(), controls = element(), main = { querySelector: () => null };
+  const install = element(), controls = element(), settingsUpdates = element();
+  const sections = { querySelector: selector => selector === '[data-desktop-updates]' ? settingsUpdates : null };
+  const main = { querySelector: selector => selector === '.settings-sections' ? sections : null };
   const document = { hidden: false, documentElement: { classList: { toggle() {} } },
     getElementById: id => ({ 'install-update-button': install, 'window-controls': controls, main })[id],
     addEventListener: (name, action) => events.set(name, action), body: { append() {}, appendChild() {} },
@@ -44,7 +46,7 @@ function updateFixture(t, responses, extraWindow = {}) {
     } };
   const window = { document, setTimeout, clearTimeout, setInterval,
     addEventListener: (name, action) => events.set(name, action),
-    MutationObserver: class { observe() {} },
+    MutationObserver: class { constructor(callback) { this.callback = callback; } observe() { this.callback(); } },
     fetch: async (url, options) => {
       requests.push({ url, method: options?.method || 'GET' });
       const value = responses.shift();
@@ -52,7 +54,7 @@ function updateFixture(t, responses, extraWindow = {}) {
       return { ok: true, json: async () => value || { available: false } };
     }, ...extraWindow };
   shell.mount(window);
-  return { install, controls, requests, events, document, panels,
+  return { install, controls, settingsUpdates, requests, events, document, panels,
     settle: () => new Promise(resolve => setImmediate(resolve)) };
 }
 const available = { available: true, verified: true, version: '0.2.6', configured: true };
@@ -121,9 +123,9 @@ test('server retry time prevents timer, focus, online and manual polling until t
   const fixture = updateFixture(t, [{ configured: true, error: 'GitHub API rate limit reached.',
     notice: 'GitHub API rate limit reached.', rateLimited: true, retryAt }, available]);
   await fixture.settle();
-  assert.equal(fixture.install.hidden, false, 'waiting must be inspectable from the top bar');
-  assert.equal(fixture.install.attributes['data-update-state'], 'waiting');
-  fixture.install.onclick(); await fixture.settle();
+  assert.equal(fixture.install.hidden, true, 'waiting alone must not show an install arrow');
+  assert.equal(fixture.install.attributes['data-update-state'], 'idle');
+  fixture.settingsUpdates.onclick(); await fixture.settle();
   const panel = fixture.panels[0];
   assert.equal(panel.querySelector('[data-update-check]').disabled, true);
   assert.equal(panel.querySelector('[data-update-install]').hidden, true);
@@ -170,13 +172,13 @@ test('invalid retry metadata keeps a bounded ordinary retry instead of a timer l
   assert.equal(fixture.install.hidden, false);
 });
 
-test('a transient server pause is visible even without a rate-limit or error flag', async t => {
+test('a transient server pause stays in Settings without showing an install arrow', async t => {
   const fixture = updateFixture(t, [{ configured: true, available: false, verified: false,
     retryAt: new Date(1_000_000 + 120_000).toISOString(), rateLimited: false, error: '', notice: 'Temporarily unavailable' }]);
   await fixture.settle();
-  assert.equal(fixture.install.hidden, false);
-  assert.equal(fixture.install.attributes['data-update-state'], 'waiting');
-  fixture.install.onclick(); await fixture.settle();
+  assert.equal(fixture.install.hidden, true);
+  assert.equal(fixture.install.attributes['data-update-state'], 'idle');
+  fixture.settingsUpdates.onclick(); await fixture.settle();
   const panel = fixture.panels[0];
   assert.doesNotMatch(panel.querySelector('[data-update-status]').textContent, /последняя|latest verified/i);
   assert.equal(panel.querySelector('[data-update-check]').disabled, true);

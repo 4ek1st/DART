@@ -33,8 +33,6 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .install-update-button { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid #316cbd; border-radius: 7px; color: #3180ff; background: #202e42; }
 .install-update-button svg { width: 18px; height: 18px; fill: currentColor; }
 .install-update-button:hover { color: #69aaff; background: #294568; }
-.install-update-button[data-update-state="waiting"] { border-color: #a87427; color: #efb85f; background: #3a2c1c; }
-.install-update-button[data-update-state="waiting"]:hover { background: #4b3820; }
 .update-dialog { width: min(580px, calc(100vw - 36px)); color: var(--text); background: #242424; border: 1px solid #4b4b4b; border-radius: 14px; padding: 24px; box-shadow: 0 20px 80px #0009; }
 .update-dialog::backdrop { background: #0009; }
 .update-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
