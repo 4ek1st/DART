@@ -101,8 +101,11 @@
     const main = document.getElementById('main');
     new window.MutationObserver(() => {
       const sections = main.querySelector('.settings-sections');
-      if (!sections || sections.querySelector('[data-desktop-updates]')) return;
+      if (!sections) return;
+      const existing = sections.querySelector('[data-desktop-updates]');
+      if (existing) { existing.onclick = openPanel; return; }
       const button = document.createElement('button');
+      button.id = 'settings-updates';
       button.type = 'button'; button.className = 'settings-section'; button.dataset.desktopUpdates = '';
       button.setAttribute('aria-haspopup', 'dialog'); button.setAttribute('aria-controls', 'dart-update-dialog');
       button.innerHTML = '<span class="settings-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg></span><span class="settings-section-copy"><strong>Обновления</strong><small>Версия и установка</small></span>'; button.onclick = openPanel;

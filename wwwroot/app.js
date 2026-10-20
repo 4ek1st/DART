@@ -24,6 +24,7 @@ icons.panels = '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h1
 icons.palette = '<path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.4-3.4 1.5 1.5 0 0 1 1.1-2.6H18a3 3 0 0 0 3-3 9 9 0 0 0-9-9Z"/><circle cx="7.5" cy="11" r=".6"/><circle cx="10" cy="7.5" r=".6"/><circle cx="14.5" cy="7.5" r=".6"/><circle cx="17" cy="11" r=".6"/>';
 icons.shield = '<path d="m12 3 8 3v6c0 4.6-5.2 7.8-8 9-2.8-1.2-8-4.4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>';
 icons.language = '<path d="M3 5h12M9 3v2m3 0c-1 5-4 8-8 10M6 9c2 3 4 5 8 6m0 6 4-10h1l4 10m-7-3h5"/>';
+icons.download = '<path d="M12 3v12m-5-5 5 5 5-5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>';
 const svg = name => `<svg viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${icons[name]}</svg>`;
 const names = { danbooru: 'Danbooru', gelbooru: 'Gelbooru', rule34: 'Rule34', sankaku: 'Sankaku' };
 let favoriteTags = [];
@@ -4066,12 +4067,13 @@ function renderSettings() {
     ['tabs', 'panels', 'Вкладки', 'Просмотр и закрепление'],
     ['appearance', 'palette', 'Оформление', 'Цвет и тема'],
     ['privacy', 'shield', 'Privacy', 'Screen capture'],
+    ['updates', 'download', 'Обновления', 'Версия и установка'],
     ['language', 'language', 'Язык', 'English · Русский · Deutsch']
   ];
   return `<div class="content settings-panel"><h1>Настройки</h1><p class="section-sub">Фильтры и подключения хранятся на этом компьютере.</p>
     <div class="settings-layout">
       <nav class="settings-sections" aria-label="Разделы настроек" role="tablist">
-        ${sections.map(([key, icon, label, description]) => `<button type="button" id="settings-tab-${key}" role="tab" aria-selected="${section === key}" aria-controls="settings-panel" class="settings-section ${key === 'language' ? 'settings-language-section ' : ''}${section === key ? 'active' : ''}" data-action="settings-section" data-section="${key}"><span class="settings-section-icon" aria-hidden="true">${svg(icon)}</span><span class="settings-section-copy"><strong>${label}</strong><small${key === 'language' ? ' data-no-i18n' : ''}>${description}</small></span></button>`).join('')}
+        ${sections.map(([key, icon, label, description]) => `<button type="button" id="${key === 'updates' ? 'settings-updates' : `settings-tab-${key}`}" ${key === 'updates' ? 'data-desktop-updates aria-haspopup="dialog" aria-controls="dart-update-dialog"' : `role="tab" aria-selected="${section === key}" aria-controls="settings-panel" data-action="settings-section" data-section="${key}"`} class="settings-section ${key === 'language' ? 'settings-language-section ' : ''}${section === key ? 'active' : ''}"><span class="settings-section-icon" aria-hidden="true">${svg(icon)}</span><span class="settings-section-copy"><strong>${label}</strong><small${key === 'language' ? ' data-no-i18n' : ''}>${description}</small></span></button>`).join('')}
       </nav>
       <div class="settings-view" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${section}">
         ${section === 'curation' ? renderCurationSettings() : ''}
