@@ -1,7 +1,27 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using ArtCatalog;
 
+if (args.Length >= 2 && args[0] is "--frontend-extract" or "--frontend-hold-lock")
+{
+    var frontendType = typeof(CatalogItem).Assembly.GetType("ArtCatalog.EmbeddedFrontend")!;
+    if (args[0] == "--frontend-hold-lock")
+    {
+        using var owned = (Mutex)frontendType.GetMethod("AcquireExtractionLock", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [args[1]])!;
+        File.WriteAllText(args[2], "lock-owned");
+        Thread.Sleep(Timeout.Infinite); // The parent deliberately terminates this owner to exercise abandonment.
+    }
+    else
+    {
+        if (args.Length > 2) File.WriteAllText(args[2], "starting-extraction");
+        frontendType.GetMethod("Extract", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [args[1]]);
+    }
+    return;
+}
+
+await RunFrontendExtractionFixture();
 CurationFixtureTests.Run();
 SavedWorksFixtureTests.Run();
 await VideoPreviewFixtureTests.RunAsync();
@@ -18,6 +38,99 @@ static CatalogItem? Map(string method, string payload)
 static void Expect(bool condition, string message)
 {
     if (!condition) throw new Exception(message);
+}
+
+static Process StartFrontendChild(string mode, string directory, string? signal = null)
+{
+    var executable = Environment.ProcessPath ?? throw new Exception("Fixture process path is unavailable");
+    var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true,
+        RedirectStandardOutput = true, RedirectStandardError = true };
+    if (Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+        start.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
+    start.ArgumentList.Add(mode); start.ArgumentList.Add(directory);
+    if (signal is not null) start.ArgumentList.Add(signal);
+    return Process.Start(start) ?? throw new Exception("Frontend fixture child did not start");
+}
+
+static async Task CompleteFrontendChild(Process process)
+{
+    var output = process.StandardOutput.ReadToEndAsync();
+    var error = process.StandardError.ReadToEndAsync();
+    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
+    Expect(process.ExitCode == 0, $"Frontend extraction child failed ({process.ExitCode}): {await output}\n{await error}");
+}
+
+static async Task WaitForFrontendSignal(string path)
+{
+    var elapsed = Stopwatch.StartNew();
+    while (!File.Exists(path) && elapsed.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(10);
+    Expect(File.Exists(path), "Frontend fixture child did not reach its synchronization point");
+}
+
+static async Task RunFrontendExtractionFixture()
+{
+    var assembly = typeof(CatalogItem).Assembly;
+    var extract = assembly.GetType("ArtCatalog.EmbeddedFrontend")!
+        .GetMethod("Extract", BindingFlags.NonPublic | BindingFlags.Static)
+        ?? throw new Exception("Frontend extraction must support an isolated cache directory");
+    var directory = Path.Combine(Path.GetTempPath(), "ArtCatalog-frontend-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(directory);
+    var children = new List<Process>();
+    Process Start(string mode, string cache, string? signal = null)
+    {
+        var child = StartFrontendChild(mode, cache, signal); children.Add(child); return child;
+    }
+    void Verify(string cache)
+    {
+        var resources = assembly.GetManifestResourceNames().Where(name => name.StartsWith("ArtCatalogFrontend/", StringComparison.Ordinal)).ToArray();
+        Expect(resources.Length > 0, "Frontend concurrency regression requires the actual embedded resources");
+        foreach (var name in resources)
+        {
+            using var source = assembly.GetManifestResourceStream(name)!;
+            using var expected = new MemoryStream(); source.CopyTo(expected);
+            var file = Path.Combine(cache, name["ArtCatalogFrontend/".Length..]);
+            Expect(File.ReadAllBytes(file).SequenceEqual(expected.ToArray()), $"Extracted resource differs: {name}");
+        }
+    }
+    try
+    {
+        var cache = Path.Combine(directory, "shared-cache");
+        var simultaneous = Enumerable.Range(0, 4).Select(_ => Start("--frontend-extract", cache)).ToArray();
+        await Task.WhenAll(simultaneous.Select(CompleteFrontendChild));
+        Verify(cache);
+        File.WriteAllText(Path.Combine(cache, "index.html"), "damaged cache");
+        extract.Invoke(null, [cache]); Verify(cache);
+        extract.Invoke(null, [cache]); Verify(cache); // A completed extraction must release its mutex.
+
+        var heldCache = Path.Combine(directory, "abandoned-cache");
+        var ownerReady = Path.Combine(directory, "owner-ready");
+        var owner = Start("--frontend-hold-lock", heldCache, ownerReady);
+        await WaitForFrontendSignal(ownerReady);
+        var independent = Path.Combine(directory, "independent-cache");
+        await CompleteFrontendChild(Start("--frontend-extract", independent));
+        Verify(independent); // A lock for one full cache path must not block another cache.
+        var waiterReady = Path.Combine(directory, "waiter-ready");
+        var waiter = Start("--frontend-extract", heldCache.ToUpperInvariant() + Path.DirectorySeparatorChar, waiterReady);
+        await WaitForFrontendSignal(waiterReady);
+        await Task.Delay(100);
+        Expect(!waiter.HasExited, "Equivalent cache paths must wait for the current extraction owner");
+        owner.Kill(); await owner.WaitForExitAsync();
+        await CompleteFrontendChild(waiter);
+        Verify(heldCache);
+        Console.WriteLine("Embedded frontend cold concurrency, repair and abandoned-lock recovery: PASS");
+    }
+    finally
+    {
+        foreach (var child in children)
+        {
+            if (!child.HasExited) { child.Kill(); child.WaitForExit(); }
+            child.Dispose();
+        }
+        var full = Path.GetFullPath(directory);
+        var temporary = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath())) + Path.DirectorySeparatorChar;
+        Expect(full.StartsWith(temporary, StringComparison.OrdinalIgnoreCase), "Frontend fixture cleanup escaped its owned temporary directory");
+        Directory.Delete(full, recursive: true);
+    }
 }
 
 var profileResolver = typeof(CatalogItem).Assembly.GetType("ArtCatalog.LocalStore")!
