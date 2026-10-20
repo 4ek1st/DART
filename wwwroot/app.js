@@ -77,7 +77,7 @@ let follows = [];
 let followedKeys = new Set();
 let settings = { userId: '', hasApiKey: false, rule34UserId: '', hasRule34ApiKey: false };
 let contentPreferences = { language: globalThis.DartI18n?.language || 'en', aiMode: 'all', hideFurry: false, excludedTags: [], attributionPriority: 'creator',
-  hideViewedAndSaved: false, hiddenAuthors: [] };
+  hideViewedAndSaved: false, hiddenAuthors: [], curation: CatalogLogic.normalizeCurationPreferences() };
 let contentPreferencesSaving = false;
 let contentPreferencesRevision = 0;
 let privacyStatus = { requested: false, active: false, available: false, error: null };
@@ -429,7 +429,7 @@ function captureClientState() {
     kind: tab.kind, title: tab.title, query: tab.query || '',
     searchQuery: tab.kind === 'detail' ? tab.searchQuery || '' : undefined,
     selectedSources: tab.selectedSources, rating: tab.rating || 'general',
-    sort: tab.sort || 'recent', feed: tab.feed || 'illustrations',
+    sort: tab.sort || 'recent', curationBaseSort: tab.curationBaseSort || 'recent', feed: tab.feed || 'illustrations',
     item: tab.kind === 'detail' ? tab.item : undefined,
     profileRef: tab.kind === 'profile' ? tab.profileRef : undefined,
     settingsSection: tab.kind === 'settings' ? tab.settingsSection || 'content' : undefined,
@@ -544,11 +544,13 @@ function restoreSession() {
       searchQuery: String(saved.searchQuery || '').slice(0, 200),
       selectedSources,
       rating: ['general', 'explicit', 'all'].includes(saved.rating) ? saved.rating : 'general',
-      sort: saved.sort === 'popular' ? 'popular' : 'recent',
+      sort: saved.sort === 'curated' && contentPreferences.curation?.enabled ? 'curated' :
+        saved.sort === 'popular' || saved.sort === 'curated' && saved.curationBaseSort === 'popular' ? 'popular' : 'recent',
+      curationBaseSort: saved.curationBaseSort === 'popular' ? 'popular' : 'recent',
       feed: 'illustrations',
       item: saved.item?.key ? rememberItem(saved.item) : saved.item,
       profileRef: saved.profileRef,
-      settingsSection: ['content', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(saved.settingsSection)
+      settingsSection: ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(saved.settingsSection)
         ? saved.settingsSection : 'content',
       items: [], errors: {}, page: 0,
       loading: false, started: false,
@@ -574,7 +576,9 @@ function matchingTab(kind, extra) {
     if (tab.kind !== kind) return false;
     if (['home', 'bookmarks', 'likes', 'follows', 'recommendations', 'recent', 'settings'].includes(kind)) return true;
     if (kind === 'search') return (tab.query || '') === (extra.query || '') &&
-      tab.rating === (extra.rating || 'general') && tab.sort === (extra.sort || 'recent') &&
+      tab.rating === (extra.rating || 'general') && tab.sort === (extra.sort ||
+        (contentPreferences.curation?.enabled ? 'curated' : 'recent')) &&
+      (tab.sort !== 'curated' || (tab.curationBaseSort || 'recent') === (extra.curationBaseSort || 'recent')) &&
       tab.feed === (extra.feed || 'illustrations') && sameSources(tab);
     if (kind === 'profile') return tab.profileRef?.source === extra.profileRef?.source &&
       tab.profileRef?.artist === extra.profileRef?.artist &&
@@ -588,7 +592,8 @@ function createTab(kind, title, extra = {}, options = {}) {
   if (existing) { if (!options.background) activate(existing.id); return existing; }
   const tab = { id: nextId++, kind, title, items: [], errors: {}, page: 0,
     loading: false, scrollTop: 0, selectedSources: [...defaultSources],
-    rating: 'general', sort: 'recent', feed: 'illustrations', ...extra };
+    rating: 'general', sort: ['home', 'search'].includes(kind) && contentPreferences.curation?.enabled
+      ? 'curated' : 'recent', feed: 'illustrations', ...extra };
   tabs.push(tab);
   if (options.background) { render(); saveSession(); }
   else activate(tab.id);
@@ -870,6 +875,17 @@ function scheduleRule34Recovery(tab) {
   }, Math.max(500, retryAt - Date.now()));
 }
 
+function curationContext() {
+  const cached = curationContext.snapshot;
+  if (cached?.likes === likes && cached.preferences === contentPreferences &&
+      cached.tagPreferences === recommendationTagPreferences) return cached.value;
+  const value = { liked: CatalogLogic.filterWorks(likes, contentPreferences),
+    tagPreferences: recommendationTagPreferences, curation: contentPreferences.curation };
+  curationContext.snapshot = { likes, preferences: contentPreferences,
+    tagPreferences: recommendationTagPreferences, value };
+  return value;
+}
+
 async function loadSearch(tab, append = false, retryFailed = false, retrySources = null) {
   const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
   if (!alive() || append && (tab.loading || !retryFailed &&
@@ -882,6 +898,7 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   if (!append) {
     delete tab.resumePrefetchAt;
     tab.page = 0; tab.items = []; tab.errors = {}; tab.hasMore = true;
+    tab.curationOriginalItems = [];
     tab.loadError = false;
     tab.virtualState = {};
     tab.retainedFeedWorks = new Map();
@@ -906,9 +923,14 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   let published = append;
   const receive = (response, batch) => {
     if (!alive() || version !== tab.requestVersion || controller.signal.aborted) return;
-    const merged = published ? [...tab.items, ...(response.items || [])] : response.items || [];
+    const previous = published ? tab.items : [];
+    const merged = [...previous, ...(response.items || [])];
     published = true;
-    tab.items = [...new Map(merged.map(item => [item.key, item])).values()];
+    if (tab.sort === 'curated') {
+      tab.curationOriginalItems = CatalogLogic.mergeGroupedWorks(tab.curationOriginalItems, response.items || []);
+      tab.items = CatalogLogic.mergeCuratedWorks(previous, response.items || [],
+        contentPreferences.curation, curationContext());
+    } else tab.items = [...new Map(merged.map(item => [item.key, item])).values()];
     const errors = { ...tab.errors };
     delete errors.network;
     for (const source of batch) {
@@ -936,7 +958,8 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
     const params = new URLSearchParams({ q: query, page: String(page),
       pages: batch.map(source => `${source}:${requestedPages[source]}`).join(','),
       sources: batch.join(','), rating: tab.rating || 'general',
-      sort: tab.sort || 'recent', kind: tab.feed || 'illustrations' });
+      sort: tab.sort === 'curated' ? tab.curationBaseSort || 'recent' : tab.sort || 'recent',
+      kind: tab.feed || 'illustrations' });
     try {
       receive(await request(`/api/search?${params}`, { signal: controller.signal }), batch);
     } catch (error) {
@@ -1396,10 +1419,14 @@ async function loadRecommendations(tab, append = false) {
     const previousCount = tab.items.length;
     const background = await backgroundTask;
     if (version !== tab.recommendationVersion || controller.signal.aborted) return;
-    const ranked = await mergeRecommendationsAsync(visibleLikes, tab.items,
-      candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed,
-      { background, recentKeys: tab.recommendationRecentKeys });
-    if (!alive() || version !== tab.recommendationVersion || controller.signal.aborted) return;
+    let ranked, rankingCuration;
+    do {
+      rankingCuration = contentPreferences.curation;
+      ranked = await mergeRecommendationsAsync(visibleLikes, tab.items,
+        candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed,
+        { background, recentKeys: tab.recommendationRecentKeys, curation: rankingCuration });
+      if (!alive() || version !== tab.recommendationVersion || controller.signal.aborted) return;
+    } while (JSON.stringify(rankingCuration) !== JSON.stringify(contentPreferences.curation));
     tab.items = CatalogLogic.filterWorks(ranked, contentPreferences);
     if (contentPreferences.hideViewedAndSaved)
       tab.items = tab.items.filter(item => !CatalogLogic.workHistoryTokens(item)
@@ -1866,7 +1893,8 @@ async function loadContentPreferences() {
         .filter(author => CatalogLogic.hiddenAuthorKey(author)),
       attributionPriority: ['creator', 'original', 'uploader'].includes(saved.attributionPriority)
         ? saved.attributionPriority : 'creator',
-      hideViewedAndSaved: saved.hideViewedAndSaved === true
+      hideViewedAndSaved: saved.hideViewedAndSaved === true,
+      curation: CatalogLogic.normalizeCurationPreferences(saved.curation)
     };
     globalThis.DartI18n?.setLanguage(contentPreferences.language);
   } catch { toast('Фильтры содержимого не удалось прочитать'); }
@@ -1875,8 +1903,46 @@ async function loadContentPreferences() {
 
 function applyContentPreferences(saved) {
   const before = contentPreferences;
-  contentPreferences = { ...saved, hideFurry: saved.hideFurry === true, hiddenAuthors: saved.hiddenAuthors || [] };
+  contentPreferences = { ...saved, hideFurry: saved.hideFurry === true, hiddenAuthors: saved.hiddenAuthors || [],
+    curation: CatalogLogic.normalizeCurationPreferences(saved.curation ?? before.curation) };
   globalThis.DartI18n?.setLanguage(contentPreferences.language);
+  const curationChanged = JSON.stringify(CatalogLogic.normalizeCurationPreferences(before.curation)) !==
+    JSON.stringify(contentPreferences.curation);
+  if (curationChanged) {
+    const context = curationContext();
+    for (const tab of tabs) {
+      if (['home', 'search'].includes(tab.kind)) {
+        if (contentPreferences.curation.enabled && !before.curation?.enabled) {
+          tab.curationBaseSort = tab.sort === 'popular' ? 'popular' : 'recent';
+          tab.curationOriginalItems = [...tab.items];
+          tab.sort = 'curated';
+        }
+        if (tab.sort === 'curated') {
+          const original = CatalogLogic.stableFeedItems(tab.curationOriginalItems || [], CatalogLogic.groupWorks(tab.items));
+          tab.items = CatalogLogic.rankCuratedWorks(original, contentPreferences.curation, context);
+          if (!contentPreferences.curation.enabled) tab.sort = tab.curationBaseSort || 'recent';
+          tab.virtualState = {};
+        }
+      } else if (tab.kind === 'recommendations' && tab.items.length) {
+        const items = tab.items, version = tab.recommendationVersion;
+        const revision = tab.curationRankRevision = (tab.curationRankRevision || 0) + 1;
+        // A large recommendation profile is already ranked in a worker during
+        // loading. Keep explicit preference changes off the UI thread too.
+        void mergeRecommendationsAsync(context.liked, [], [{ items }], tab.rating,
+          recommendationTagPreferences, tab.recommendationSeed, context).then(ranked => {
+          if (tab.items !== items || tab.recommendationVersion !== version ||
+              tab.curationRankRevision !== revision || !tabs.includes(tab)) return;
+          tab.items = ranked;
+          tab.virtualState = {};
+          if (currentTab() === tab) render();
+        }).catch(() => { /* Keep the existing feed; the next batch uses the new factors. */ });
+      } else if (tab.kind === 'detail' && tab.related?.length) {
+        tab.related = CatalogLogic.rankRelated(tab.item, tab.related, Infinity, context);
+        if (tab.virtualState) delete tab.virtualState.related;
+      }
+    }
+    saveSession();
+  }
   const contentChanged = ['aiMode', 'hideFurry', 'excludedTags', 'hideViewedAndSaved', 'hiddenAuthors']
     .some(key => JSON.stringify(before[key]) !== JSON.stringify(contentPreferences[key]));
   if (!contentChanged) return;
@@ -1894,6 +1960,27 @@ function applyContentPreferences(saved) {
     tab.items = [];
     tab.recommendationTags = [];
     tab.recommendationTagGroups = { names: [], other: [] };
+  }
+}
+
+async function saveCurationPreferences(patch) {
+  if (contentPreferencesSaving) return;
+  contentPreferencesSaving = true;
+  ++contentPreferencesRevision;
+  const focus = main.querySelector?.('input:focus')?.name;
+  main.querySelectorAll('.settings-panel input, .settings-panel select')
+    .forEach(input => { input.disabled = true; });
+  try {
+    const saved = await request('/api/curation-preferences', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch)
+    });
+    applyContentPreferences(saved);
+    toast('Настройки сохранены');
+  } catch { toast('Could not save curation settings'); }
+  finally {
+    contentPreferencesSaving = false;
+    render();
+    if (focus) main.querySelector(`input[name="${focus}"]`)?.focus();
   }
 }
 
@@ -2174,7 +2261,7 @@ function mergeRelatedWorks(item, existing, incoming) {
   existing.forEach((entry, index) => {
     for (const key of [entry.key, ...(entry.memberKeys || [])]) positions.set(key, index);
   });
-  const ranked = CatalogLogic.rankRelated(item, [...existing, ...incoming], Infinity);
+  const ranked = CatalogLogic.rankRelated(item, [...existing, ...incoming], Infinity, curationContext());
   const position = entry => Math.min(...[entry.key, ...(entry.memberKeys || [])]
     .map(key => positions.get(key) ?? Infinity));
   // Appending must preserve the visible cards and the scroll position.
@@ -3073,7 +3160,8 @@ function renderHome(tab) {
   const grouped = filterFeedWorks(tab.items, tab);
   const first = grouped.slice(0, 7);
   const rest = grouped.slice(7);
-  const headline = tab.rating === 'explicit' ? `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} NSFW иллюстрации` :
+  const headline = tab.sort === 'curated' ? (tab.rating === 'explicit' ? 'Curated NSFW illustrations' : 'Curated illustrations') :
+    tab.rating === 'explicit' ? `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} NSFW иллюстрации` :
     tab.rating === 'all' ? 'Все изображения' :
     `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} иллюстрации`;
   return `<div class="content">
@@ -3081,7 +3169,7 @@ function renderHome(tab) {
     <div class="mode-tabs">
       ${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([mode, label]) => `<button class="mode-tab ${mode === tab.rating && tab.feed === 'illustrations' || mode === tab.feed ? 'active' : ''}" data-action="mode" data-mode="${mode}">${label}</button>`).join('')}
     </div>
-    <section class="section"><div class="section-head"><h2>${headline}</h2><div class="section-head-actions">${`<button class="text-button ${tab.sort === 'popular' ? 'selected' : ''}" data-action="sort" data-sort="${tab.sort === 'popular' ? 'recent' : 'popular'}">${tab.sort === 'popular' ? 'Сначала новые' : 'Популярные'}</button>`}<button class="text-button" data-action="all">Показать все</button></div></div>
+    <section class="section"><div class="section-head"><h2>${headline}</h2><div class="section-head-actions">${contentPreferences.curation?.enabled ? `<button class="text-button ${tab.sort === 'curated' ? 'selected' : ''}" data-action="sort" data-sort="curated" aria-pressed="${tab.sort === 'curated'}">Curated</button>` : ''}${`<button class="text-button ${tab.sort === 'popular' ? 'selected' : ''}" data-action="sort" data-sort="${tab.sort === 'popular' ? 'recent' : 'popular'}">${tab.sort === 'popular' ? 'Сначала новые' : 'Популярные'}</button>`}${tab.sort === 'curated' ? '<button class="text-button" data-action="sort" data-sort="recent">Новые</button>' : ''}<button class="text-button" data-action="all">Показать все</button></div></div>
       ${renderErrors(tab.errors)}${tab.loading && !tab.items.length ? skeletons(7) : !first.length && hasResultError(tab.errors) ? '<div class="empty">Результаты не получены. Повторите поиск.</div>' : !first.length && tab.items.length ? emptyFeedMessage(tab) : renderGrid(first, '', new Set(), true)}
     </section>
     ${rest.length ? `<section class="section"><div class="section-head"><h2>Ещё из каталога</h2></div>${renderGrid(rest, 'home-rest', new Set(), true)}</section>` : ''}
@@ -3101,7 +3189,7 @@ function renderSearch(tab) {
     <div class="search-tools">
       <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="category" data-category="${rating}">${label}</button>`).join('')}</div>
        ${`<div class="source-filters">${Object.entries(names).map(([source, name]) => `<button class="filter-button ${tab.selectedSources.includes(source) ? 'active' : ''}" data-action="filter" data-source="${source}" aria-pressed="${tab.selectedSources.includes(source)}">${name}${sourceKeyHint(source)}</button>`).join('')}</div>`}
-      ${`<div class="sort-row"><button class="sort-button ${tab.sort === 'recent' ? 'active' : ''}" data-action="sort" data-sort="recent">Новые</button><button class="sort-button ${tab.sort === 'popular' ? 'active' : ''}" data-action="sort" data-sort="popular">Популярные</button><span>${tab.sort === 'popular' ? 'Danbooru, Gelbooru и Rule34 — по оценкам за всё время. Sankaku — официальный порядок популярности сайта.' : 'Последние публикации всех выбранных источников.'}</span></div>`}
+      ${`<div class="sort-row"><button class="sort-button ${tab.sort === 'recent' ? 'active' : ''}" data-action="sort" data-sort="recent">Новые</button><button class="sort-button ${tab.sort === 'popular' ? 'active' : ''}" data-action="sort" data-sort="popular">Популярные</button>${contentPreferences.curation?.enabled ? `<button class="sort-button ${tab.sort === 'curated' ? 'active' : ''}" data-action="sort" data-sort="curated">Curated</button>` : ''}<span>${tab.sort === 'curated' ? 'Available results ranked by your curation factors.' : tab.sort === 'popular' ? 'Danbooru, Gelbooru и Rule34 — по оценкам за всё время. Sankaku — официальный порядок популярности сайта.' : 'Последние публикации всех выбранных источников.'}</span></div>`}
     </div>
     ${renderErrors(tab.errors)}
     ${!blockedQuery && (tab.items.length || Object.keys(tab.searchPageStats || {}).length) ? renderSearchSummary(tab) : ''}
@@ -3920,8 +4008,25 @@ function formatDate(value) {
   return isNaN(date.valueOf()) ? 'Дата не указана' : new Intl.DateTimeFormat(globalThis.DartI18n?.locale || 'en-US', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
 }
 
+function renderCurationSettings() {
+  const preferences = CatalogLogic.normalizeCurationPreferences(contentPreferences.curation);
+  const active = ['popularity', 'personal', 'freshness', 'resolution'].filter(key => preferences[key]).length;
+  return `<div class="settings-card"><h2>Curation</h2><p>Bring promising works higher using catalog metadata and your local likes.</p>
+    <label class="settings-toggle"><input type="checkbox" name="curation-enabled" ${preferences.enabled ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''} aria-describedby="curation-status"><span><strong>Enable curation</strong><small>Adds Curated to discovery and refines recommendations and related works.</small></span></label>
+    <p id="curation-status" class="settings-hint" role="status">${!preferences.enabled ? 'Curation is off.' : active ? 'Curation is on. Selected factors are applied together.' : 'Select at least one factor. Source order is used while all factors are off.'}</p>
+    </div><div class="settings-card"><fieldset class="curation-factors" ${!preferences.enabled || contentPreferencesSaving ? 'disabled' : ''}><legend>Ranking factors</legend>
+    ${[
+      ['popularity', 'Community ratings', 'Compares votes within the same catalog and rating. Missing votes are neutral; mirrored copies add no points.'],
+      ['personal', 'Your preferences', 'Uses tags from your liked works. With no likes, this factor is neutral.'],
+      ['freshness', 'Publication age', 'Gives recent uploads a chance. An older known copy keeps its original age.'],
+      ['resolution', 'Original resolution', 'Uses original dimensions when available. Thumbnails, sketches, line art and pixel art are not penalized.']
+    ].map(([key, title, hint]) => `<label class="settings-toggle"><input type="checkbox" name="curation-${key}" ${preferences[key] ? 'checked' : ''}><span><strong>${title}</strong><small>${hint}</small></span></label>`).join('')}
+    </fieldset><p class="settings-hint">Ranks available results without extra image downloads. Works with missing data remain eligible.</p>
+    <p class="settings-hint">Following, artist profiles and saved lists keep their order. New and Popular remain available in discovery.</p></div>`;
+}
+
 function renderSettings() {
-  const section = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(currentTab()?.settingsSection)
+  const section = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(currentTab()?.settingsSection)
     ? currentTab().settingsSection : 'content';
   const themePreference = globalThis.DartTheme?.preference || 'system';
   const hideGenerated = contentPreferences.aiMode !== 'all';
@@ -3932,6 +4037,7 @@ function renderSettings() {
     <div class="settings-layout">
       <nav class="settings-sections" aria-label="Разделы настроек" role="tablist">
         <button type="button" id="settings-tab-content" role="tab" aria-selected="${section === 'content'}" aria-controls="settings-panel" class="settings-section ${section === 'content' ? 'active' : ''}" data-action="settings-section" data-section="content">Контент<span>AI, фурри и исключённые теги</span></button>
+        <button type="button" id="settings-tab-curation" role="tab" aria-selected="${section === 'curation'}" aria-controls="settings-panel" class="settings-section ${section === 'curation' ? 'active' : ''}" data-action="settings-section" data-section="curation">Curation<span>Ratings and personal taste</span></button>
         <button type="button" id="settings-tab-authors" role="tab" aria-selected="${section === 'authors'}" aria-controls="settings-panel" class="settings-section ${section === 'authors' ? 'active' : ''}" data-action="settings-section" data-section="authors">Авторы<span>Автор, источник и загрузчик</span></button>
         <button type="button" id="settings-tab-sources" role="tab" aria-selected="${section === 'sources'}" aria-controls="settings-panel" class="settings-section ${section === 'sources' ? 'active' : ''}" data-action="settings-section" data-section="sources">Источники<span>Подключения и ключи</span></button>
         <button type="button" id="settings-tab-tabs" role="tab" aria-selected="${section === 'tabs'}" aria-controls="settings-panel" class="settings-section ${section === 'tabs' ? 'active' : ''}" data-action="settings-section" data-section="tabs">Вкладки<span>Просмотр и закрепление</span></button>
@@ -3940,6 +4046,7 @@ function renderSettings() {
         <button type="button" id="settings-tab-language" role="tab" aria-selected="${section === 'language'}" aria-controls="settings-panel" class="settings-section settings-language-section ${section === 'language' ? 'active' : ''}" data-action="settings-section" data-section="language">Язык<span data-no-i18n>English · Русский · Deutsch</span></button>
       </nav>
       <div class="settings-view" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${section}">
+        ${section === 'curation' ? renderCurationSettings() : ''}
         ${section === 'privacy' ? `<div class="settings-card"><h2>Screen capture protection</h2><p>Hide the DART window from supported screenshots and screen sharing apps while it stays visible on your display.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideFromScreenCapture" ${privacyStatus.requested ? 'checked' : ''} ${privacyLoading || privacySaving || !privacyStatus.available && !privacyStatus.requested ? 'disabled' : ''}><span><strong>Hide DART from screen capture</strong><small>Applies to the entire DART window. The choice is saved for future launches.</small></span></label>
           <p class="privacy-status ${privacyStatus.error ? 'privacy-status-error' : privacyStatus.active ? 'privacy-status-active' : ''}" role="status">${privacyLoading ? 'Checking protection status…' : privacyStatus.error ? privacyErrors[privacyStatus.error] || 'Capture protection is unavailable.' : privacyStatus.active ? 'Protection is active.' : privacyStatus.available ? 'Protection is off.' : 'Open the DART desktop window to change this setting.'}</p>
@@ -4756,7 +4863,7 @@ function currentSearchOptions() {
   const tab = currentTab();
   return tab?.kind === 'search'
     ? { rating: tab.rating, selectedSources: [...tab.selectedSources],
-        sort: tab.sort, feed: tab.feed }
+        sort: tab.sort, curationBaseSort: tab.curationBaseSort || 'recent', feed: tab.feed }
     : { rating: tab?.rating === 'explicit' ? 'explicit' : 'all' };
 }
 
@@ -4970,6 +5077,12 @@ main.addEventListener('change', event => {
     saveContentPreferences({ ...contentPreferences, hideViewedAndSaved: event.target.checked });
     return;
   }
+  if (name?.startsWith('curation-')) {
+    const key = name.slice('curation-'.length);
+    if (['enabled', 'popularity', 'personal', 'freshness', 'resolution'].includes(key))
+      saveCurationPreferences({ [key]: event.target.checked });
+    return;
+  }
   if (name === 'hideFurry') {
     saveContentPreferences({ ...contentPreferences, hideFurry: event.target.checked });
     return;
@@ -5080,7 +5193,7 @@ main.addEventListener('click', event => {
     if (artwork) openQuickPreview(artwork, 'fullscreen');
   }
   else if (action === 'settings-section' && tab?.kind === 'settings') {
-    tab.settingsSection = ['content', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(control.dataset.section)
+    tab.settingsSection = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(control.dataset.section)
       ? control.dataset.section : 'content';
     saveSession(); render();
     if (tab.settingsSection === 'privacy') loadPrivacyStatus();
@@ -5170,7 +5283,7 @@ main.addEventListener('click', event => {
   }
   else if (action === 'all') openSearch('', { rating: tab?.rating || 'general',
     selectedSources: tab?.selectedSources || [...defaultSources],
-    sort: tab?.sort || 'recent', feed: tab?.feed || 'illustrations' });
+    sort: tab?.sort || 'recent', curationBaseSort: tab?.curationBaseSort || 'recent', feed: tab?.feed || 'illustrations' });
   else if (action === 'more-retry' && tab && !tab.loading) { tab.loadError = false; loadSearch(tab, true); }
   else if (action === 'retry-search' && tab && !tab.loading) {
     if (tab.kind === 'recommendations') loadRecommendations(tab);
@@ -5259,6 +5372,9 @@ main.addEventListener('click', event => {
     loadSearch(tab);
   }
   else if (action === 'sort' && tab && tab.sort !== control.dataset.sort) {
+    if (!['recent', 'popular', 'curated'].includes(control.dataset.sort) ||
+        control.dataset.sort === 'curated' && !contentPreferences.curation?.enabled) return;
+    if (control.dataset.sort === 'curated') tab.curationBaseSort = tab.sort === 'popular' ? 'popular' : 'recent';
     tab.sort = control.dataset.sort;
     saveSession();
     loadSearch(tab);
@@ -5269,7 +5385,7 @@ main.addEventListener('click', event => {
     tab.feed = 'illustrations';
     if (tab.feed === 'illustrations') tab.rating = mode;
     tab.selectedSources = [...defaultSources];
-    tab.sort = 'recent';
+    tab.sort = contentPreferences.curation?.enabled ? 'curated' : 'recent';
     saveSession();
     loadSearch(tab);
   }

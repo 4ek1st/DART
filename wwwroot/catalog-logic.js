@@ -36,7 +36,7 @@
     const kinds = ['home', 'search', 'detail', 'profile', 'bookmarks', 'likes',
       'recommendations', 'follows', 'recent', 'settings'];
     const fields = ['kind', 'title', 'query', 'searchQuery', 'selectedSources', 'rating',
-      'sort', 'feed', 'item', 'profileRef', 'settingsSection', 'preview', 'pinned', 'scrollTop'];
+      'sort', 'curationBaseSort', 'feed', 'item', 'profileRef', 'settingsSection', 'preview', 'pinned', 'scrollTop'];
     const originalActive = Number(state.session.activeIndex) || 0;
     let activeIndex = -1;
     const tabs = [];
@@ -842,6 +842,10 @@
       merged.imageRecords = [...itemImageRecords(previous), ...itemImageRecords(incoming)];
     }
     merged.visualHash = incoming.visualHash || previous.visualHash || '';
+    if (!(incoming.width > 0 && incoming.height > 0)) {
+      merged.width = previous.width;
+      merged.height = previous.height;
+    }
     merged.visualPHash = incoming.visualPHash || previous.visualPHash || '';
     merged.visualAspectRatio = incoming.visualAspectRatio || previous.visualAspectRatio || 0;
     merged.visualSamples = [...new Map([...itemVisualSamples(previous), ...itemVisualSamples(incoming)]
@@ -1132,7 +1136,7 @@
     return score;
   }
 
-  function rankRelated(item, candidates, limit = 24) {
+  function rankRelated(item, candidates, limit = 24, context = {}) {
     const authorTags = new Set(workParticipants(item).flatMap(person => [person.tag, person.name]).map(normalizeTag));
     const reference = meaningfulTags(artworkTags(item)).filter(tag => !authorTags.has(tag));
     const seen = new Set([item.key]);
@@ -1152,6 +1156,8 @@
       score: score + (candidate.source !== item.source ? 0.25 : 0) -
         (sameArtist ? 5 : 0), index: scored.length });
     }
+    const boosts = curationBoosts(scored.map(entry => entry.candidate), context.curation, context);
+    for (const entry of scored) entry.score *= boosts.get(entry.candidate.key) || 1;
     scored.sort((a, b) => b.score - a.score || a.index - b.index);
     const selected = [];
     const artistCounts = new Map();
@@ -1458,7 +1464,10 @@
     const combinations = recommendationCombinations(liked, preferences, context.background);
     const recentKeys = new Set(context.recentKeys || []);
     const seen = new Set();
-    const scored = groupWorks(candidates || []).map((item, index) => {
+    const groupedCandidates = groupWorks(candidates || []);
+    const boosts = curationBoosts(groupedCandidates, context.curation,
+      { ...context, liked, tagPreferences: preferences, tagWeights: weights });
+    const scored = groupedCandidates.map((item, index) => {
       if (!item?.key || excludedKeys.has(item.key) || seen.has(item.key) ||
           item.memberKeys.some(key => existingKeys.has(key)) ||
           item.memberKeys.some(key => disabledCandidateKeys.has(key)) ||
@@ -1486,7 +1495,7 @@
         preferences[tag] !== 'priority');
       const seenBefore = item.memberKeys.some(key => recentKeys.has(key));
       return score ? { item, index, score, priorityScore, characters, author: recommendationAuthor(item),
-        variedScore: score * (seenBefore ? 0.2 : 1) * (varietySeed ? 0.6 +
+        variedScore: score * (boosts.get(item.key) || 1) * (seenBefore ? 0.2 : 1) * (varietySeed ? 0.6 +
           recommendationVariety(item.key, varietySeed) * 0.8 : 1),
         variety: varietySeed ? recommendationVariety(item.key, varietySeed) : 0 } : null;
     }).filter(Boolean).sort((a, b) =>
@@ -1544,6 +1553,141 @@
       if (discovery.length) fresh.push(discovery.shift());
     }
     return [...(existing || []), ...fresh];
+  }
+
+  function normalizeCurationPreferences(value) {
+    return { enabled: value?.enabled === true, popularity: value?.popularity !== false,
+      personal: value?.personal !== false, freshness: value?.freshness !== false,
+      resolution: value?.resolution !== false };
+  }
+
+  const curationTasteProfiles = new WeakMap();
+  function curationTasteWeights(liked) {
+    const cached = curationTasteProfiles.get(liked);
+    if (cached) return cached;
+    const tags = new Map(), seen = new Set();
+    for (const item of liked) {
+      const identities = [item.key, ...(item.memberKeys || []),
+        ...(item.contentHash ? [`hash:${item.contentHash}`] : [])].filter(Boolean);
+      if (identities.some(key => seen.has(key))) continue;
+      identities.forEach(key => seen.add(key));
+      const author = recommendationAuthor(item) || item.key;
+      // Saved works already carry their grouped identities. A bounded curation
+      // factor needs tag counts, not the full query/character/combination profile
+      // or another visual grouping pass over the personal library.
+      for (const tag of recommendationWorkTags(item)) {
+        if (isBroadRecommendationTag(tag)) continue;
+        if (!tags.has(tag)) tags.set(tag, new Map());
+        const authors = tags.get(tag);
+        authors.set(author, (authors.get(author) || 0) + 1);
+      }
+    }
+    const weights = new Map();
+    for (const [tag, authors] of tags) {
+      const support = [...authors.values()].reduce((sum, count) => sum + Math.sqrt(count), 0);
+      weights.set(tag, Math.max(.25, Math.log2(support + 1) - .75) * support / (support + 1));
+    }
+    curationTasteProfiles.set(liked, weights);
+    return weights;
+  }
+
+  function curationBoosts(items, value, context = {}) {
+    const preferences = normalizeCurationPreferences(value);
+    const boosts = new Map((items || []).map(item => [item.key, 1]));
+    if (!preferences.enabled) return boosts;
+    const weights = { popularity: .4, personal: .3, freshness: .15, resolution: .15 };
+    const total = Object.entries(weights).reduce((sum, [key, weight]) =>
+      sum + (preferences[key] ? weight : 0), 0);
+    if (!total) return boosts;
+    const clamp = value => Math.max(-1, Math.min(1, value));
+    const members = item => [...new Map((item.groupMembers?.length ? item.groupMembers : [item])
+      .filter(member => member?.key).map(member => [member.key, member])).values()];
+    const votes = new Map();
+    const ratingKey = rating => ['g', 's', 'safe', 'general', 'sensitive'].includes(rating) ? 'g' :
+      ['q', 'questionable'].includes(rating) ? 'q' : ['e', 'explicit'].includes(rating) ? 'e' : 'u';
+    const evidence = new Map();
+    if (preferences.popularity) for (const item of items || []) {
+      const perSource = new Map();
+      for (const member of members(item)) {
+        if (!supportedSources.includes(member.source) || !Number.isFinite(member.popularityCount)) continue;
+        const key = `${member.source}:${ratingKey(member.rating)}`;
+        // Variants/reposts contribute one observation per source and artwork.
+        perSource.set(key, Math.max(perSource.get(key) ?? -Infinity, member.popularityCount));
+      }
+      evidence.set(item.key, perSource);
+      for (const [source, score] of perSource) {
+        if (!votes.has(source)) votes.set(source, new Map());
+        votes.get(source).set(item.key, score);
+      }
+    }
+    const relative = new Map();
+    for (const [source, sample] of votes) {
+      const sorted = [...sample.values()].sort((a, b) => a - b);
+      const scores = new Map();
+      for (let index = 0; index < sorted.length;) {
+        let end = index + 1;
+        while (end < sorted.length && sorted[end] === sorted[index]) end++;
+        // Midranks keep ties neutral and singleton sources cannot dominate.
+        const percentile = sorted.length > 1 ? (index + end - 1) / 2 / (sorted.length - 1) : .5;
+        scores.set(sorted[index], (percentile * 2 - 1) * Math.min(1, (sorted.length - 1) / 7));
+        index = end;
+      }
+      relative.set(source, scores);
+    }
+    const liked = context.liked || [];
+    const personalWeights = preferences.personal && liked.length
+      ? context.tagWeights || curationTasteWeights(liked) : null;
+    const personalConfidence = Math.min(1, liked.length / 8);
+    const now = Number.isFinite(context.now) ? context.now : Date.now();
+    for (const item of items || []) {
+      let sum = 0;
+      if (preferences.popularity) {
+        const values = [...(evidence.get(item.key) || [])].map(([source, score]) =>
+          relative.get(source)?.get(score) || 0).filter(score => score !== 0);
+        // Neutral mirrors do not dilute a rating; more mirrors never add points.
+        if (values.length) sum += weights.popularity * values.reduce((a, b) => a + b, 0) / values.length;
+      }
+      if (personalWeights) {
+        const matches = recommendationCandidateTags(item, context.tagPreferences || {})
+          .map(tag => context.tagPreferences?.[tag] === 'disabled' ? 0 :
+            context.tagPreferences?.[tag] === 'priority' ? Math.max(2.5, personalWeights.get(tag) || 0) :
+            personalWeights.get(tag) || 0).filter(weight => weight > 0)
+          .sort((a, b) => b - a).slice(0, 6);
+        const score = matches.reduce((sum, weight) => sum + weight, 0);
+        sum += weights.personal * score / (score + 4) * personalConfidence;
+      }
+      const leaves = members(item);
+      if (preferences.freshness) {
+        // Reposting an old work to another source must not reset its age.
+        const dates = leaves.map(member => Date.parse(member.published)).filter(date =>
+          Number.isFinite(date) && date > 0 && date <= now + 3600000);
+        if (dates.length) {
+          const days = Math.max(0, (now - Math.min(...dates)) / 86400000);
+          sum += weights.freshness * clamp(1 - Math.log1p(days) / Math.log(91));
+        }
+      }
+      if (preferences.resolution && !artworkTags(item).some(tag =>
+          ['pixel art', 'pixel perfect', 'sketch', 'lineart', 'line art', 'oekaki'].includes(normalizeTag(tag)))) {
+        const sizes = leaves.filter(member => Number.isFinite(member.width) && Number.isFinite(member.height) &&
+          member.width > 0 && member.height > 0 && member.width <= 100000 && member.height <= 100000)
+          .map(member => Math.min(member.width, member.height));
+        if (sizes.length) sum += weights.resolution * clamp(Math.log2(Math.max(...sizes) / 900) / 2);
+      }
+      boosts.set(item.key, 1 + .45 * sum / total);
+    }
+    return boosts;
+  }
+
+  function rankCuratedWorks(items, preferences, context = {}) {
+    if (!normalizeCurationPreferences(preferences).enabled) return items;
+    const boosts = curationBoosts(items, preferences, context);
+    return (items || []).map((item, index) => ({ item, index, score: boosts.get(item.key) || 1 }))
+      .sort((a, b) => b.score - a.score || a.index - b.index).map(entry => entry.item);
+  }
+
+  function mergeCuratedWorks(existing, incoming, preferences, context = {}) {
+    const grouped = mergeGroupedWorks(existing, incoming);
+    return stableFeedItems(existing || [], rankCuratedWorks(grouped, preferences, context));
   }
 
   function followKey(ref) {
@@ -1719,6 +1863,7 @@
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,
     recommendationQueryGroups, recommendationCombinations, rankRecommendations, mergeRecommendations,
+    normalizeCurationPreferences, curationBoosts, rankCuratedWorks, mergeCuratedWorks,
     followKey, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems };
   root.CatalogLogic = api;
   if (typeof module !== 'undefined') module.exports = api;

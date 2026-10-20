@@ -241,6 +241,7 @@ test('following preview cache survives a restart without changing follows or oth
 });
 
 test('content preferences save separately from API credentials and survive a restart', async () => {
+  const curation = { enabled: false, popularity: true, personal: true, freshness: true, resolution: true };
   const build = spawnSync('dotnet', ['build', 'ArtCatalog.csproj', '-c', 'Debug', '-v:q'],
     { cwd: project, encoding: 'utf8', windowsHide: true });
   assert.equal(build.status, 0, build.stdout + build.stderr);
@@ -258,31 +259,43 @@ test('content preferences save separately from API credentials and survive a res
       body: JSON.stringify(body)
     });
     assert.deepEqual(await get(), { language: 'en', aiMode: 'all', hideFurry: false, excludedTags: [], hiddenAuthors: [],
-      attributionPriority: 'creator', hideViewedAndSaved: false });
+      attributionPriority: 'creator', hideViewedAndSaved: false, curation });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] }, 'https://other.example')).status, 403);
     assert.equal((await post({ aiMode: 'invalid', excludedTags: [] })).status, 400);
     assert.equal((await post({ aiMode: 'all', hideFurry: 'false', excludedTags: [] })).status, 400);
     assert.equal((await post({ aiMode: 'generated', excludedTags: ['a'.repeat(101)] })).status, 400);
     assert.deepEqual(await get(), { language: 'en', aiMode: 'all', hideFurry: false, excludedTags: [], hiddenAuthors: [],
-      attributionPriority: 'creator', hideViewedAndSaved: false });
+      attributionPriority: 'creator', hideViewedAndSaved: false, curation });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] })).status, 200);
     assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hideFurry: false, hiddenAuthors: [],
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
-      hideViewedAndSaved: false });
+      hideViewedAndSaved: false, curation });
     assert.ok(fs.existsSync(path.join(dataDirectory, 'content-preferences.json')));
     assert.equal(fs.existsSync(path.join(dataDirectory, 'settings.bin')), false);
     await stopServer(server);
     server = await startServer(dataDirectory);
     assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hideFurry: false, hiddenAuthors: [],
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
-      hideViewedAndSaved: false });
+      hideViewedAndSaved: false, curation });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: true, hideFurry: true })).status, 200);
     assert.equal((await get()).hideViewedAndSaved, true);
     assert.equal((await get()).hideFurry, true);
+    const curate = (body, origin = server.origin) => fetch(server.origin + '/api/curation-preferences', {
+      method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    assert.equal((await curate({ enabled: true }, 'https://other.example')).status, 403);
+    assert.equal((await curate({ enabled: 'true' })).status, 400);
+    assert.equal((await curate({})).status, 400);
+    const beforeCuration = await get();
+    assert.equal((await curate({ enabled: true, resolution: false })).status, 200);
+    assert.deepEqual(await get(), { ...beforeCuration, curation: { ...curation, enabled: true, resolution: false } });
+    await stopServer(server);
+    server = await startServer(dataDirectory);
+    assert.deepEqual(await get(), { ...beforeCuration, curation: { ...curation, enabled: true, resolution: false } });
     for (const language of ['de', 'ru', 'en']) {
       const previous = await get();
       assert.equal((await post({ ...previous, language })).status, 200);

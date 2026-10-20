@@ -148,6 +148,24 @@ Manually excluding `furry`, `anthro` or `anthropomorphic` also covers their
 explicit equivalents across sources. Animal ears, tails and artist names
 alone do not trigger this exclusion.
 
+## Curation
+
+Open **Settings > Curation** and enable **Enable curation** to try optional
+ranking. Choose community ratings, your local likes, publication age and original
+resolution independently. Settings are saved on this computer.
+
+Discovery gains a **Curated** mode alongside **New** and **Popular**. It ranks the
+available results using the selected factors and retains the source ordering
+you started from. New pages append without moving existing cards. The factors
+also refine recommendations and related works; Following, artist profiles and
+saved lists keep their ordering.
+
+Votes are compared within each catalog and content rating. Copies do not add
+extra votes. Unknown scores, dates and dimensions are neutral. The resolution
+factor uses original dimensions when provided by the source; deliberate pixel
+art, sketches and line art remain neutral. No additional image downloads or
+external AI service are used for this ranking.
+
 ## Updates and your data
 
 An installed copy checks for updates on startup and every five minutes while

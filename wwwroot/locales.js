@@ -493,6 +493,30 @@ The source did not return a post to determine the start of the month.|Источ
 Enter your Gelbooru user ID and API key in settings.|Укажите user ID и API key Gelbooru в настройках.|Geben Sie Ihre Gelbooru-User-ID und Ihren API-Schlüssel in den Einstellungen ein.
 Enter your Rule34 user ID and API key in settings.|Укажите user ID и API key Rule34 в настройках.|Geben Sie Ihre Rule34-User-ID und Ihren API-Schlüssel in den Einstellungen ein.
 Rule34 search is temporarily unavailable on the site. Try again later.|Поиск Rule34 временно недоступен на стороне сайта. Повторите позже.|Die Rule34-Suche ist auf der Website vorübergehend nicht verfügbar. Versuchen Sie es später erneut.
+Curation|Отбор|Auswahl
+Curated|Отбор|Ausgewählt
+Ratings and personal taste|Оценки и личные предпочтения|Bewertungen und persönlicher Geschmack
+Bring promising works higher using catalog metadata and your local likes.|Поднимайте интересные работы выше с учётом данных каталогов и ваших лайков.|Interessante Werke anhand von Katalogdaten und Ihren lokalen Likes höher einordnen.
+Enable curation|Включить отбор|Auswahl aktivieren
+Adds Curated to discovery and refines recommendations and related works.|Добавляет режим «Отбор» в каталог и уточняет рекомендации и похожие работы.|Ergänzt den Modus „Ausgewählt“ im Katalog und verfeinert Empfehlungen und ähnliche Werke.
+Curation is off.|Отбор выключен.|Auswahl ist ausgeschaltet.
+Curation is on. Selected factors are applied together.|Отбор включён. Выбранные факторы учитываются вместе.|Auswahl ist eingeschaltet. Die gewählten Faktoren wirken zusammen.
+Select at least one factor. Source order is used while all factors are off.|Выберите хотя бы один фактор. Пока все выключены, используется порядок источников.|Wählen Sie mindestens einen Faktor. Sind alle ausgeschaltet, gilt die Reihenfolge der Quellen.
+Ranking factors|Факторы отбора|Auswahlfaktoren
+Community ratings|Оценки сообщества|Bewertungen der Community
+Compares votes within the same catalog and rating. Missing votes are neutral; mirrored copies add no points.|Сравнивает оценки внутри одного каталога и возрастного рейтинга. Отсутствие оценок нейтрально; копии не добавляют баллов.|Vergleicht Stimmen innerhalb desselben Katalogs und derselben Altersfreigabe. Fehlende Stimmen sind neutral; Kopien bringen keine Zusatzpunkte.
+Your preferences|Ваши предпочтения|Ihre Vorlieben
+Uses tags from your liked works. With no likes, this factor is neutral.|Учитывает теги понравившихся работ. Без лайков этот фактор нейтрален.|Verwendet Tags Ihrer mit „Gefällt mir“ markierten Werke. Ohne Likes ist dieser Faktor neutral.
+Publication age|Возраст публикации|Alter der Veröffentlichung
+Gives recent uploads a chance. An older known copy keeps its original age.|Даёт шанс недавним публикациям. Известная старая копия сохраняет исходный возраст.|Gibt neuen Veröffentlichungen eine Chance. Eine bekannte ältere Kopie behält ihr ursprüngliches Alter.
+Original resolution|Исходное разрешение|Originalauflösung
+Uses original dimensions when available. Thumbnails, sketches, line art and pixel art are not penalized.|Учитывает известные размеры оригинала. Миниатюры, скетчи, лайнарт и пиксельная графика не снижают оценку.|Berücksichtigt bekannte Originalmaße. Vorschaubilder, Skizzen, Lineart und Pixel-Art werden nicht abgewertet.
+Ranks available results without extra image downloads. Works with missing data remain eligible.|Сортирует доступные результаты без дополнительных скачиваний изображений. Работы с неполными данными остаются в выдаче.|Sortiert verfügbare Ergebnisse ohne zusätzliche Bilddownloads. Werke mit unvollständigen Daten bleiben verfügbar.
+Following, artist profiles and saved lists keep their order. New and Popular remain available in discovery.|Подписки, профили художников и сохранённые списки сохраняют порядок. В каталоге доступны «Новые» и «Популярные».|Abonnements, Künstlerprofile und gespeicherte Listen behalten ihre Reihenfolge. „Neu“ und „Beliebt“ bleiben im Katalog verfügbar.
+Available results ranked by your curation factors.|Доступные результаты отсортированы по выбранным факторам отбора.|Verfügbare Ergebnisse, sortiert nach Ihren Auswahlfaktoren.
+Curated illustrations|Отобранные иллюстрации|Ausgewählte Illustrationen
+Curated NSFW illustrations|Отобранные NSFW иллюстрации|Ausgewählte NSFW-Illustrationen
+Could not save curation settings|Не удалось сохранить настройки отбора|Die Auswahleinstellungen konnten nicht gespeichert werden
 `; 
   root.DartMessages = rows.trim().split('\n').map(row => row.split('|'));
   if (typeof module !== 'undefined') module.exports = root.DartMessages;

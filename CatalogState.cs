@@ -32,7 +32,7 @@ internal static class CatalogState
         string[] kinds = ["home", "search", "detail", "profile", "bookmarks", "likes",
             "recommendations", "follows", "recent", "settings"];
         string[] fields = ["kind", "title", "query", "searchQuery", "selectedSources", "rating",
-            "sort", "feed", "item", "profileRef", "settingsSection", "preview", "pinned", "scrollTop"];
+            "sort", "curationBaseSort", "feed", "item", "profileRef", "settingsSection", "preview", "pinned", "scrollTop"];
         for (var original = 0; original < tabs.Count; original++)
         {
             if (tabs[original] is not JsonObject tab) continue;

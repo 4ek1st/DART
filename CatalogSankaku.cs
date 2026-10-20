@@ -176,6 +176,8 @@ internal sealed partial class CatalogService
             GroupKey = parent != "0" && SankakuApi.ValidId(parent) ? "sankaku:parent:" + parent :
                 String(post, "has_children") == "True" ? "sankaku:parent:" + id : pixiv,
             Published = published, PopularityCount = Number(post, "total_score") ?? Number(post, "fav_count"),
+            Width = Math.Max(0, Number(post, "width") ?? 0),
+            Height = Math.Max(0, Number(post, "height") ?? 0),
             Rating = String(post, "rating") == "s" ? "g" : String(post, "rating"),
             Tags = tags, CharacterTags = characters.Distinct().ToList(),
             CopyrightTags = copyrights.Distinct().ToList(), RelatedQuery = related,

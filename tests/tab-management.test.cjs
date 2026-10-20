@@ -8,7 +8,7 @@ const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
 function slice(start, end) { return source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start))); }
 function fixture() {
   const values = new Map(), writes = [], visits = [];
-  const context = vm.createContext({ CatalogLogic, URLSearchParams, AbortController,
+  const context = vm.createContext({ CatalogLogic, URLSearchParams, AbortController, contentPreferences: {},
     tabs: [], nextId: 1, activeId: null, navigation: [], navPosition: -1,
     main: { scrollTop: 0, dataset: {}, querySelectorAll: () => [] },
     defaultSources: ['danbooru', 'gelbooru', 'rule34'],

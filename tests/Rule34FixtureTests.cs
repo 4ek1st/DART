@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using ArtCatalog;
 
+CurationFixtureTests.Run();
 SavedWorksFixtureTests.Run();
 await VideoPreviewFixtureTests.RunAsync();
 

@@ -15,7 +15,7 @@ function fixture(respond, sources = ['danbooru']) {
   const context = { CatalogLogic, URLSearchParams, AbortController, Map, Set,
     defaultSources: sources, activeId: 1, findTab: () => tab,
     ratingFilterFor: () => 'explicit', render() {}, rememberItems() {},
-    filterFeedWorks: items => items,
+    filterFeedWorks: items => items, curationContext: () => ({}),
     request: async (url, options) => { const parsed = new URL(url, 'http://fixture');
       requests.push(parsed); return respond(parsed, requests.length, options); } };
   const start = source.indexOf('async function loadRelated(');

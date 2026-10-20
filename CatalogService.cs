@@ -43,6 +43,10 @@ public sealed class CatalogItem
     public string SourceUrl { get; set; } = "";
     public string Published { get; set; } = "";
     public int? PopularityCount { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int Width { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int Height { get; set; }
     public string Rating { get; set; } = "";
     public List<string> Images { get; set; } = [];
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1111,6 +1115,8 @@ internal sealed partial class CatalogService(LocalStore store)
             SourceUrl = $"https://danbooru.donmai.us/posts/{id}",
             Published = NormalizeDate(String(post, "created_at")),
             PopularityCount = Number(post, "score"),
+            Width = Math.Max(0, Number(post, "image_width") ?? 0),
+            Height = Math.Max(0, Number(post, "image_height") ?? 0),
             Rating = String(post, "rating"), Tags = tags, CharacterTags = characterTags,
             CopyrightTags = copyrightTags,
             Images = ValidImageUrl(full) ? [full] : []
@@ -1150,6 +1156,8 @@ internal sealed partial class CatalogService(LocalStore store)
             SourceUrl = $"https://gelbooru.com/index.php?page=post&s=view&id={id}",
             Published = NormalizeDate(String(post, "created_at")),
             PopularityCount = Number(post, "score"),
+            Width = Math.Max(0, Number(post, "width") ?? Number(post, "image_width") ?? 0),
+            Height = Math.Max(0, Number(post, "height") ?? Number(post, "image_height") ?? 0),
             Rating = String(post, "rating"), Tags = tags,
             Images = ValidImageUrl(full) ? [full] : []
         };
@@ -1199,6 +1207,8 @@ internal sealed partial class CatalogService(LocalStore store)
             SourceUrl = $"https://rule34.xxx/index.php?page=post&s=view&id={id}",
             Published = NormalizeDate(String(post, "created_at")),
             PopularityCount = Number(post, "score"),
+            Width = Math.Max(0, Number(post, "width") ?? 0),
+            Height = Math.Max(0, Number(post, "height") ?? 0),
             Rating = rating, Tags = tags, Images = [full]
         };
         ApplyRule34TagInfo(item, post);

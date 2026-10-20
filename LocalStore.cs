@@ -34,6 +34,29 @@ public sealed class ContentPreferences
     public string AttributionPriority { get; set; } = "creator";
     public bool HideViewedAndSaved { get; set; }
     public List<HiddenAuthor> HiddenAuthors { get; set; } = [];
+    public CurationPreferences Curation { get; set; } = new();
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extensions { get; set; }
+}
+
+public sealed class CurationPreferences
+{
+    public bool Enabled { get; set; }
+    public bool Popularity { get; set; } = true;
+    public bool Personal { get; set; } = true;
+    public bool Freshness { get; set; } = true;
+    public bool Resolution { get; set; } = true;
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extensions { get; set; }
+}
+
+public sealed class CurationPreferencesUpdate
+{
+    public bool? Enabled { get; set; }
+    public bool? Popularity { get; set; }
+    public bool? Personal { get; set; }
+    public bool? Freshness { get; set; }
+    public bool? Resolution { get; set; }
 }
 
 public sealed class ContentPreferencesUpdate
@@ -206,6 +229,10 @@ internal sealed class LocalStore : ISankakuSessionStore
             }
             Update("originalUrl", item.OriginalUrl);
             Update("pixivGroupKey", item.PixivGroupKey);
+            if (item.Width > 0 && item.Height > 0)
+                foreach (var (field, value) in new[] { ("width", item.Width), ("height", item.Height) })
+                    if (saved[field] is not JsonValue current || !current.TryGetValue<int>(out var number) || number != value)
+                    { saved[field] = value; changed = true; }
             if (item.CharacterTags.Count > 0)
             {
                 var previous = saved["characterTags"]?.Deserialize<List<string>>(Json) ?? [];
@@ -542,11 +569,30 @@ internal sealed class LocalStore : ISankakuSessionStore
                 HideViewedAndSaved = update.HideViewedAndSaved,
                 // Older windows do not send this field. Only the dedicated mutation changes it.
                 HiddenAuthors = previous.HiddenAuthors ?? [],
+                Curation = previous.Curation ?? new(),
+                Extensions = previous.Extensions,
                 ExcludedTags = update.ExcludedTags.Select(tag => tag.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
             };
             WriteAtomic(contentPreferencesFile,
                 JsonSerializer.SerializeToUtf8Bytes(preferences, Json));
+            return preferences;
+        }
+    }
+
+    public ContentPreferences UpdateCurationPreferences(CurationPreferencesUpdate update)
+    {
+        lock (sync)
+        {
+            using var fileLock = AcquireFileLock(contentPreferencesLockFile);
+            var preferences = ReadContentPreferencesFile(contentPreferencesFile);
+            var curation = preferences.Curation ??= new();
+            curation.Enabled = update.Enabled ?? curation.Enabled;
+            curation.Popularity = update.Popularity ?? curation.Popularity;
+            curation.Personal = update.Personal ?? curation.Personal;
+            curation.Freshness = update.Freshness ?? curation.Freshness;
+            curation.Resolution = update.Resolution ?? curation.Resolution;
+            WriteAtomic(contentPreferencesFile, JsonSerializer.SerializeToUtf8Bytes(preferences, Json));
             return preferences;
         }
     }

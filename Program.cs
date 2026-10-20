@@ -319,6 +319,18 @@ internal static class Program
         });
         app.MapGet("/api/content-preferences", (LocalStore store) =>
             Results.Ok(store.GetContentPreferences()));
+        app.MapPost("/api/curation-preferences", async (HttpContext context, LocalStore store) =>
+        {
+            if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
+            if (context.Request.ContentLength is > 2_000) return Results.StatusCode(413);
+            CurationPreferencesUpdate? update;
+            try { update = await context.Request.ReadFromJsonAsync<CurationPreferencesUpdate>(context.RequestAborted); }
+            catch (System.Text.Json.JsonException) { return Results.BadRequest(); }
+            if (update is null || update.Enabled is null && update.Popularity is null &&
+                update.Personal is null && update.Freshness is null && update.Resolution is null)
+                return Results.BadRequest();
+            return Results.Ok(store.UpdateCurationPreferences(update));
+        });
         app.MapGet("/api/privacy", (ScreenCaptureProtection protection) =>
             Results.Ok(protection.Status()));
         app.MapPost("/api/privacy", async (HttpContext context, ScreenCaptureProtection protection) =>
