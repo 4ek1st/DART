@@ -2526,8 +2526,11 @@ function artworkSourceSignature(source) {
 }
 
 function copyArtworkSource(source) {
+  // Preview writes hold nested promises. Follow publications are disposable
+  // caches; a detached viewer rebuilds them from its copied groups and cursors.
   const plain = Object.fromEntries(Object.entries(source).filter(([key, value]) =>
     !/Controller$|Timer$|^artwork|^virtual|^gridTops|^resumePrefetchAt/.test(key) &&
+    !['followCacheWrites', 'followComputed', 'followPublication'].includes(key) &&
     typeof value !== 'function' && typeof value?.then !== 'function'));
   const copy = structuredClone(plain);
   if (copy.followPagingStreams) {
