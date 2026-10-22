@@ -89,7 +89,9 @@ test('manual choices remain visible and effective after their matching likes dis
 test('manual choices remain accessible in the feed when there are no current likes', () => {
   const start = app.indexOf('function renderRecommendations(');
   const end = app.indexOf('\nfunction followButton(', start);
-  const render = vm.runInNewContext(app.slice(start,end) + '\nrenderRecommendations', {
+  const profileSource = app.slice(app.indexOf('function recommendationLikedWorks('),
+    app.indexOf('\nfunction recommendationPoolsHaveMore('));
+  const render = vm.runInNewContext(profileSource + app.slice(start,end) + '\nrenderRecommendations', {
     CatalogLogic: logic, likes: [], contentPreferences: {}, recommendationTagPreferences: { latex: 'priority' },
     names: { danbooru: 'Danbooru' }, sourceKeyHint: () => '', renderErrors: () => '',
     renderRecommendationTagChips: () => '', escapeHtml: x => x,

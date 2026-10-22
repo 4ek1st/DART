@@ -5,6 +5,30 @@ const path = require('node:path');
 const vm = require('node:vm');
 const CatalogLogic = require('../wwwroot/catalog-logic.js');
 
+test('an empty recommendation sample mounts its continuation only after loading finishes', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'wwwroot', 'app.js'), 'utf8');
+  const profile = source.slice(source.indexOf('function recommendationLikedWorks('),
+    source.indexOf('\nfunction recommendationPoolsHaveMore('));
+  const renderSource = source.slice(source.indexOf('function renderRecommendations('),
+    source.indexOf('\nfunction followButton('));
+  const render = vm.runInNewContext(profile + renderSource + '\nrenderRecommendations', {
+    CatalogLogic, likes: [{ key: 'danbooru:liked', tags: ['latex'] }],
+    contentPreferences: { hideViewedAndSaved: true }, recommendationTagPreferences: {},
+    names: {}, sourceKeyHint: () => '', renderRecommendationTagChips: () => '',
+    renderErrors: () => '', skeletons: () => '<div class="skeleton"></div>',
+    renderGrid: () => '', filteredRecommendationOtherTags: () => [], escapeHtml: value => value
+  });
+  const tab = { id: 11, items: [], errors: {}, recommendationTags: [{ tag: 'latex' }],
+    selectedSources: ['danbooru'], loading: true, hasMore: true };
+  const pending = render(tab);
+  assert(pending.includes('class="skeleton"'));
+  assert(!pending.includes('data-auto-load="recommendations"'),
+    'a persistent marker must not consume its only intersection while the sample is still loading');
+  tab.loading = false;
+  assert(render(tab).includes('data-auto-load="recommendations"'),
+    'all-known samples must continue searching without a scroll or refresh');
+});
+
 test('scrolling recommendations requests the next recommendation page', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'wwwroot', 'app.js'), 'utf8');
   const start = source.indexOf('const autoFeed = {');

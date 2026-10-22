@@ -528,18 +528,15 @@
 
   function compatibleVisualSamples(first, second, distance) {
     if (!similarVisualTags(first.tags, second.tags)) return false;
-    if (first.publication && second.publication && first.publication !== second.publication)
-      return false;
     const characters = first.characters || [];
     const otherCharacters = second.characters || [];
     if (characters.length && otherCharacters.length &&
         !characters.some(tag => otherCharacters.includes(tag))) return false;
+    if (first.publication && second.publication && first.publication !== second.publication &&
+        !crossPlatformVisualRepost(first, second, distance)) return false;
     if (first.creator && first.creator === second.creator &&
         validVisualHash(first.perceptualHash) && validVisualHash(second.perceptualHash))
-      return first.tags.length >= 12 && second.tags.length >= 12 &&
-        first.aspectRatio > 0 && second.aspectRatio > 0 &&
-        Math.abs(Math.log(first.aspectRatio / second.aspectRatio)) <= .05 &&
-        visualDistance(first.perceptualHash, second.perceptualHash) <= 12 && distance <= 12;
+      return dualVisualMatch(first, second, distance);
     if (distance > 8 || first.source !== second.source) return false;
     if (first.source === 'rule34') return true;
     // Near-identical copies can be uploaded again later. Larger changes (text,
@@ -553,7 +550,38 @@
       Math.abs(time - otherTime) <= 20 * 60 * 1000;
   }
 
+  function dualVisualMatch(first, second, distance, edgeLimit = 12, perceptualLimit = 12) {
+    return first.creator && first.creator === second.creator &&
+      first.tags.length >= 12 && second.tags.length >= 12 &&
+      validVisualHash(first.perceptualHash) && validVisualHash(second.perceptualHash) &&
+      first.aspectRatio > 0 && second.aspectRatio > 0 &&
+      Math.abs(Math.log(first.aspectRatio / second.aspectRatio)) <= .05 && distance <= edgeLimit &&
+      visualDistance(first.perceptualHash, second.perceptualHash) <= perceptualLimit;
+  }
+  const publicationFamily = token => /^group:pixiv:/.test(token || '') ? 'pixiv' :
+    /^original:x-status:/.test(token || '') ? 'x' : '';
+  function crossPlatformVisualRepost(first, second, distance) {
+    const family = publicationFamily(first.publication), other = publicationFamily(second.publication);
+    const confirmed = tags => (tags || []).filter(tag => !['original character', 'character request'].includes(tag));
+    const characters = confirmed(first.characters), otherCharacters = confirmed(second.characters);
+    // Cross-posted variants need substantially closer evidence than ordinary
+    // within-publication matches, including the same confirmed characters.
+    return family && other && family !== other &&
+      characters.length && characters.length === otherCharacters.length &&
+      characters.every(tag => otherCharacters.includes(tag)) &&
+      dualVisualMatch(first, second, distance, 2, 6);
+  }
+  function conflictingPublicationFamilies(first, second) {
+    return ['pixiv', 'x'].some(family => {
+      const keys = [...first].filter(key => publicationFamily(key) === family);
+      return keys.length && [...second].some(key => publicationFamily(key) === family) &&
+        !keys.some(key => second.has(key));
+    });
+  }
+
   const groupedCache = new WeakMap();
+  const groupingRevisions = new WeakMap();
+  function groupingRevision(items) { return groupingRevisions.get(items) || 0; }
   const groupingVersion = 2;
   const memberKeysOf = item => [...new Set([item?.key, ...(item?.memberKeys || [])].filter(Boolean))];
   function hasGroupMembers(item) {
@@ -640,6 +668,7 @@
   }
   function invalidateGrouping(items) {
     if (!Array.isArray(items)) return;
+    groupingRevisions.set(items, groupingRevision(items) + 1);
     groupedCache.delete(items);
     for (const item of items) if (item && typeof item === 'object') {
       groupingEvidenceCache.delete(item);
@@ -659,11 +688,12 @@
       }
       return index;
     };
-    const join = (first, second, weak = false) => {
+    const join = (first, second, weak = false, visualRepost = false) => {
       const a = find(first), b = find(second);
       if (a === b) return;
       if (weak && publications[a].size && publications[b].size &&
-          ![...publications[a]].some(key => publications[b].has(key))) return;
+          ![...publications[a]].some(key => publications[b].has(key)) &&
+          (!visualRepost || conflictingPublicationFamilies(publications[a], publications[b]))) return;
       roots[a] = b;
       for (const identity of publications[a]) publications[b].add(identity);
     };
@@ -776,7 +806,7 @@
       if (distance <= 12)
         for (const previous of node.entries)
           if (compatibleVisualSamples(sample, previous.sample, distance))
-            join(index, previous.index, true);
+            join(index, previous.index, true, crossPlatformVisualRepost(sample, previous.sample, distance));
       for (const [edge, child] of node.children)
         if (edge >= distance - 12 && edge <= distance + 12)
           findVisualMatches(child, sample, index);
@@ -870,7 +900,7 @@
     // Every inferred series/visual match shares a creator or sample owner;
     // exact copies and explicit relationships share an identity token.
     const creator = visualCreator(item);
-    const evidence = [...new Set([...itemIdentities(item),
+    const evidence = [...new Set([...memberKeysOf(item).map(key => `key:${key}`), ...itemIdentities(item),
       ...(creator ? [`bucket:creator:${creator}`] : []),
       ...itemVisualSamples(item).map(sample => `bucket:${sample.owner}`)])];
     groupingEvidenceCache.set(item, evidence);
@@ -916,7 +946,10 @@
         if (item[field]) member[field] = item[field];
     }
     invalidateGrouping(enriched);
-    if (previous) groupedCache.set(items, mergeGroupedWorks(previous, enriched));
+    if (previous) {
+      groupingRevisions.set(items, groupingRevision(items) + 1);
+      groupedCache.set(items, mergeGroupedWorks(previous, enriched));
+    }
     else invalidateGrouping(items);
   }
 
@@ -1214,9 +1247,28 @@
     return records;
   }
 
+  const normalizedTags = new Map();
   function normalizeTag(tag) {
-    return String(tag || '').normalize('NFKC').toLowerCase()
+    const text = String(tag || '');
+    const cached = normalizedTags.get(text);
+    if (cached !== undefined) return cached;
+    const normalized = text.normalize('NFKC').toLowerCase()
       .replace(/[_:]+/g, ' ').replace(/\s+/g, ' ').trim();
+    // Pure string results are shared across works; long input is not retained.
+    if (text.length <= 512) {
+      if (normalizedTags.size >= 32768) normalizedTags.delete(normalizedTags.keys().next().value);
+      normalizedTags.set(text, normalized);
+    }
+    return normalized;
+  }
+
+  function firstTagSpellings(tags) {
+    const spellings = new Map();
+    for (const value of tags) {
+      const tag = normalizeTag(value);
+      if (!spellings.has(tag)) spellings.set(tag, value);
+    }
+    return spellings;
   }
 
   function meaningfulTags(tags) {
@@ -1240,8 +1292,9 @@
       ...(titleMatch ? [titleMatch] : []), ...focused])];
     // With only broad attributes, require a pair instead of a catalog-wide single tag.
     if (!ordered.length && tags.length >= 2) ordered.push(tags.slice(0, 2).join('\u0000'));
+    const spellings = firstTagSpellings(raw);
     return ordered.map(tag => tag.split('\u0000').map(part => {
-      const original = raw.find(value => normalizeTag(value) === part);
+      const original = spellings.get(part);
       return String(original || part).normalize('NFKC').trim().replace(/\s+/g, '_');
     }).join(' ')).filter(query => query.length <= 200);
   }
@@ -1321,13 +1374,15 @@
 
   function recommendationProfile(liked) {
     const cached = recommendationProfiles.get(liked);
-    if (cached) return cached.profile;
+    const revision = groupingRevision(liked);
+    if (cached && cached.revision === revision && cached.length === liked.length) return cached.profile;
     const profile = new Map();
     const names = new Set();
     const typedNames = new Set();
     const copyrights = new Set();
     const authorTotals = new Map();
     const records = [];
+    const canonicalQueries = new Map();
     // Snapshot once before grouping: metadata consumers must share one scan,
     // including saved-work objects whose tag arrays are exposed through getters.
     const works = groupWorks((liked || []).map(item => ({ ...item })));
@@ -1335,6 +1390,7 @@
       const subject = normalizeTag(item.relatedQuery);
       const title = normalizeTag(item.title);
       const raw = recommendationRawTags(item);
+      const spellings = firstTagSpellings(raw);
       const tags = recommendationWorkTags(item);
       for (const tag of item.characterTags || []) { names.add(normalizeTag(tag)); typedNames.add(normalizeTag(tag)); }
       for (const tag of item.copyrightTags || []) copyrights.add(normalizeTag(tag));
@@ -1346,8 +1402,12 @@
       authorTotals.set(author, (authorTotals.get(author) || 0) + 1);
       records.push({ tags, author });
       for (const tag of tags) {
-        const query = String(raw.find(value => normalizeTag(value) === tag) || tag)
-          .normalize('NFKC').toLowerCase().trim().replace(/\s+/g, '_');
+        const original = String(spellings.get(tag) || tag);
+        let query = canonicalQueries.get(original);
+        if (query === undefined) {
+          query = original.normalize('NFKC').toLowerCase().trim().replace(/\s+/g, '_');
+          canonicalQueries.set(original, query);
+        }
         const entry = profile.get(tag) || { tag, query, count: 0, weight: 0, subjectCount: 0, authors: new Map() };
         // Prefer a spelling that retains canonical punctuation over a saved label.
         if (query.includes(':')) entry.query = query;
@@ -1364,7 +1424,7 @@
     for (const tag of copyrights) if (!typedNames.has(tag)) names.delete(tag);
     for (const entry of ordered) entry.support = [...entry.authors.values()]
       .reduce((sum, count) => sum + Math.sqrt(count), 0);
-    if (Array.isArray(liked)) recommendationProfiles.set(liked, { profile: ordered, names, copyrights, records,
+    if (Array.isArray(liked)) recommendationProfiles.set(liked, { profile: ordered, names, copyrights, records, revision, length: liked.length,
       total: works.length, supportTotal: [...authorTotals.values()].reduce((sum, count) => sum + Math.sqrt(count), 0) });
     return ordered;
   }
@@ -1671,9 +1731,13 @@
 
   function mergeRecommendations(liked, existing, groups, rating = 'general',
     preferences = {}, varietySeed = 0, context = {}) {
-    const ranked = rankRecommendations(liked,
-      [...(existing || []), ...(groups || []).flatMap(group => group.items || [])],
-      rating, Number.MAX_SAFE_INTEGER, preferences, varietySeed, { ...context, existingWorks: existing });
+    // A repeated record can carry a newly learned file hash, alias or gallery
+    // page. Enrich the existing slots before suppressing repeats in ranking.
+    const merged = mergeGroupedWorks(existing, (groups || []).flatMap(group => group.items || []));
+    const existingKeys = new Set((existing || []).flatMap(memberKeysOf));
+    const retained = merged.filter(item => memberKeysOf(item).some(key => existingKeys.has(key)));
+    const ranked = rankRecommendations(liked, merged,
+      rating, Number.MAX_SAFE_INTEGER, preferences, varietySeed, { ...context, existingWorks: retained });
     const preferred = [], discovery = [];
     for (const item of ranked)
       (recommendationCandidateTags(item, preferences).some(tag => preferences[tag] === 'priority')
@@ -1685,7 +1749,7 @@
       for (let index = 0; index < 3 && preferred.length; index++) fresh.push(preferred.shift());
       if (discovery.length) fresh.push(discovery.shift());
     }
-    return [...(existing || []), ...fresh];
+    return [...retained, ...fresh];
   }
 
   function normalizeCurationPreferences(value) {
@@ -1985,7 +2049,7 @@
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks, sameWork,
-    removeNavigationEntry, groupWorks, mergeGroupedWorks, invalidateGrouping, refineGrouping,
+    removeNavigationEntry, groupWorks, mergeGroupedWorks, groupingRevision, invalidateGrouping, refineGrouping,
     needsGroupRepair, repairLegacyGroup, replaceRepairedGroups,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind,

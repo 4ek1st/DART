@@ -335,7 +335,9 @@ test('recommendation warning Retry uses the incremental recovery action', () => 
   const renderSource = app.slice(app.indexOf('function renderRecommendations('),
     app.indexOf('\nfunction followButton('));
   let action;
-  const render = vm.runInNewContext(renderSource + '\nrenderRecommendations', {
+  const profileSource = app.slice(app.indexOf('function recommendationLikedWorks('),
+    app.indexOf('\nfunction recommendationPoolsHaveMore('));
+  const render = vm.runInNewContext(profileSource + renderSource + '\nrenderRecommendations', {
     CatalogLogic: logic, likes: [work('liked')], contentPreferences: {}, recommendationTagPreferences: {},
     names: {}, sourceKeyHint: () => '', renderRecommendationTagChips: () => '',
     renderErrors: (_, retryAction) => { action = retryAction; return ''; },

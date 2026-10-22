@@ -6,8 +6,11 @@
   // still used by another tab, or restart the same download on a quick return.
   function create({ load, key = value => value, size = () => 1, keep = () => true,
     ttl = 60000, maxEntries = 80, maxBytes = 8 * 1024 * 1024,
-    concurrency = 6, timeout = 20000, grace = 250, now = Date.now }) {
-    const cache = new Map(), pending = new Map(), queue = [];
+    concurrency = 6, foregroundReserve = 0, backgroundConcurrency = concurrency,
+    timeout = 20000, grace = 250, now = Date.now }) {
+    const cache = new Map(), pending = new Map(), queue = [], running = new Set();
+    const reserve = Math.min(Math.max(0, foregroundReserve), Math.max(0, concurrency - 1));
+    const priorityOf = value => value === 'foreground' ? 2 : value === 'background' ? 0 : 1;
     let bytes = 0, active = 0, revision = 0;
     function evict() {
       for (const [id, entry] of cache) {
@@ -17,14 +20,24 @@
     }
     function drain() {
       while (active < concurrency && queue.length) {
-        const job = queue.shift();
+        const background = [...running].filter(job => job.priority === 0).length;
+        let position = -1;
+        for (let index = 0; index < queue.length; index++) {
+          const candidate = queue[index];
+          if (!candidate.controller.signal.aborted &&
+              (candidate.priority < 2 && active >= concurrency - reserve ||
+               candidate.priority === 0 && background >= backgroundConcurrency)) continue;
+          if (position < 0 || candidate.priority > queue[position].priority) position = index;
+        }
+        if (position < 0) return;
+        const [job] = queue.splice(position, 1);
         if (job.controller.signal.aborted) continue;
-        active++;
+        active++; running.add(job);
         const timer = setTimeout(() => job.controller.abort(), timeout);
         const finish = (handler, value) => {
           clearTimeout(timer); clearTimeout(job.cancelTimer);
           if (pending.get(job.id) === job) pending.delete(job.id);
-          job.done = true; active--;
+          job.done = true; active--; running.delete(job);
           handler(value); drain();
         };
         Promise.resolve().then(() => load(job.input, job.controller.signal)).then(value => {
@@ -43,7 +56,7 @@
         }).catch(error => finish(job.reject, error));
       }
     }
-    function get(input, signal) {
+    function get(input, signal, options = {}) {
       if (signal?.aborted) return Promise.reject(cancelled());
       const id = key(input), entry = cache.get(id);
       if (entry) {
@@ -55,10 +68,13 @@
       }
       let job = pending.get(id);
       if (!job || job.controller.signal.aborted) {
-        job = { id, input, revision, readers: 0, controller: new AbortController() };
+        job = { id, input, revision, readers: 0, priority: priorityOf(options.priority), controller: new AbortController() };
         job.promise = new Promise((resolve, reject) => { job.resolve = resolve; job.reject = reject; });
         pending.set(id, job); queue.push(job);
       }
+      // A visible reader can adopt speculative work without duplicating its
+      // transport or inheriting the speculative queue position/slot limit.
+      job.priority = Math.max(job.priority, priorityOf(options.priority));
       clearTimeout(job.cancelTimer);
       job.readers++;
       const result = new Promise((resolve, reject) => {

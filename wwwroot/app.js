@@ -218,18 +218,18 @@ async function requestJson(path, options = {}) {
   return result;
 }
 
-function readMediaBlob(url, signal) {
+function readMediaBlob(url, signal, options = {}) {
   readMediaBlob.cache ||= DartResourceCache.create({
     key: CatalogLogic.mediaCacheKey, ttl: 5 * 60 * 1000,
     maxEntries: 256, maxBytes: 16 * 1024 * 1024, size: blob => blob.size,
-    timeout: 25000,
+    concurrency: 4, timeout: 25000, foregroundReserve: 1, backgroundConcurrency: 2,
     load: async (url, signal) => {
       const response = await fetch(`/api/image?url=${encodeURIComponent(url)}`, { signal });
       if (!response.ok) throw new Error('Image unavailable');
       return response.blob();
     }
   });
-  return readMediaBlob.cache.get(url, signal);
+  return readMediaBlob.cache.get(url, signal, options);
 }
 
 const visualHashJobs = [];
@@ -290,7 +290,7 @@ async function catalogThumbnailFingerprint(url, signal) {
   if (!visualHashCache.has(key)) {
     const pending = runVisualHashJob(async () => {
       const blob = typeof imageLoader !== 'undefined' && imageLoader.cached(url)?.blob ||
-        await readMediaBlob(url, signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000));
+        await readMediaBlob(url, signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000), { priority: 'background' });
       if (signal?.aborted) return '';
       const bitmap = await createImageBitmap(blob);
       try {
@@ -1201,6 +1201,16 @@ function createRecommendationPools(liked, sources, preferences, background = [])
     ] })).filter(group => group.streams.length)]));
 }
 
+function recommendationLikedWorks() {
+  const revision = CatalogLogic.groupingRevision?.(likes) || 0;
+  const cached = recommendationLikedWorks.snapshot;
+  if (cached?.likes === likes && cached.length === likes.length && cached.revision === revision &&
+      cached.preferences === contentPreferences) return cached.items;
+  const items = CatalogLogic.filterWorks(CatalogLogic.groupWorks(likes), contentPreferences);
+  recommendationLikedWorks.snapshot = { likes, length: likes.length, revision, preferences: contentPreferences, items };
+  return items;
+}
+
 function recommendationPoolsHaveMore(pools) {
   return Object.values(pools || {}).some(pool => pool.some(group =>
     group.streams.some(stream => stream.sources.length)));
@@ -1353,8 +1363,7 @@ function selectRecommendationGroups(tab) {
   return chosen;
 }
 
-function prepareRecommendationProfile(tab, liked = CatalogLogic.filterWorks(
-  CatalogLogic.groupWorks(likes), contentPreferences), newVisit = true) {
+function prepareRecommendationProfile(tab, liked = recommendationLikedWorks(), newVisit = true) {
   const previousPools = tab.recommendationPools;
   if (newVisit) {
     recommendationVisitCount = (recommendationVisitCount + 1) % 1000000;
@@ -1406,7 +1415,7 @@ async function mergeRecommendationsAsync(...args) {
   try {
     if (!mergeRecommendationsAsync.state) {
       const worker = new Worker('/catalog-worker.js');
-      const state = { worker, jobs: new Map(), nextId: 0 };
+      const state = { worker, jobs: new Map(), nextId: 0, nextProfileId: 0, profile: null };
       state.fail = () => {
         worker.terminate();
         mergeRecommendationsAsync.state = false;
@@ -1431,7 +1440,16 @@ async function mergeRecommendationsAsync(...args) {
       return await new Promise((resolve, reject) => {
         state.jobs.set(id, { resolve, reject });
         timer = setTimeout(state.fail, 10000);
-        try { state.worker.postMessage({ id, args }); }
+        try {
+          const liked = args[0];
+          if (!Array.isArray(liked)) { state.worker.postMessage({ id, args }); return; }
+          const revision = CatalogLogic.groupingRevision?.(liked) || 0;
+          const previous = state.profile;
+          const reuse = previous?.items === liked && previous.length === liked.length && previous.revision === revision;
+          const profileId = reuse ? previous.id : ++state.nextProfileId;
+          state.worker.postMessage({ id, profileId, args: reuse ? [null, ...args.slice(1)] : args });
+          state.profile = { id: profileId, items: liked, length: liked.length, revision };
+        }
         catch { state.fail(); }
       });
     } finally { clearTimeout(timer); state.jobs.delete(id); }
@@ -1448,8 +1466,7 @@ async function loadRecommendations(tab, append = false) {
   const controller = new AbortController();
   tab.recommendationController = controller;
   const version = tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
-  const visibleLikes = CatalogLogic.filterWorks(
-    CatalogLogic.groupWorks(likes), contentPreferences);
+  const visibleLikes = recommendationLikedWorks();
   if (!append) {
     delete tab.resumePrefetchAt;
     tab.items = []; tab.errors = {}; tab.loadError = false;
@@ -2658,28 +2675,43 @@ function warmArtworkRoute(route) {
   const controller = route.warmController = new AbortController();
   route.warmFor = current;
   const warming = new Map();
+  const mediaWarming = new Map();
+  const warmMedia = item => {
+    const full = galleryImages(item).find(media => !CatalogLogic.videoMimeType(media));
+    return Promise.allSettled([...new Set([item.thumbnail, full].filter(Boolean))].map(url => {
+      if (CatalogLogic.signedMediaExpired(url) && !imageLoader.cached(url)) return;
+      const key = CatalogLogic.mediaCacheKey(url);
+      if (!mediaWarming.has(key)) mediaWarming.set(key, (async () => {
+        const release = imageLoader.pin(url);
+        try {
+          const entry = imageLoader.cached(url) || imageLoader.rememberBlob(url,
+            await readMediaBlob(url, controller.signal, { priority: 'background' }));
+          if (!controller.signal.aborted) await imageLoader.decode(entry);
+        } finally { release(); }
+      })());
+      return mediaWarming.get(key);
+    }));
+  };
   const neighbors = () => route.engine.neighbors().map(item => {
     if (warming.has(item.key)) return warming.get(item.key);
     const job = (async () => {
       let ready = route.warmed.get(item.key);
+      // Feed media is usable before provider metadata arrives. Keep the detail
+      // request parallel so a slow API does not block the next visible pixels.
+      const known = warmMedia(ready || item);
       if (!ready) {
-        const detail = await request(`/api/detail?source=${encodeURIComponent(item.source)}&id=${encodeURIComponent(item.id)}`,
-          { signal: controller.signal });
+        let detail;
+        try {
+          detail = await request(`/api/detail?source=${encodeURIComponent(item.source)}&id=${encodeURIComponent(item.id)}`,
+            { signal: controller.signal });
+        } catch { await known; return; }
         if (controller.signal.aborted) return;
         ready = rememberItem(CatalogLogic.mergeDetailPages(item, detail) || item);
         route.engine.update(ready);
         route.warmed.set(item.key, ready);
         while (route.warmed.size > 4) route.warmed.delete(route.warmed.keys().next().value);
       }
-      const full = galleryImages(ready).find(media => !CatalogLogic.videoMimeType(media));
-      await Promise.allSettled([...new Set([ready.thumbnail, full].filter(Boolean))].map(async url => {
-        const release = imageLoader.pin(url);
-        try {
-          const entry = imageLoader.cached(url) || imageLoader.rememberBlob(url,
-            await readMediaBlob(url, controller.signal));
-          await imageLoader.decode(entry);
-        } finally { release(); }
-      }));
+      await Promise.allSettled([known, warmMedia(ready)]);
     })();
     warming.set(item.key, job);
     return job;
@@ -2713,7 +2745,8 @@ async function prepareArtworkMedia(item, signal) {
   try {
     await Promise.race([cancellation, (async () => {
       if (bounded.aborted) return;
-      const entry = imageLoader.cached(url) || imageLoader.rememberBlob(url, await readMediaBlob(url, bounded));
+      const entry = imageLoader.cached(url) || imageLoader.rememberBlob(url,
+        await readMediaBlob(url, bounded, { priority: 'foreground' }));
       if (!bounded.aborted) await imageLoader.decode(entry);
     })()]);
   } catch { /* The normal viewer retains its retry/error behavior. */ }
@@ -2983,6 +3016,9 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
   stopQuickPreviewMedia(); globalThis.DartVideoPreview?.stop(); pauseDetailVideos();
   const controller = quickPreviewMediaController = new AbortController();
   const video = !!CatalogLogic.videoMimeType(url);
+  const releases = [...new Set([item.thumbnail, ...(!video ? [url] : [])].filter(Boolean))]
+    .map(mediaUrl => imageLoader.pin(mediaUrl));
+  controller.signal.addEventListener('abort', () => releases.forEach(release => release()), { once: true });
   quickPreviewRoute = route || (currentTab()?.kind === 'detail' &&
     currentTab().item.key === item.key ? currentTab().artworkRoute :
     createArtworkRoute(currentTab(), item, image));
@@ -2995,11 +3031,11 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
   retainFeedWork(currentTab(), item);
   const preview = (image?.tagName === 'VIDEO' ? image.poster : image?.currentSrc || image?.getAttribute?.('src')) ||
     imageLoader.cached(image?.dataset?.imageUrl)?.blobUrl || '';
-  const full = imageLoader.cached(url)?.blobUrl || `/api/image?url=${encodeURIComponent(url)}`;
+  const full = imageLoader.cached(url)?.blobUrl || '';
   quickPreviewView = { scale: 1, x: 0, y: 0 };
   quickPreviewDrag = null;
   quickPreview.innerHTML = `<div class="quick-preview-stage${video ? ' quick-preview-video-stage' : ''}" data-work-key="${escapeHtml(item.key)}">
-    ${video ? `<video class="quick-preview-image quick-preview-video" data-video-url="${escapeHtml(url)}" data-preview-width="${image?.naturalWidth || 640}" data-preview-height="${image?.naturalHeight || 480}" controls autoplay muted loop playsinline preload="metadata"${preview ? ` poster="${escapeHtml(preview)}"` : ''} aria-label="${escapeHtml(item.title)}"></video><div class="quick-preview-error" role="status" hidden><span>Video could not be played.</span><button type="button" data-preview-action="retry">Retry</button></div>` : `<img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}" src="${escapeHtml(preview || full)}" draggable="false">
+    ${video ? `<video class="quick-preview-image quick-preview-video" data-video-url="${escapeHtml(url)}" data-preview-width="${image?.naturalWidth || 640}" data-preview-height="${image?.naturalHeight || 480}" controls autoplay muted loop playsinline preload="metadata"${preview ? ` poster="${escapeHtml(preview)}"` : ''} aria-label="${escapeHtml(item.title)}"></video><div class="quick-preview-error" role="status" hidden><span>Video could not be played.</span><button type="button" data-preview-action="retry">Retry</button></div>` : `<img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}"${preview || full ? ` src="${escapeHtml(preview || full)}"` : ''} draggable="false">
     <div class="quick-preview-tools" role="group" aria-label="Image zoom">
       <button type="button" data-preview-action="zoom-out" title="Zoom out" aria-label="Zoom out" disabled>−</button>
       <button type="button" data-preview-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
@@ -3045,13 +3081,23 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
     }, { signal: controller.signal });
     media.addEventListener('playing', () => { quickPreview.querySelector('.quick-preview-error').hidden = true; }, { signal: controller.signal });
     void startVideo();
-  } else if (preview && preview !== full) {
-    const loaded = new Image();
-    loaded.onload = () => {
-      if (quickPreview.open && generation === quickPreviewGeneration)
-        quickPreview.querySelector('.quick-preview-image').src = full;
-    };
-    loaded.src = full;
+  } else {
+    // The modal shares warming/visible downloads and owns only its reader.
+    // Closing or switching releases that reader, while the existing poster
+    // stays visible until the full image has decoded.
+    void (async () => {
+      try {
+        const entry = imageLoader.cached(url) || imageLoader.rememberBlob(url,
+          await readMediaBlob(url, controller.signal, { priority: 'foreground' }));
+        if (controller.signal.aborted) return;
+        await imageLoader.decode(entry);
+        if (controller.signal.aborted || !quickPreview.open || generation !== quickPreviewGeneration) return;
+        const image = quickPreview.querySelector('.quick-preview-image');
+        imageLoader.reveal(image, entry.blobUrl);
+        imageLoader.adopt(quickPreview);
+        paintQuickPreview(true);
+      } catch { /* Keep the available preview when full media is unavailable. */ }
+    })();
   }
 }
 
@@ -3585,8 +3631,7 @@ function renderRecommendationOtherList(tab) {
 
 function renderRecommendations(tab) {
   const tags = tab.recommendationTags || [];
-  const visibleLikes = CatalogLogic.filterWorks(
-    CatalogLogic.groupWorks(likes), contentPreferences);
+  const visibleLikes = recommendationLikedWorks();
   const hasChoices = Object.keys(recommendationTagPreferences).length > 0;
   const groups = tab.recommendationTagGroups || { names: [], copyright: [], other: [] };
   const visibleNames = tab.showMoreRecommendationNames
@@ -3612,7 +3657,7 @@ function renderRecommendations(tab) {
       <section class="section"><div class="section-head"><h2>Для вас</h2><button class="text-button" data-action="recommendation-refresh">Обновить</button></div>
         ${renderErrors(tab.errors, 'recommendation-more-retry')}
          ${tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'recommendations') : contentPreferences.hideViewedAndSaved ? '<div class="empty">Непросмотренных работ по этим тегам пока нет. Попробуйте другой тег или источник.</div>' : '<div class="empty">По выбранным тегам пока нет подходящих работ. Попробуйте другой рейтинг или источник.</div>'}
-        ${tab.loading && tab.items.length ? '<div class="feed-status">Подбираем ещё…</div>' : tab.loadError ? '<div class="feed-status">Не удалось продолжить подбор. <button data-action="recommendation-more-retry">Повторить</button></div>' : tab.hasMore && tab.recommendationPaused && recovery.length ? `<div class="feed-status" role="status">${waitingForSettings ? 'Проверьте подключение источников в настройках.' : waitingForRetry ? 'Источники временно недоступны. Повторим автоматически.' : 'Автоматические повторы приостановлены.'} <button data-action="${waitingForSettings ? 'settings' : 'recommendation-more-retry'}">${waitingForSettings ? 'Настроить' : 'Повторить'}</button></div>` : tab.hasMore && tab.recommendationPaused ? '<div class="feed-status">Новых совпадений пока нет. <button data-action="recommendation-continue">Искать дальше</button></div>' : tab.hasMore ? `<div class="feed-sentinel" data-auto-load="recommendations" data-tab-id="${tab.id}" aria-hidden="true"></div>` : tab.items.length ? '<div class="feed-status">Все доступные рекомендации загружены</div>' : ''}
+        ${tab.loading ? tab.items.length ? '<div class="feed-status">Подбираем ещё…</div>' : '' : tab.loadError ? '<div class="feed-status">Не удалось продолжить подбор. <button data-action="recommendation-more-retry">Повторить</button></div>' : tab.hasMore && tab.recommendationPaused && recovery.length ? `<div class="feed-status" role="status">${waitingForSettings ? 'Проверьте подключение источников в настройках.' : waitingForRetry ? 'Источники временно недоступны. Повторим автоматически.' : 'Автоматические повторы приостановлены.'} <button data-action="${waitingForSettings ? 'settings' : 'recommendation-more-retry'}">${waitingForSettings ? 'Настроить' : 'Повторить'}</button></div>` : tab.hasMore && tab.recommendationPaused ? '<div class="feed-status">Новых совпадений пока нет. <button data-action="recommendation-continue">Искать дальше</button></div>' : tab.hasMore ? `<div class="feed-sentinel" data-auto-load="recommendations" data-tab-id="${tab.id}" aria-hidden="true"></div>` : tab.items.length ? '<div class="feed-status">Все доступные рекомендации загружены</div>' : ''}
       </section>`}
   </div>`;
 }
@@ -3807,8 +3852,20 @@ function renderRelatedTail(tab) {
 }
 
 function knownWorkTokens() {
+  const libraries = knownWorkTokens.libraries ||= new WeakMap();
+  const libraryTokens = items => {
+    const revision = CatalogLogic.groupingRevision?.(items) || 0;
+    let cached = libraries.get(items);
+    if (!cached || cached.length !== items.length || cached.revision !== revision) {
+      cached = { length: items.length, revision, tokens: items.flatMap(CatalogLogic.workHistoryTokens) };
+      libraries.set(items, cached);
+    }
+    return cached.tokens;
+  };
+  // Viewed sets change independently of the saved-library metadata, including
+  // same-size replacements while pending history is committed.
   return new Set([...viewedTokens, ...viewedPending,
-    ...[...recent, ...likes, ...bookmarks].flatMap(CatalogLogic.workHistoryTokens)]);
+    ...libraryTokens(recent), ...libraryTokens(likes), ...libraryTokens(bookmarks)]);
 }
 
 function scheduleRelatedKnownRefresh() {
@@ -3921,9 +3978,9 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepO
     alreadyGrouped ? supported : CatalogLogic.groupWorks(supported), contentPreferences);
   const hideKnown = contentPreferences.hideViewedAndSaved && isHideableFeed(tab, gridKey);
   if (!hideKnown) return keepOrder ? works : curateFeedWorks(works, tab, gridKey);
-  const knownTokens = knownWorkTokens();
+  let knownTokens;
   const visible = works.filter(item => isRetainedFeedWork(tab, item) ||
-    !CatalogLogic.workHistoryTokens(item).some(token => knownTokens.has(token)));
+    !CatalogLogic.workHistoryTokens(item).some(token => (knownTokens ||= knownWorkTokens()).has(token)));
   return keepOrder ? visible : curateFeedWorks(visible, tab, gridKey);
 }
 
@@ -4629,7 +4686,9 @@ const imageLoader = {
       const rect = img.getBoundingClientRect();
       return rect.bottom > bounds.top && rect.top < bounds.bottom;
     });
-    this.queue.sort((first, second) => Number(inViewport(second)) - Number(inViewport(first)));
+    const foreground = [], prefetch = [];
+    for (const job of this.queue) (inViewport(job) ? foreground : prefetch).push(job);
+    this.queue = [...foreground, ...prefetch];
     while (this.active < 4 && this.queue.length) {
       const job = this.queue.shift();
       if (job.generation !== this.generation ||
@@ -4642,6 +4701,7 @@ const imageLoader = {
       this.controllers.add(controller);
       (async () => {
         let requestedUrl = job.url;
+        let releasePixels;
         try {
           let renewed = false;
           const recover = async () => {
@@ -4665,27 +4725,26 @@ const imageLoader = {
             if (error.name === 'AbortError' || renewed || !await recover()) throw error;
             blob = await readMediaBlob(requestedUrl, controller.signal);
           }
-          if (job.generation !== this.generation) return;
-          const blobUrl = URL.createObjectURL(blob);
+          if (controller.signal.aborted || job.generation !== this.generation) return;
           const matches = [...job.images].filter(img => img.isConnected && this.visible.has(img) &&
             this.key(img.dataset.imageUrl) === key);
-          if (!matches.length) { URL.revokeObjectURL(blobUrl); return; }
-          const entry = { blob, blobUrl, size: blob.size };
+          if (!matches.length) return;
+          // The feed, viewer preparation and modal share one URL and decoder.
+          // A late feed completion must never replace/revoke another owner's
+          // already visible cache entry, including while its decode is pending.
+          releasePixels = this.pin(requestedUrl);
+          controller.signal.addEventListener('abort', releasePixels, { once: true });
+          const entry = this.rememberBlob(requestedUrl, blob);
           if (typeof Image === 'function') {
             try { await this.decode(entry); }
-            catch { URL.revokeObjectURL(blobUrl); throw new Error('Image decode failed'); }
+            catch { throw new Error('Image decode failed'); }
           }
-          if (job.generation !== this.generation) { URL.revokeObjectURL(blobUrl); return; }
+          if (controller.signal.aborted || job.generation !== this.generation) return;
           const activeMatches = matches.filter(img => img.isConnected && this.visible.has(img) &&
             this.key(img.dataset.imageUrl) === key);
-          if (!activeMatches.length) { URL.revokeObjectURL(blobUrl); return; }
-          const old = this.cache.get(key);
-          if (old) { URL.revokeObjectURL(old.blobUrl); this.bytes -= old.size; }
-          this.cache.delete(key);
-          this.cache.set(key, entry);
-          this.bytes += blob.size;
+          if (!activeMatches.length) return;
           for (const img of activeMatches) {
-            this.reveal(img, blobUrl, true);
+            this.reveal(img, entry.blobUrl, true);
           }
           this.updateCurrent(main);
           this.evict();
@@ -4700,6 +4759,10 @@ const imageLoader = {
                   !img.getAttribute('src'))
                 img.closest('.card-art, .detail-image')?.classList.add('failed');
         } finally {
+          if (releasePixels) {
+            controller.signal.removeEventListener('abort', releasePixels);
+            releasePixels();
+          }
           this.controllers.delete(controller);
           if (this.activeJobs.get(key) === job) this.activeJobs.delete(key);
           this.active--;
