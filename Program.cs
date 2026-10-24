@@ -450,6 +450,7 @@ internal static class Program
         else
         {
             ApplicationConfiguration.Initialize();
+            ArtCatalog.Updates.ShortcutIcons.Refresh(installationRoot, Environment.ProcessPath);
             Application.Run(new CatalogForm(address, captureProtection));
         }
         app.StopAsync().GetAwaiter().GetResult();
@@ -483,6 +484,16 @@ internal sealed class CatalogForm : Form
         userDataDirectory = webViewDataDirectory ?? Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData), "ArtCatalog", "WebView2");
         Text = "DART — Discover Art";
+        var assembly = typeof(CatalogForm).Assembly;
+        var iconResource = assembly.GetManifestResourceNames().Single(name =>
+            name.Replace('\\', '/') == "ArtCatalogFrontend/brand/dart.ico");
+        using (var stream = assembly.GetManifestResourceStream(iconResource)!)
+        using (var embeddedIcon = new Icon(stream))
+        {
+            var windowIcon = (Icon)embeddedIcon.Clone();
+            Icon = windowIcon;
+            FormClosed += (_, _) => windowIcon.Dispose();
+        }
         Width = 1450;
         Height = 900;
         MinimumSize = new Size(840, 570);

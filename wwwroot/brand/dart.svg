@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">DART</title>
+  <desc id="desc">Coolvetica A with a diagonal cut, blue #329CFF and rounded dark tile.</desc>
+  <defs>
+    <clipPath id="lower"><path d="M0 186 256 106V256H0Z"/></clipPath>
+    <mask id="cut">
+      <rect width="256" height="256" fill="white"/>
+      <path d="M0 186 256 106" fill="none" stroke="black" stroke-width="5"/>
+    </mask>
+    <path id="letter" d="M600.904 621.988H346.386L474.398 224.398H475.904ZM951.807 1000 599.398 0H356.928L0 1000H221.386L292.169 793.675H661.145L724.398 1000Z"/>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="54" fill="#141a23"/>
+  <g mask="url(#cut)">
+    <g transform="translate(49.48 40) scale(.165)" fill="#f6f9ff" stroke="#f6f9ff" stroke-width="12" stroke-linejoin="round"><use href="#letter"/></g>
+    <g clip-path="url(#lower)">
+      <g transform="translate(49.48 40) scale(.165)" fill="#329CFF" stroke="#329CFF" stroke-width="12" stroke-linejoin="round"><use href="#letter"/></g>
+    </g>
+  </g>
+</svg>
