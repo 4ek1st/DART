@@ -624,6 +624,8 @@ function navigationEntry(tab) {
 }
 
 function recordDetailVisit(tab) {
+  for (const key of [tab.item.key, ...(tab.item.memberKeys || [])])
+    tab.artworkRoute?.visitedKeys?.add(key);
   recent = [tab.item, ...recent.filter(entry => entry.key !== tab.item.key)].slice(0, 40);
   localStorage.setItem('artcatalog-recent', JSON.stringify(recent));
   void recordViewedWorks([tab.item]);
@@ -1716,12 +1718,24 @@ async function updateFollowFeed(tab) {
     feed = { ...feed, items };
   }
   tab.followComputed = { version, rating, revision, feed, records, remembered };
-  const visible = CatalogLogic.filterWorks(feed.items, contentPreferences);
+  const filtered = CatalogLogic.filterWorks(feed.items, contentPreferences);
+  let knownTokens;
+  const visible = contentPreferences.hideViewedAndSaved ? filtered.filter(item =>
+    isRetainedFeedWork(tab, item) || !CatalogLogic.workHistoryTokens(item)
+      .some(token => (knownTokens ||= knownWorkTokens()).has(token))) : filtered;
   const visibleKeys = new Set(visible.flatMap(item => item.memberKeys || [item.key]));
+  const newKeys = new Set([...feed.newKeys].filter(key => visibleKeys.has(key)));
+  // A later catalog upload can join an already displayed work. Its upload
+  // date must not turn that existing slot into a newly arrived artwork.
+  if (newKeys.size && tab.retainedFeedWorks?.size) for (const item of visible) {
+    if (!isRetainedFeedWork(tab, item)) continue;
+    for (const key of item.memberKeys || [item.key])
+      if (!tab.newKeys?.has(key)) newKeys.delete(key);
+  }
   tab.items = CatalogLogic.stableFeedItems(tab.followStableRating === tab.rating
-    ? tab.items : [], visible, feed.newKeys);
+    ? tab.items : [], visible, newKeys);
   tab.followStableRating = tab.rating;
-  tab.newKeys = new Set([...feed.newKeys].filter(key => visibleKeys.has(key)));
+  tab.newKeys = newKeys;
   tab.followSourceErrors = Object.fromEntries(tab.followStreams.filter(stream => stream.error)
     .map(stream => [stream.source, stream.error]));
   tab.hasMore = tab.followStreams.some(stream => followStreamRetryAt(stream) <= Date.now());
@@ -1840,6 +1854,10 @@ async function loadFollowFeed(tab) {
   const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
   if (!alive()) return;
   delete tab.resumePrefetchAt;
+  tab.retainedFeedWorks = new Map();
+  delete tab.retainedFeedHeights;
+  delete tab.expiredFeedWorks;
+  delete tab.expiredFeedTokens;
   tab.followController?.abort();
   if (tab.followUpdateTimer) clearTimeout(tab.followUpdateTimer);
   tab.followUpdateTimer = null;
@@ -2222,6 +2240,7 @@ async function loadDetail(tab) {
     if (controller.signal.aborted || findTab(tab.id) !== tab) return;
     if (detail) {
       tab.item = rememberItem(CatalogLogic.mergeDetailPages(tab.item, detail));
+      void recordViewedWorks([tab.item]);
       tab.artworkRoute?.engine.update(tab.item);
       tab.title = tab.item.title;
       recent = recent.map(entry => entry.key === tab.item.key
@@ -2560,6 +2579,7 @@ function copyArtworkSource(source) {
     !/Controller$|Timer$|^artwork|^virtual|^gridTops|^resumePrefetchAt/.test(key) &&
     !['followCacheWrites', 'followComputed', 'followPublication'].includes(key) &&
     typeof value !== 'function' && typeof value?.then !== 'function'));
+  if (source.kind === 'follows') plain.items = artworkFollowItems(source);
   const copy = structuredClone(plain);
   if (copy.followPagingStreams) {
     copy.followStreams = [...new Map([...copy.followPagingStreams, ...(copy.followStreams || [])]
@@ -2572,27 +2592,61 @@ function copyArtworkSource(source) {
     relatedLoading: false, creatorLoading: false };
 }
 
+function artworkFollowItems(source) {
+  const cached = source.followComputed;
+  return cached && cached.rating === source.rating && cached.version === source.followVersion
+    ? cached.feed.items : source.items || [];
+}
+
 function artworkRouteSource(route) {
-  if (!route.source.artworkDetached && (findTab(route.source.id) !== route.source ||
-      artworkSourceSignature(route.source) !== route.signature)) route.source = route.backup;
+  if (!route.source.artworkDetached) {
+    const sameGeneration = artworkSourceSignature(route.source) === route.signature;
+    if (findTab(route.source.id) !== route.source || !sameGeneration) {
+      if (sameGeneration) route.backup = copyArtworkSource(route.source);
+      route.source = route.backup;
+    }
+  }
   return route.source;
 }
 
 function artworkSourceItems(route) {
   const source = artworkRouteSource(route);
   const raw = route.list === 'related' ? source.related || [] :
-    source.kind === 'recent' ? recent : source.items || [];
-  if (route.readRaw === raw && route.readRawLength === raw.length && route.readPreferences === contentPreferences)
+    source.kind === 'recent' ? recent : source.kind === 'follows'
+      ? artworkFollowItems(source) : source.items || [];
+  const publication = source.items;
+  const publicationRevision = CatalogLogic.groupingRevision(publication);
+  // Following publishes a separate visible array containing the canonical
+  // records. Thumbnail enrichment invalidates that array, so refresh the full
+  // evidence cache when it has learned something since this route last read it.
+  if (source.kind === 'follows' && raw !== publication && publicationRevision &&
+      (route.readPublication !== publication || route.readPublicationRevision !== publicationRevision))
+    CatalogLogic.invalidateGrouping(raw);
+  const groupingRevision = CatalogLogic.groupingRevision(raw);
+  if (route.readRaw === raw && route.readRawLength === raw.length && route.readPreferences === contentPreferences &&
+      route.readGroupingRevision === groupingRevision)
     return route.readItems;
-  const fullRead = route.readPreferences !== contentPreferences;
+  // Thumbnail fingerprints and renewed aliases enrich records in place. The
+  // viewer must consume that evidence even when no source page was appended.
+  const regroup = route.readGroupingRevision !== groupingRevision;
+  const fullRead = route.readPreferences !== contentPreferences || regroup;
   const changed = fullRead || contentPreferences.curation?.enabled
     ? raw : raw.filter(item => route.readVersions.get(item.key) !== item);
   const added = changed.some(item => !route.readVersions.has(item.key));
   route.readRaw = raw; route.readRawLength = raw.length; route.readPreferences = contentPreferences;
+  route.readGroupingRevision = groupingRevision;
+  route.readPublication = publication; route.readPublicationRevision = publicationRevision;
   route.readVersions = new Map(raw.map(item => [item.key, item]));
   if (added && !source.artworkDetached && !source.loading && !source.followLoadingMore && !source.relatedLoading)
     route.backup = copyArtworkSource(source);
-  const works = filterFeedWorks(changed, source, source.kind === 'follows', route.list)
+  const bufferedKeys = new Set((route.engine?.items || []).flatMap(item => [item.key, ...(item.memberKeys || [])]));
+  // A repeated listing may become known only after its detail/hash is learned.
+  // Preserve its metadata for buffered slots so grouping can remove the stale
+  // duplicate; known works that have never entered this route stay filtered.
+  const updates = CatalogLogic.filterCatalogItems(changed).filter(item =>
+    [item.key, ...(item.memberKeys || [])].some(key => bufferedKeys.has(key)));
+  const visible = filterFeedWorks(changed, source, source.kind === 'follows' && !regroup, route.list);
+  const works = CatalogLogic.mergeGroupedWorks(visible, updates)
     .filter(item => !isExpiredFeedWork(source, item));
   route.readItems = source.kind === 'profile'
     ? CatalogLogic.stableFeedItems(source.profileGridItems || [], works) : works;
@@ -2668,21 +2722,30 @@ function createArtworkRoute(from, item, origin = null) {
     rating: ratingFilterFor(from.item), items: [], errors: {}, hasMore: true,
     selectedSources: [...defaultSources], page: 0, loading: false };
   const pageable = !['likes', 'bookmarks', 'recent'].includes(source.kind);
-  const raw = list === 'related' ? source.related || [] : source.kind === 'recent' ? recent : source.items || [];
+  const raw = list === 'related' ? source.related || [] : source.kind === 'recent' ? recent :
+    source.kind === 'follows' ? artworkFollowItems(source) : source.items || [];
   const route = { source, signature: artworkSourceSignature(source),
     backup: source.artworkDetached ? source : pageable ? copyArtworkSource(source) : {
       id: nextArtworkSourceId--, kind: source.kind, artworkDetached: true, started: true, items: [] },
     list: creator ? 'profile' : list, warmed: new Map(), disposed: false,
+    visitedKeys: new Set([item.key, ...(item.memberKeys || [])]),
     readRaw: raw, readRawLength: raw.length, readPreferences: contentPreferences,
+    readGroupingRevision: CatalogLogic.groupingRevision(raw),
+    readPublication: source.items, readPublicationRevision: CatalogLogic.groupingRevision(source.items),
     readVersions: new Map(raw.map(item => [item.key, item])), readItems: [] };
   const selected = snapshot.some(entry => entry.key === item.key || entry.memberKeys?.includes(item.key));
   const initial = selected ? snapshot : related ? [item, ...snapshot] : [...snapshot, item];
+  route.isAllowed = entry => !CatalogLogic.isWorkHidden(entry, contentPreferences) &&
+    (!contentPreferences.hideViewedAndSaved || !isHideableFeed(route.source, route.list) ||
+     [entry.key, ...(entry.memberKeys || [])].some(key => route.visitedKeys.has(key)) ||
+     !CatalogLogic.workHistoryTokens(entry).some(token => viewedTokens.has(token) ||
+       viewedPending.has(token) || knownLibraryWorkTokens().has(token)));
   route.engine = DartArtworkNavigation.create({ items: initial, current: item,
     read: () => artworkSourceItems(route), more: () => !route.disposed && artworkSourceHasMore(route),
     load: () => loadArtworkSource(route),
     same: CatalogLogic.sameWork,
     merge: CatalogLogic.mergeGroupedWorks,
-    allowed: entry => !CatalogLogic.isWorkHidden(entry, contentPreferences) });
+    allowed: route.isAllowed });
   artworkRoutes.add(route);
   return route;
 }
@@ -2793,46 +2856,61 @@ async function moveArtwork(direction) {
   const ticket = route.navigationTicket = (route.navigationTicket || 0) + 1;
   route.navigationController?.abort();
   const controller = route.navigationController = new AbortController();
-  const next = await route.engine.move(direction);
-  if (ticket !== route.navigationTicket || (preview ? !quickPreview.open || quickPreviewRoute !== route ||
-      quickPreviewGeneration !== generation : currentTab() !== tab)) return;
-  if (!next) {
-    if (route.engine.state.error) toast('Could not load the next artwork. Try again later.');
-    return;
-  }
-  const item = route.warmed.get(next.key) || next;
-  const current = preview ? quickPreviewWork : tab?.item;
-  if (current && [current.key, ...(current.memberKeys || [])].some(key =>
-      key === item.key || item.memberKeys?.includes(key))) return;
-  const release = await prepareArtworkMedia(item, controller.signal);
-  try {
-    if (controller.signal.aborted || ticket !== route.navigationTicket || route.disposed ||
-        (preview ? !quickPreview.open || quickPreviewRoute !== route || quickPreviewGeneration !== generation
-          : currentTab() !== tab)) return;
-    const replacement = tab?.kind === 'detail' ? { id: tab.id, kind: 'detail', title: item.title, item,
-      rating: ratingFilterFor(item), searchQuery: tab.searchQuery, artworkRoute: route,
-      preview: tab.preview, pinned: tab.pinned, items: [], errors: {}, page: 0,
-      scrollTop: 0, loading: false, selectedSources: [...defaultSources] } : null;
-    if (preview) {
-      const url = CatalogLogic.previewMedia(item);
-      if (!url) {
-        closeQuickPreview();
-        if (replacement) activate(tab.id, true, replacement);
-        else openDetail(item, { artworkRoute: route });
-        return;
-      }
-      if (replacement && tab.artworkRoute === route) activate(tab.id, true, replacement, true);
-      openQuickPreview({ item, url, route, image: { currentSrc: imageLoader.cached(url)?.blobUrl ||
-        imageLoader.cached(item.thumbnail)?.blobUrl || '' } },
-        quickPreview.classList.contains('fullscreen') ? 'fullscreen' : 'window');
-    } else {
-      // Arrow browsing always stays in the current viewer, including pinned tabs.
-      activate(tab.id, true, replacement);
-      if (typeof main !== 'undefined' && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
-        main.querySelector('.detail-image img[src]')?.animate?.([{ opacity: .65 }, { opacity: 1 }],
-          { duration: 140, easing: 'ease-out' });
+  const cancelled = () => controller.signal.aborted || ticket !== route.navigationTicket || route.disposed ||
+    (preview ? !quickPreview.open || quickPreviewRoute !== route || quickPreviewGeneration !== generation
+      : currentTab() !== tab);
+  const restoreDisplayed = () => {
+    if (cancelled()) return;
+    const displayed = preview ? quickPreviewWork : currentTab()?.item;
+    if (displayed) route.engine.select?.(displayed);
+  };
+  for (let round = 0; round < 8; round++) {
+    const next = await route.engine.move(direction);
+    if (cancelled()) return;
+    if (!next) {
+      restoreDisplayed();
+      if (route.engine.state.error) toast('Could not load the next artwork. Try again later.');
+      return;
     }
-  } finally { release?.(); }
+    let item = route.warmed.get(next.key) || next;
+    const current = preview ? quickPreviewWork : tab?.item;
+    if (current && CatalogLogic.sameWork(current, item)) return;
+    const release = await prepareArtworkMedia(item, controller.signal);
+    try {
+      if (cancelled()) return;
+      // Detail warming and source evidence can change while pixels decode.
+      // Re-read the canonical group and eligibility before showing anything.
+      route.engine.sync?.();
+      item = route.engine.items?.find(entry => CatalogLogic.sameWork(entry, next)) ||
+        route.warmed.get(next.key) || item;
+      if (route.isAllowed && !route.isAllowed(item) || current && CatalogLogic.sameWork(current, item)) continue;
+      const replacement = tab?.kind === 'detail' ? { id: tab.id, kind: 'detail', title: item.title, item,
+        rating: ratingFilterFor(item), searchQuery: tab.searchQuery, artworkRoute: route,
+        preview: tab.preview, pinned: tab.pinned, items: [], errors: {}, page: 0,
+        scrollTop: 0, loading: false, selectedSources: [...defaultSources] } : null;
+      if (preview) {
+        const url = CatalogLogic.previewMedia(item);
+        if (!url) {
+          closeQuickPreview();
+          if (replacement) activate(tab.id, true, replacement);
+          else openDetail(item, { artworkRoute: route });
+          return;
+        }
+        if (replacement && tab.artworkRoute === route) activate(tab.id, true, replacement, true);
+        openQuickPreview({ item, url, route, image: { currentSrc: imageLoader.cached(url)?.blobUrl ||
+          imageLoader.cached(item.thumbnail)?.blobUrl || '' } },
+          quickPreview.classList.contains('fullscreen') ? 'fullscreen' : 'window');
+      } else {
+        // Arrow browsing always stays in the current viewer, including pinned tabs.
+        activate(tab.id, true, replacement);
+        if (typeof main !== 'undefined' && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+          main.querySelector('.detail-image img[src]')?.animate?.([{ opacity: .65 }, { opacity: 1 }],
+            { duration: 140, easing: 'ease-out' });
+      }
+      return;
+    } finally { release?.(); }
+  }
+  restoreDisplayed();
 }
 
 function openDetail(item, options = {}) {
@@ -3088,7 +3166,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
   const media = quickPreview.querySelector('.quick-preview-image');
   media.addEventListener(video ? 'loadedmetadata' : 'load', () => paintQuickPreview(true), { signal: controller.signal });
   paintQuickPreview(true);
-  recordDetailVisit({ item });
+  recordDetailVisit({ item, artworkRoute: quickPreviewRoute });
   if (quickPreviewRoute) { quickPreviewRoute.engine.select(item); warmArtworkRoute(quickPreviewRoute); }
   const generation = ++quickPreviewGeneration;
   if (video) {
@@ -3745,8 +3823,8 @@ function renderFollows(tab) {
       <section class="section"><div class="section-head"><h2>Последние работы${tab.newKeys?.size ? ` · ${tab.newKeys.size} новых` : ''}</h2><div class="follow-feed-actions">${sourceIcon}<button class="text-button" data-action="follow-refresh">Обновить</button></div></div>
         ${tab.followSourceNotices?.sankaku || tab.followSourceErrors?.sankaku ? renderErrors({ sankaku: tab.followSourceErrors?.sankaku || tab.followSourceNotices.sankaku }, 'follow-refresh') : ''}
         ${tab.seenError ? '<div class="source-notice">Не удалось сохранить отметку просмотра. При следующем открытии метка «Новое» может повториться.</div>' : ''}
-         ${tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'follows', tab.newKeys, true) : '<div class="empty">В этом рейтинге пока нет изображений от авторов, на которых вы подписаны.</div>'}
-         ${tab.loading && tab.items.length ? '<div class="feed-status">Обновляем остальных авторов…</div>' :
+         ${tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'follows', tab.newKeys, true) : tab.followComputed?.feed.items.length ? emptyFeedMessage(tab, 'follows') : '<div class="empty">В этом рейтинге пока нет изображений от авторов, на которых вы подписаны.</div>'}
+         ${tab.loading ? tab.items.length ? '<div class="feed-status">Обновляем остальных авторов…</div>' : '' :
            tab.followLoadingMore ? '<div class="feed-status">Загружаем ещё…</div>' :
              tab.hasMore ? `<div class="feed-sentinel" data-auto-load="follows" data-tab-id="${tab.id}" aria-hidden="true"></div>` :
                tab.items.length && !tab.followStreams?.length ? '<div class="feed-status">Все доступные работы загружены</div>' : ''}
@@ -3883,7 +3961,17 @@ function renderRelatedTail(tab) {
 }
 
 function knownWorkTokens() {
-  const libraries = knownWorkTokens.libraries ||= new WeakMap();
+  // Viewed identities remain live: pending writes and same-size replacements
+  // change independently of the saved-library metadata.
+  return new Set([...viewedTokens, ...viewedPending, ...knownLibraryWorkTokens()]);
+}
+
+function knownLibraryWorkTokens() {
+  const collections = [recent, likes, bookmarks];
+  const signature = collections.flatMap(items => [items, items.length, CatalogLogic.groupingRevision?.(items) || 0]);
+  const previous = knownLibraryWorkTokens.snapshot;
+  if (previous && signature.every((value, index) => value === previous.signature[index])) return previous.tokens;
+  const libraries = knownLibraryWorkTokens.libraries ||= new WeakMap();
   const libraryTokens = items => {
     const revision = CatalogLogic.groupingRevision?.(items) || 0;
     let cached = libraries.get(items);
@@ -3893,10 +3981,9 @@ function knownWorkTokens() {
     }
     return cached.tokens;
   };
-  // Viewed sets change independently of the saved-library metadata, including
-  // same-size replacements while pending history is committed.
-  return new Set([...viewedTokens, ...viewedPending,
-    ...libraryTokens(recent), ...libraryTokens(likes), ...libraryTokens(bookmarks)]);
+  const tokens = new Set(collections.flatMap(libraryTokens));
+  knownLibraryWorkTokens.snapshot = { signature, tokens };
+  return tokens;
 }
 
 function scheduleRelatedKnownRefresh() {
@@ -3914,7 +4001,7 @@ function scheduleRelatedKnownRefresh() {
 
 function isHideableFeed(tab, gridKey = '') {
   return tab?.kind === 'home' || tab?.kind === 'recommendations' ||
-    tab?.kind === 'search' || tab?.kind === 'detail' && gridKey === 'related';
+    tab?.kind === 'search' || tab?.kind === 'follows' || tab?.kind === 'detail' && gridKey === 'related';
 }
 
 function visibleFeedCard(tab, item) {
@@ -4017,7 +4104,7 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepO
 
 function emptyFeedMessage(tab, gridKey = '') {
   return contentPreferences.hideViewedAndSaved &&
-    (tab?.kind === 'home' || tab?.kind === 'search' || tab?.kind === 'recommendations' ||
+    (tab?.kind === 'home' || tab?.kind === 'search' || tab?.kind === 'recommendations' || tab?.kind === 'follows' ||
      tab?.kind === 'detail' && gridKey === 'related')
     ? '<div class="empty">На этой странице нет новых для вас работ. Каталог продолжит загрузку при прокрутке. <button class="inline-retry" data-action="content-settings">Настроить скрытие</button></div>'
     : '<div class="empty">Работы на этой странице скрыты фильтрами содержимого. <button class="inline-retry" data-action="content-settings">Изменить фильтры</button></div>';
