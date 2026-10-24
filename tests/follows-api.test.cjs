@@ -259,26 +259,38 @@ test('content preferences save separately from API credentials and survive a res
       body: JSON.stringify(body)
     });
     assert.deepEqual(await get(), { language: 'en', aiMode: 'all', hideFurry: false, excludedTags: [], hiddenAuthors: [],
-      attributionPriority: 'creator', hideViewedAndSaved: false, curation });
+      attributionPriority: 'creator', hideViewedAndSaved: false, hideFollowedArtists: false, curation });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] }, 'https://other.example')).status, 403);
     assert.equal((await post({ aiMode: 'invalid', excludedTags: [] })).status, 400);
     assert.equal((await post({ aiMode: 'all', hideFurry: 'false', excludedTags: [] })).status, 400);
+    assert.equal((await post({ aiMode: 'all', hideFollowedArtists: 'false', excludedTags: [] })).status, 400);
     assert.equal((await post({ aiMode: 'generated', excludedTags: ['a'.repeat(101)] })).status, 400);
     assert.deepEqual(await get(), { language: 'en', aiMode: 'all', hideFurry: false, excludedTags: [], hiddenAuthors: [],
-      attributionPriority: 'creator', hideViewedAndSaved: false, curation });
+      attributionPriority: 'creator', hideViewedAndSaved: false, hideFollowedArtists: false, curation });
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'] })).status, 200);
     assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hideFurry: false, hiddenAuthors: [],
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
-      hideViewedAndSaved: false, curation });
+      hideViewedAndSaved: false, hideFollowedArtists: false, curation });
     assert.ok(fs.existsSync(path.join(dataDirectory, 'content-preferences.json')));
     assert.equal(fs.existsSync(path.join(dataDirectory, 'settings.bin')), false);
     await stopServer(server);
     server = await startServer(dataDirectory);
     assert.deepEqual(await get(), { language: 'en', aiMode: 'generated-and-assisted', hideFurry: false, hiddenAuthors: [],
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
-      hideViewedAndSaved: false, curation });
+      hideViewedAndSaved: false, hideFollowedArtists: false, curation });
+    const beforeFollowedHidden = await get();
+    assert.equal((await post({ ...beforeFollowedHidden, hideFollowedArtists: true })).status, 200);
+    await stopServer(server);
+    server = await startServer(dataDirectory);
+    assert.deepEqual(await get(), { ...beforeFollowedHidden, hideFollowedArtists: true });
+    const { hideFollowedArtists, ...legacyWithoutFollowedPreference } = await get();
+    assert.equal((await post(legacyWithoutFollowedPreference)).status, 200);
+    assert.equal((await get()).hideFollowedArtists, true,
+      'an older preferences form must preserve followed-artist hiding');
+    assert.equal((await post({ ...beforeFollowedHidden, hideFollowedArtists: false })).status, 200);
+    assert.deepEqual(await get(), beforeFollowedHidden);
     assert.equal((await post({ aiMode: 'generated-and-assisted',
       excludedTags: ['latex', 'ai_art'], attributionPriority: 'creator',
       hideViewedAndSaved: true, hideFurry: true })).status, 200);

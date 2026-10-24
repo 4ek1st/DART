@@ -33,6 +33,7 @@ public sealed class ContentPreferences
     public List<string> ExcludedTags { get; set; } = [];
     public string AttributionPriority { get; set; } = "creator";
     public bool HideViewedAndSaved { get; set; }
+    public bool HideFollowedArtists { get; set; }
     public List<HiddenAuthor> HiddenAuthors { get; set; } = [];
     public CurationPreferences Curation { get; set; } = new();
     [System.Text.Json.Serialization.JsonExtensionData]
@@ -67,6 +68,7 @@ public sealed class ContentPreferencesUpdate
     public List<string> ExcludedTags { get; set; } = [];
     public string AttributionPriority { get; set; } = "creator";
     public bool HideViewedAndSaved { get; set; }
+    public bool? HideFollowedArtists { get; set; }
 }
 
 public sealed class PrivacyPreferences
@@ -567,6 +569,7 @@ internal sealed class LocalStore : ISankakuSessionStore
                 HideFurry = update.HideFurry ?? previous.HideFurry,
                 AttributionPriority = update.AttributionPriority,
                 HideViewedAndSaved = update.HideViewedAndSaved,
+                HideFollowedArtists = update.HideFollowedArtists ?? previous.HideFollowedArtists,
                 // Older windows do not send this field. Only the dedicated mutation changes it.
                 HiddenAuthors = previous.HiddenAuthors ?? [],
                 Curation = previous.Curation ?? new(),

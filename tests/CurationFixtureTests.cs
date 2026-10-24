@@ -30,9 +30,14 @@ internal static class CurationFixtureTests
                 new JsonSerializerOptions(JsonSerializerDefaults.Web))!]);
             void Expect(bool valid, string message) { if (!valid) throw new Exception("Curation: " + message); }
             Expect(!Read(Store()).GetProperty("curation").GetProperty("enabled").GetBoolean(), "legacy profiles must opt in");
+            Expect(!Read(Store()).GetProperty("hideFollowedArtists").GetBoolean(),
+                "new profiles must continue showing followed artists by default");
+            File.WriteAllText(Path.Combine(directory, "content-preferences.json"), """{"language":"en"}""");
+            Expect(!Read(Store()).GetProperty("hideFollowedArtists").GetBoolean(),
+                "a legacy preference file without the new field must continue showing followed artists");
             File.WriteAllText(Path.Combine(directory, "content-preferences.json"), """
                 {"language":"de","aiMode":"generated-and-assisted","hideFurry":true,
-                 "hideViewedAndSaved":true,"excludedTags":["blocked"],
+                 "hideViewedAndSaved":true,"hideFollowedArtists":true,"excludedTags":["blocked"],
                  "hiddenAuthors":[{"source":"artist","artistId":"hidden","name":"Hidden"}],
                  "futureSetting":{"kept":42},"curation":{"futureFactor":"keep"}}
                 """);
@@ -40,6 +45,7 @@ internal static class CurationFixtureTests
             var reopened = Read(Store());
             Expect(reopened.GetProperty("language").GetString() == "de" && reopened.GetProperty("hideFurry").GetBoolean() &&
                 reopened.GetProperty("hideViewedAndSaved").GetBoolean() &&
+                reopened.GetProperty("hideFollowedArtists").GetBoolean() &&
                 reopened.GetProperty("excludedTags")[0].GetString() == "blocked" &&
                 reopened.GetProperty("hiddenAuthors").GetArrayLength() == 1 &&
                 reopened.GetProperty("futureSetting").GetProperty("kept").GetInt32() == 42,
@@ -54,9 +60,26 @@ internal static class CurationFixtureTests
             storeType.GetMethod("UpdateContentPreferences")!.Invoke(Store(), [new ContentPreferencesUpdate { Language = "ru" }]);
             var afterLegacySave = Read(Store());
             Expect(!afterLegacySave.GetProperty("curation").GetProperty("popularity").GetBoolean() &&
+                afterLegacySave.GetProperty("hideFollowedArtists").GetBoolean() &&
                 afterLegacySave.GetProperty("curation").GetProperty("futureFactor").GetString() == "keep" &&
                 afterLegacySave.GetProperty("futureSetting").GetProperty("kept").GetInt32() == 42,
                 "an older content-settings form reset curation or unknown preferences");
+
+            var updateContent = storeType.GetMethod("UpdateContentPreferences")!;
+            var hiddenAuthor = new HiddenAuthor { Source = "artist", ArtistId = "temporary", Name = "Temporary" };
+            storeType.GetMethod("SetHiddenAuthor")!.Invoke(Store(), [hiddenAuthor, true]);
+            Expect(Read(Store()).GetProperty("hideFollowedArtists").GetBoolean(),
+                "changing hidden authors reset followed-artist hiding");
+            storeType.GetMethod("SetHiddenAuthor")!.Invoke(Store(), [hiddenAuthor, false]);
+            updateContent.Invoke(Store(), [new ContentPreferencesUpdate { HideFollowedArtists = false }]);
+            Expect(!Read(Store()).GetProperty("hideFollowedArtists").GetBoolean(),
+                "explicitly disabling followed-artist hiding did not survive reopening");
+            updateContent.Invoke(Store(), [new ContentPreferencesUpdate { HideFollowedArtists = true }]);
+            Expect(Read(Store()).GetProperty("hideFollowedArtists").GetBoolean(),
+                "explicitly enabling followed-artist hiding did not survive reopening");
+            updateContent.Invoke(Store(), [new ContentPreferencesUpdate { Language = "de" }]);
+            Expect(Read(Store()).GetProperty("hideFollowedArtists").GetBoolean(),
+                "a partial legacy update reset followed-artist hiding");
 
             var catalog = assembly.GetType("ArtCatalog.CatalogService")!;
             foreach (var source in new[] { "Danbooru", "Gelbooru", "Rule34", "Sankaku" })

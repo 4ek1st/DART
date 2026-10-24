@@ -115,7 +115,7 @@ test('saving sends the furry flag and a failed save retains the previous value',
   const save = appFunction('async function saveContentPreferences(', '\nasync function loadDetail(',
     'saveContentPreferences', context);
   const preferences = { language: 'en', aiMode: 'all', hideFurry: true,
-    excludedTags: ['latex'], attributionPriority: 'creator', hideViewedAndSaved: true };
+    excludedTags: ['latex'], attributionPriority: 'creator', hideViewedAndSaved: true, hideFollowedArtists: false };
   await save(preferences);
   assert.deepEqual(payloads[0], preferences);
   assert.equal(context.contentPreferences.hideFurry, true);

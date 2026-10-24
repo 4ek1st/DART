@@ -85,7 +85,7 @@ let follows = [];
 let followedKeys = new Set();
 let settings = { userId: '', hasApiKey: false, rule34UserId: '', hasRule34ApiKey: false };
 let contentPreferences = { language: globalThis.DartI18n?.language || 'en', aiMode: 'all', hideFurry: false, excludedTags: [], attributionPriority: 'creator',
-  hideViewedAndSaved: false, hiddenAuthors: [], curation: CatalogLogic.normalizeCurationPreferences() };
+  hideViewedAndSaved: false, hideFollowedArtists: false, hiddenAuthors: [], curation: CatalogLogic.normalizeCurationPreferences() };
 let contentPreferencesSaving = false;
 let contentPreferencesRevision = 0;
 let privacyStatus = { requested: false, active: false, available: false, error: null };
@@ -1571,6 +1571,8 @@ async function loadRecommendations(tab, append = false) {
     }
     settleRecommendationSourceRetries(tab, sourceFailures, successfulSources);
     tab.items = CatalogLogic.filterWorks(ranked, contentPreferences);
+    if (contentPreferences.hideFollowedArtists)
+      tab.items = filterFollowedFeedWorks(tab.items, tab);
     if (contentPreferences.hideViewedAndSaved)
       tab.items = tab.items.filter(item => !CatalogLogic.workHistoryTokens(item)
         .some(token => viewedTokens.has(token)) || isRetainedFeedWork(tab, item));
@@ -2104,6 +2106,7 @@ async function loadContentPreferences() {
       attributionPriority: ['creator', 'original', 'uploader'].includes(saved.attributionPriority)
         ? saved.attributionPriority : 'creator',
       hideViewedAndSaved: saved.hideViewedAndSaved === true,
+      hideFollowedArtists: saved.hideFollowedArtists === true,
       curation: CatalogLogic.normalizeCurationPreferences(saved.curation)
     };
     globalThis.DartI18n?.setLanguage(contentPreferences.language);
@@ -2113,7 +2116,8 @@ async function loadContentPreferences() {
 
 function applyContentPreferences(saved) {
   const before = contentPreferences;
-  contentPreferences = { ...saved, hideFurry: saved.hideFurry === true, hiddenAuthors: saved.hiddenAuthors || [],
+  contentPreferences = { ...saved, hideFurry: saved.hideFurry === true,
+    hideFollowedArtists: saved.hideFollowedArtists === true, hiddenAuthors: saved.hiddenAuthors || [],
     curation: CatalogLogic.normalizeCurationPreferences(saved.curation ?? before.curation) };
   globalThis.DartI18n?.setLanguage(contentPreferences.language);
   const curationChanged = JSON.stringify(CatalogLogic.normalizeCurationPreferences(before.curation)) !==
@@ -2148,12 +2152,17 @@ function applyContentPreferences(saved) {
   }
   const contentChanged = ['aiMode', 'hideFurry', 'excludedTags', 'hideViewedAndSaved', 'hiddenAuthors']
     .some(key => JSON.stringify(before[key]) !== JSON.stringify(contentPreferences[key]));
-  if (!contentChanged) return;
+  const followedChanged = (before.hideFollowedArtists === true) !== contentPreferences.hideFollowedArtists;
+  if (!contentChanged && !followedChanged) return;
   for (const tab of tabs) {
+    if (!contentChanged && !isFollowedArtistFeed(tab, tab.kind === 'detail' ? 'related' : '')) continue;
     tab.retainedFeedWorks = new Map();
     delete tab.retainedFeedHeights;
     delete tab.expiredFeedWorks;
     delete tab.expiredFeedTokens;
+    tab.artworkLists?.clear();
+    delete tab.curationViews;
+    tab.virtualState = {};
     tab.profileBanner = '';
     if (tab.kind === 'follows' && tab.followGroups && tab.followStreams) updateFollowFeed(tab);
     if (tab.kind !== 'recommendations') continue;
@@ -2205,6 +2214,7 @@ async function saveContentPreferences(next) {
   if (contentPreferencesSaving) return;
   contentPreferencesSaving = true;
   ++contentPreferencesRevision;
+  const focus = main.querySelector?.('input:focus, select:focus')?.name;
   main.querySelectorAll('.settings-panel input, .settings-panel select')
     .forEach(input => { input.disabled = true; });
   try {
@@ -2214,7 +2224,8 @@ async function saveContentPreferences(next) {
         hideFurry: next.hideFurry === true,
         excludedTags: CatalogLogic.normalizeExcludedTags(next.excludedTags),
         attributionPriority: next.attributionPriority,
-        hideViewedAndSaved: next.hideViewedAndSaved })
+        hideViewedAndSaved: next.hideViewedAndSaved,
+        hideFollowedArtists: next.hideFollowedArtists === true })
     });
     applyContentPreferences(saved);
     toast('Настройки сохранены');
@@ -2222,6 +2233,7 @@ async function saveContentPreferences(next) {
   finally {
     contentPreferencesSaving = false;
     render();
+    if (focus) main.querySelector(`[name="${focus}"]`)?.focus();
   }
 }
 
@@ -2736,6 +2748,8 @@ function createArtworkRoute(from, item, origin = null) {
   const selected = snapshot.some(entry => entry.key === item.key || entry.memberKeys?.includes(item.key));
   const initial = selected ? snapshot : related ? [item, ...snapshot] : [...snapshot, item];
   route.isAllowed = entry => !CatalogLogic.isWorkHidden(entry, contentPreferences) &&
+    (!contentPreferences.hideFollowedArtists || !isFollowedArtistHidden(entry, route.source, route.list) ||
+     [entry.key, ...(entry.memberKeys || [])].some(key => route.visitedKeys.has(key))) &&
     (!contentPreferences.hideViewedAndSaved || !isHideableFeed(route.source, route.list) ||
      [entry.key, ...(entry.memberKeys || [])].some(key => route.visitedKeys.has(key)) ||
      !CatalogLogic.workHistoryTokens(entry).some(token => viewedTokens.has(token) ||
@@ -3619,9 +3633,13 @@ function renderSearch(tab) {
 function renderSearchSummary(tab) {
   const knownTokens = knownWorkTokens();
   const counts = CatalogLogic.searchResultCounts(tab.items, contentPreferences, knownTokens);
-  if (contentPreferences.hideViewedAndSaved) {
+  if (contentPreferences.hideViewedAndSaved || contentPreferences.hideFollowedArtists) {
+    if (contentPreferences.hideFollowedArtists) {
+      const content = CatalogLogic.filterWorks(CatalogLogic.groupWorks(tab.items), contentPreferences);
+      counts.hiddenContent += content.length - filterFollowedFeedWorks(content, tab).length;
+    }
     counts.shown = filterFeedWorks(tab.items, tab).filter(item => !isExpiredFeedWork(tab, item)).length;
-    counts.hiddenKnown = counts.works - counts.hiddenContent - counts.shown;
+    counts.hiddenKnown = Math.max(0, counts.works - counts.hiddenContent - counts.shown);
   }
   const received = Math.max(counts.records, Object.values(tab.searchPageStats || {})
     .reduce((total, stats) => total + (Number(stats.received) || 0), 0));
@@ -4004,6 +4022,29 @@ function isHideableFeed(tab, gridKey = '') {
     tab?.kind === 'search' || tab?.kind === 'follows' || tab?.kind === 'detail' && gridKey === 'related';
 }
 
+function isFollowedArtistFeed(tab, gridKey = '') {
+  return tab?.kind === 'home' || tab?.kind === 'search' || tab?.kind === 'recommendations' ||
+    tab?.kind === 'detail' && gridKey === 'related';
+}
+
+function followedArtistWork(item) {
+  const list = typeof follows === 'undefined' ? [] : follows;
+  let cached = followedArtistWork.cached;
+  if (!cached || cached.list !== list)
+    followedArtistWork.cached = cached = { list, matches: CatalogLogic.followedWorkMatcher(list) };
+  return cached.matches(item);
+}
+
+function isFollowedArtistHidden(item, tab, gridKey = '') {
+  return contentPreferences.hideFollowedArtists === true && isFollowedArtistFeed(tab, gridKey) &&
+    followedArtistWork(item);
+}
+
+function filterFollowedFeedWorks(works, tab, gridKey = '') {
+  if (!contentPreferences.hideFollowedArtists || !isFollowedArtistFeed(tab, gridKey)) return works;
+  return works.filter(item => isRetainedFeedWork(tab, item) || !followedArtistWork(item));
+}
+
 function visibleFeedCard(tab, item) {
   if (!contentPreferences.hideViewedAndSaved || !tab ||
       main.dataset?.tabId !== String(tab.id)) return null;
@@ -4092,8 +4133,9 @@ function curateFeedWorks(works, tab, gridKey = '') {
 
 function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepOrder = false) {
   const supported = CatalogLogic.filterCatalogItems(items);
-  const works = CatalogLogic.filterWorks(
+  let works = CatalogLogic.filterWorks(
     alreadyGrouped ? supported : CatalogLogic.groupWorks(supported), contentPreferences);
+  if (contentPreferences.hideFollowedArtists) works = filterFollowedFeedWorks(works, tab, gridKey);
   const hideKnown = contentPreferences.hideViewedAndSaved && isHideableFeed(tab, gridKey);
   if (!hideKnown) return keepOrder ? works : curateFeedWorks(works, tab, gridKey);
   let knownTokens;
@@ -4103,6 +4145,8 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepO
 }
 
 function emptyFeedMessage(tab, gridKey = '') {
+  if (contentPreferences.hideFollowedArtists && isFollowedArtistFeed(tab, gridKey))
+    return '<div class="empty">Works on this page are hidden by your feed preferences. <button class="inline-retry" data-action="content-settings">Изменить фильтры</button></div>';
   return contentPreferences.hideViewedAndSaved &&
     (tab?.kind === 'home' || tab?.kind === 'search' || tab?.kind === 'recommendations' || tab?.kind === 'follows' ||
      tab?.kind === 'detail' && gridKey === 'related')
@@ -4526,8 +4570,9 @@ function renderSettings() {
           <p class="settings-hint" id="furry-filter-hint">Animal ears or a tail alone do not count as furry. Works without explicit furry tags cannot be identified by this filter.</p>
           <p class="settings-hint">Excluded tags still apply independently when this switch is off.</p>
         </div>
-        <div class="settings-card"><h2>Уже просмотренное</h2><p>По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Понравившиеся, закладки и история просмотра останутся доступны в своих вкладках.</p>
+        <div class="settings-card"><h2>Feed personalization</h2><p>Control which works appear in your feeds. Likes, bookmarks and history remain available in their own tabs.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideViewedAndSaved" ${contentPreferences.hideViewedAndSaved ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать просмотренные и сохранённые работы</strong><small>Учитываются также объединённые копии одной работы из разных источников. Изначально выключено.</small></span></label>
+          <label class="settings-toggle"><input type="checkbox" name="showFollowedArtists" aria-describedby="followed-artists-hint" ${!contentPreferences.hideFollowedArtists ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Show works by followed artists</strong><small id="followed-artists-hint">Turn off to hide their works from search, illustrations, recommendations and related works. Following and artist profiles are unaffected.</small></span></label>
         </div>
         <div class="settings-card"><h2>Исключённые теги</h2><p>Работы с указанными тегами не появятся в каталоге. Совпадение точное: #latex не скрывает #latex_gloves.</p>
           <form id="excluded-tags-form" class="excluded-tags-form"><input name="tags" type="text" maxlength="1000" autocomplete="off" placeholder="Например, 3d, ai_generated_background" aria-label="Добавить исключённые теги" ${contentPreferencesSaving ? 'disabled' : ''}><button class="primary-button" type="submit" ${contentPreferencesSaving ? 'disabled' : ''}>Добавить</button></form>
@@ -5609,6 +5654,10 @@ main.addEventListener('change', event => {
   }
   if (name === 'hideViewedAndSaved') {
     saveContentPreferences({ ...contentPreferences, hideViewedAndSaved: event.target.checked });
+    return;
+  }
+  if (name === 'showFollowedArtists') {
+    saveContentPreferences({ ...contentPreferences, hideFollowedArtists: !event.target.checked });
     return;
   }
   if (name?.startsWith('curation-')) {

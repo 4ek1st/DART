@@ -1892,6 +1892,57 @@
       ref?.artistId || ref?.artist || ''].map(value => String(value).toLowerCase()).join(':');
   }
 
+  function followedWorkMatcher(follows) {
+    const creators = new Set(), gelbooruAliases = new Set(), uploaders = new Map();
+    const normalize = value => typeof value === 'string' || typeof value === 'number'
+      ? String(value).normalize('NFKC').trim().toLowerCase().replace(/\s+/g, '_') : '';
+    for (const follow of Array.isArray(follows) ? follows : []) {
+      if (!supportedSources.includes(follow?.source)) continue;
+      const id = normalize(follow.artistId || follow.artist);
+      if (!id || id.length > 100) continue;
+      if (follow.source === 'danbooru') {
+        creators.add(id);
+        const alias = normalize(follow.gelbooruTag);
+        if (alias && alias.length <= 100) gelbooruAliases.add(alias);
+      } else {
+        if (!uploaders.has(follow.source)) uploaders.set(follow.source, new Set());
+        uploaders.get(follow.source).add(id);
+      }
+    }
+    const ownsMatch = item => {
+      if (!supportedSources.includes(item?.source)) return false;
+      const matchesTag = tag => {
+        const id = normalize(tag);
+        return !!id && (creators.has(id) || item.source === 'gelbooru' && gelbooruAliases.has(id));
+      };
+      // These fields are confirmed attribution, unlike an uploader's display
+      // name or an ordinary search tag which can happen to resemble an artist.
+      if (matchesTag(item.creatorTag) || matchesTag(item.followedArtistTag) ||
+          item.source === 'danbooru' && matchesTag(item.artistId)) return true;
+      for (const person of Array.isArray(item.participants) ? item.participants : [])
+        if (matchesTag(person?.tag)) return true;
+      const ids = uploaders.get(item.source);
+      return !!ids && [item.uploaderId, item.uploaderName, item.artistId, item.artist]
+        .some(value => { const id = normalize(value); return !!id && ids.has(id); });
+    };
+    return item => {
+      if (!supportedSources.includes(item?.source)) return false;
+      if (ownsMatch(item)) return true;
+      if (!Array.isArray(item.groupMembers) || !item.groupMembers.length) return false;
+      // Read current member metadata rather than caching a boolean, because
+      // late attribution can enrich an existing merged record in place.
+      const pending = [...item.groupMembers], seen = new Set([item]);
+      while (pending.length) {
+        const member = pending.pop();
+        if (!member || typeof member !== 'object' || seen.has(member)) continue;
+        seen.add(member);
+        if (ownsMatch(member)) return true;
+        if (Array.isArray(member.groupMembers)) pending.push(...member.groupMembers);
+      }
+      return false;
+    };
+  }
+
   function participantRole(tag, role = '') {
     const qualifier = String(tag || '').toLowerCase().replaceAll('_', ' ').match(/\(([^()]+)\)$/)?.[1];
     const roles = { 'voice actor': 'voice_actor', 'voice actress': 'voice_actor',
@@ -2061,7 +2112,7 @@
     isBroadRecommendationTag, orderRecommendationOtherTags,
     recommendationQueryGroups, recommendationCombinations, rankRecommendations, mergeRecommendations,
     normalizeCurationPreferences, curationBoosts, rankCuratedWorks, mergeCuratedWorks,
-    followKey, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems };
+    followKey, followedWorkMatcher, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems };
   root.CatalogLogic = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
