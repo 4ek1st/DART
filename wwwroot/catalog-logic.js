@@ -1863,7 +1863,7 @@
           sum += weights.freshness * clamp(1 - Math.log1p(days) / Math.log(91));
         }
       }
-      if (preferences.resolution && !artworkTags(item).some(tag =>
+      if (preferences.resolution && !recommendationRawTags(item).some(tag =>
           ['pixel art', 'pixel perfect', 'sketch', 'lineart', 'line art', 'oekaki'].includes(normalizeTag(tag)))) {
         const sizes = leaves.filter(member => Number.isFinite(member.width) && Number.isFinite(member.height) &&
           member.width > 0 && member.height > 0 && member.width <= 100000 && member.height <= 100000)

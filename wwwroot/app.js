@@ -174,6 +174,7 @@ async function request(path, options = {}) {
   request.catalogCache ||= DartResourceCache.create({
     load: (url, signal) => requestJson(url, { signal }),
     ttl: 45000, maxEntries: 60, maxBytes: 8 * 1024 * 1024, timeout: 90000,
+    concurrency: 6, foregroundReserve: 1, backgroundConcurrency: 2,
     size: value => JSON.stringify(value).length * 2,
     keep: value => value && !Object.keys(value.errors || {}).length &&
       !Object.keys(value.notices || {}).length,
@@ -181,7 +182,7 @@ async function request(path, options = {}) {
   });
   if (options.cache === 'reload') request.catalogCache.invalidate(path);
   const result = options.cache === 'reload' ? await requestJson(path, options) :
-    structuredClone(await request.catalogCache.get(path, options.signal));
+    structuredClone(await request.catalogCache.get(path, options.signal, { priority: options.priority }));
   if (!options.signal?.aborted && (path.startsWith('/api/search?') || path.startsWith('/api/profile?')))
     // Reuse evidence already decoded by visible cards. A catalog response must
     // never wait for every offscreen image before publishing its first row.
@@ -207,7 +208,10 @@ function catalogRequestKey(path) {
 function clearCatalogResponses() { request.catalogCache?.clear(); }
 
 async function requestJson(path, options = {}) {
-  const response = await fetch(path, options);
+  // Scheduling lanes use foreground/background, while Fetch only accepts
+  // high/low/auto. Reloads and uncached requests still use the same transport.
+  const { priority, ...transportOptions } = options;
+  const response = await fetch(path, transportOptions);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw Object.assign(new Error(body.error || `HTTP ${response.status}`),
@@ -1687,11 +1691,31 @@ async function updateFollowFeed(tab) {
     return { items: CatalogLogic.groupWorks(feed.items), newKeys: feed.newKeys };
   };
   const cache = tab.followComputed;
-  const feed = cache?.version === version && cache.rating === rating && cache.revision === revision
+  const cached = cache?.version === version && cache.rating === rating && cache.revision === revision;
+  let feed = cached
     ? cache.feed : typeof DartCatalogJobs !== 'undefined'
     ? await DartCatalogJobs.run('followFeed', [tab.followGroups, rating], fallback) : fallback();
   if (version !== tab.followVersion || rating !== tab.rating || revision !== (tab.followUpdateRevision || 0)) return;
-  tab.followComputed = { version, rating, revision, feed };
+  const completed = tab.followComputed;
+  const remembered = completed?.remembered || new WeakSet();
+  let records = completed?.records;
+  if (!cached) {
+    const previous = completed?.rating === rating ? records : null;
+    records = new Map();
+    let items = feed.items.map(item => {
+      // A worker returns fresh objects for the entire feed after one source
+      // response. Retain unchanged works and their learned metadata so filters,
+      // attribution, curation and the item index keep their warm identities.
+      const signature = JSON.stringify(item), known = previous?.get(item.key);
+      const canonical = known?.signature === signature ? known.item : item;
+      records.set(item.key, { signature, item: canonical });
+      return canonical;
+    });
+    if (completed?.feed.items.length === items.length &&
+        items.every((item, index) => item === completed.feed.items[index])) items = completed.feed.items;
+    feed = { ...feed, items };
+  }
+  tab.followComputed = { version, rating, revision, feed, records, remembered };
   const visible = CatalogLogic.filterWorks(feed.items, contentPreferences);
   const visibleKeys = new Set(visible.flatMap(item => item.memberKeys || [item.key]));
   tab.items = CatalogLogic.stableFeedItems(tab.followStableRating === tab.rating
@@ -1701,7 +1725,11 @@ async function updateFollowFeed(tab) {
   tab.followSourceErrors = Object.fromEntries(tab.followStreams.filter(stream => stream.error)
     .map(stream => [stream.source, stream.error]));
   tab.hasMore = tab.followStreams.some(stream => followStreamRetryAt(stream) <= Date.now());
-  rememberItems(visible);
+  const changed = visible.filter(item => !remembered.has(item));
+  if (changed.length) {
+    rememberItems(changed);
+    changed.forEach(item => remembered.add(item));
+  }
   return true;
 }
 
@@ -2190,7 +2218,7 @@ async function loadDetail(tab) {
   const params = new URLSearchParams({ source: item.source, id: item.id,
  });
   try {
-    const detail = await request(`/api/detail?${params}`, { signal: controller.signal });
+    const detail = await request(`/api/detail?${params}`, { signal: controller.signal, priority: 'foreground' });
     if (controller.signal.aborted || findTab(tab.id) !== tab) return;
     if (detail) {
       tab.item = rememberItem(CatalogLogic.mergeDetailPages(tab.item, detail));
@@ -2706,7 +2734,7 @@ function warmArtworkRoute(route) {
         let detail;
         try {
           detail = await request(`/api/detail?source=${encodeURIComponent(item.source)}&id=${encodeURIComponent(item.id)}`,
-            { signal: controller.signal });
+            { signal: controller.signal, priority: 'background' });
         } catch { await known; return; }
         if (controller.signal.aborted) return;
         ready = rememberItem(CatalogLogic.mergeDetailPages(item, detail) || item);
@@ -4722,11 +4750,12 @@ const imageLoader = {
           };
           if (CatalogLogic.signedMediaExpired(requestedUrl)) await recover();
           if (controller.signal.aborted || job.generation !== this.generation) return;
+          const priority = [...job.images].some(img => img.closest?.('.detail-image')) ? 'foreground' : undefined;
           let blob;
-          try { blob = await readMediaBlob(requestedUrl, controller.signal); }
+          try { blob = await readMediaBlob(requestedUrl, controller.signal, { priority }); }
           catch (error) {
             if (error.name === 'AbortError' || renewed || !await recover()) throw error;
-            blob = await readMediaBlob(requestedUrl, controller.signal);
+            blob = await readMediaBlob(requestedUrl, controller.signal, { priority });
           }
           if (controller.signal.aborted || job.generation !== this.generation) return;
           const matches = [...job.images].filter(img => img.isConnected && this.visible.has(img) &&

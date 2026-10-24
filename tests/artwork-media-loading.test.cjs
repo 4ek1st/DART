@@ -121,6 +121,22 @@ test('a next-artwork thumbnail starts with foreground capacity while normal medi
   await tick(); f.reads.forEach(read => read.ready.resolve()); await Promise.all(background);
 });
 
+test('a newly opened detail image starts while old feed downloads still own normal capacity', async t => {
+  const f = fixture(t, { transportSlots: 4 });
+  for (let index = 0; index < 3; index++) void f.context.readMediaBlob(`pending-feed-${index}`);
+  await tick();
+  const image = new f.context.Image(); image.isConnected = true;
+  image.dataset.imageUrl = f.item.images[0];
+  image.getBoundingClientRect = () => ({ top: 10, bottom: 500 });
+  image.closest = () => ({ classList: { remove() {} } });
+  f.context.main.getBoundingClientRect = () => ({ top: 0, bottom: 900 });
+  f.context.main.querySelectorAll = () => [image];
+  f.loader.visible.add(image); f.loader.enqueue(image);
+  await tick();
+  assert.ok(f.reads.some(read => read.url === f.item.images[0]),
+    'The selected detail image must use the foreground slot before old feed readers finish');
+});
+
 test('Space full image shares the media transport, preserves its poster until decoded and retains pixels until close', async t => {
   const f = fixture(t), decoded = deferred(); f.decoding(decoded.promise);
   f.context.warmArtworkRoute = () => {};
