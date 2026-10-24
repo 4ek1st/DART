@@ -1532,7 +1532,9 @@ internal sealed partial class CatalogService(LocalStore store)
                     continue;
                 }
                 var mediaType = response.Content.Headers.ContentType?.MediaType ?? "";
-                if (!response.IsSuccessStatusCode || !mediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                if (!response.IsSuccessStatusCode ||
+                    !mediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
+                    !mediaType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase))
                 {
                     context.Response.StatusCode = 502;
                     return;
@@ -1555,7 +1557,14 @@ internal sealed partial class CatalogService(LocalStore store)
                     }
                     await buffer.WriteAsync(chunk.AsMemory(0, count), context.RequestAborted);
                 }
-                context.Response.ContentType = mediaType;
+                var imageType = CatalogImageContent.Resolve(mediaType,
+                    buffer.GetBuffer().AsSpan(0, (int)buffer.Length));
+                if (imageType is null)
+                {
+                    context.Response.StatusCode = 502;
+                    return;
+                }
+                context.Response.ContentType = imageType;
                 context.Response.Headers.CacheControl = "private, max-age=3600";
                 buffer.Position = 0;
                 await buffer.CopyToAsync(context.Response.Body, context.RequestAborted);
