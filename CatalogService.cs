@@ -133,11 +133,12 @@ internal sealed partial class CatalogService(LocalStore store)
     internal const int MaxSearchPage = int.MaxValue / 50 - 1;
     private sealed record SourcePage(List<CatalogItem> Items, bool HasMore,
         int? ReceivedCount = null, int UnavailableCount = 0, int RatingFilteredCount = 0,
-        string? Notice = null);
+        string? Notice = null, string? MatchQuery = null);
     private static readonly HttpClient Api = CreateClient(allowRedirect: true);
     private static readonly Rule34RequestClient Rule34Api = new(Api);
     private static readonly Rule34RequestClient Rule34Web = new(Api);
     private static readonly HttpClient Images = CreateClient(allowRedirect: false);
+    private readonly GelbooruSearchAliases gelbooruAliases = new(Api);
     private static readonly string[] AllSources = CatalogState.Sources;
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"];
     private static readonly string[] VideoExtensions = [".mp4", ".webm", ".m4v", ".ogv"];
@@ -249,7 +250,7 @@ internal sealed partial class CatalogService(LocalStore store)
             // Some booru endpoints silently ignore unknown tags and return their
             // latest posts. Verify literal search terms against the returned tags.
             buckets[responseIndex] = query.Length == 0 || response.Source == "sankaku"
-                ? received : received.Where(item => MatchesSearchTags(item, query)).ToList();
+                ? received : received.Where(item => MatchesSearchTags(item, response.Page.MatchQuery ?? query)).ToList();
             if (response.Error is null)
                 result.SourceStats[response.Source] = new SearchSourceStats
                 {
@@ -745,7 +746,10 @@ internal sealed partial class CatalogService(LocalStore store)
         using var json = await GetJsonAsync(uri.ToString(), cancellationToken);
         if (!json.RootElement.TryGetProperty("post", out var posts) ||
             posts.ValueKind != JsonValueKind.Array) return new SourcePage([], false);
-        return ReadBooruPage(posts, MapGelbooru, id is not null ? "all" : rating, 24);
+        var result = ReadBooruPage(posts, MapGelbooru, id is not null ? "all" : rating, 24);
+        if (id is null && query.Length > 0 && result.Items.Any(item => !MatchesSearchTags(item, query)))
+            result = result with { MatchQuery = await gelbooruAliases.ResolveQueryAsync(query, result.Items, cancellationToken) };
+        return result;
     }
 
     private async Task<SourcePage> SearchRule34Async(string query, int page,

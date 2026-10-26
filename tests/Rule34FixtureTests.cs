@@ -25,6 +25,7 @@ await RunFrontendExtractionFixture();
 CurationFixtureTests.Run();
 SavedWorksFixtureTests.Run();
 ImageContentFixtureTests.Run();
+await GelbooruAliasFixtureTests.RunAsync();
 await VideoPreviewFixtureTests.RunAsync();
 
 static CatalogItem? Map(string method, string payload)

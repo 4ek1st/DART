@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.2.47</Version>
+    <Version>0.2.48</Version>
     <ApplicationIcon>wwwroot\brand\dart.ico</ApplicationIcon>
     <AssemblyName>DART</AssemblyName>
     <Product>DART — Discover Art</Product>

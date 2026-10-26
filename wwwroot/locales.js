@@ -413,6 +413,8 @@ Find a tab…|Найти вкладку…|Tab suchen…
 Open|Открыть|Öffnen
 Recommended|Рекомендуется|Empfohlen
 Tags|Теги|Tags
+Catalog record count before grouping, availability checks and filters.|Число записей в каталогах до объединения, проверки доступности и применения фильтров.|Anzahl der Katalogeinträge vor Zusammenführung, Verfügbarkeitsprüfung und Filtern.
+Gelbooru could not retrieve tag aliases. Retry the search later.|Gelbooru временно не вернул данные синонимов тегов. Повторите поиск позже.|Gelbooru konnte die Tag-Aliasse nicht abrufen. Versuchen Sie die Suche später erneut.
 Video|Видео|Video
 Video · Hover for 5 preview frames|Видео · Наведите мышь для просмотра 5 кадров|Video · Mauszeiger darüber: 5 Vorschaubilder
 NSFW — explicit content|NSFW — откровенный контент|NSFW — explizite Inhalte

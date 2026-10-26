@@ -5428,7 +5428,8 @@ document.addEventListener('keydown', event => {
     searchInput.focus();
     searchInput.select();
     showPopover();
-  } else if (event.key === 'Escape' && !popover.hidden) {
+  } else if (event.key === 'Escape' && (!popover.hidden ||
+      document.activeElement === searchInput && tagSuggestionTerm)) {
     hidePopover();
     searchInput.focus();
   }
@@ -5502,7 +5503,7 @@ function renderPopover() {
   const typed = CatalogLogic.normalizeSearch(searchInput.value);
   const history = getSearchHistory().filter(entry => !typed || entry.toLowerCase().includes(typed)).slice(0, 6);
   popover.innerHTML = `${history.length ? '<div class="popover-title">Недавние запросы</div>' + history.map(entry => `<button type="button" class="popover-row" data-query="${escapeHtml(entry)}" data-no-i18n>${escapeHtml(entry)}</button>`).join('') : ''}
-    ${tagSuggestions.length ? `<div class="popover-title">Теги Danbooru · Gelbooru · Rule34</div>${tagSuggestions.map(tag => `<button type="button" class="popover-row tag-suggestion" data-tag="${escapeHtml(tag.name)}"><span data-no-i18n>#${escapeHtml(tag.name.replaceAll('_', ' '))}</span><span class="popover-muted">${tag.sources.map(source => escapeHtml(names[source] || source)).join(' · ')} · ${Number(tag.count).toLocaleString(globalThis.DartI18n?.locale || 'en-US')}</span></button>`).join('')}` : ''}
+    ${tagSuggestions.length ? `<div class="popover-title">Теги</div>${tagSuggestions.map(tag => `<button type="button" class="popover-row tag-suggestion" data-tag="${escapeHtml(tag.name)}"><span data-no-i18n>#${escapeHtml(tag.name.replaceAll('_', ' '))}</span><span class="popover-muted" title="Число записей в каталогах до объединения, проверки доступности и применения фильтров.">${tag.sources.map(source => escapeHtml(names[source] || source)).join(' · ')} · ${Number(tag.count).toLocaleString(globalThis.DartI18n?.locale || 'en-US')}</span></button>`).join('')}` : ''}
     ${favoriteTags.length ? `<div class="popover-title" style="margin-top:12px">Избранные теги</div>${favoriteTags.filter(tag => !typed || tag.includes(typed)).slice(0, 5).map(tag => `<button type="button" class="popover-row" data-context-tag="${escapeHtml(tag)}" data-query="${escapeHtml(tag)}"><span data-no-i18n>#${escapeHtml(tag)}</span> <span class="popover-muted">избранное</span></button>`).join('')}` : ''}`;
   popover.hidden = !popover.children.length;
 }
@@ -5520,9 +5521,10 @@ function showPopover() {
         try {
           const suggestions = await request(`/api/tags?q=${encodeURIComponent(term)}`,
             { signal: controller.signal });
-          if (tagSuggestionTerm === term && !popover.hidden) {
+          if (tagSuggestionTerm === term && !controller.signal.aborted &&
+              activeTagTerm() === term) {
             tagSuggestions = suggestions;
-            renderPopover();
+            if (document.activeElement === searchInput) renderPopover();
           }
         } catch { /* Search still works when tag suggestions are unavailable. */ }
       }, 250);
