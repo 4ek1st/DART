@@ -38,8 +38,9 @@ test('recommendations retain a failed Rule34 page and resume it without skipping
     .find(stream => stream.sources.includes('rule34'));
   assert.equal(pending.nextPage, 0, 'A failed page must not advance');
   assert.equal(pending.retryAt, now + 60000);
+  const initialRequests = requests.length;
   await context.loadRecommendations(tab, true);
-  assert.equal(requests.length, 1, 'Do not retry Rule34 during its cooldown');
+  assert.equal(requests.length, initialRequests, 'Do not retry Rule34 during its cooldown');
   unavailable = false;
   now += 60001;
   await context.loadRecommendations(tab, true);

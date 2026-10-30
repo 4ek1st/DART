@@ -84,7 +84,8 @@ test('a forced foreground metadata refresh keeps scheduling priority out of Fetc
       return { ok: true, json: async () => ({ key: 'danbooru:2' }) };
     } });
   vm.runInContext(block('async function request(', '\nfunction catalogRequestKey(') +
-    block('async function requestJson(', '\nfunction readMediaBlob('), context);
+    block('async function requestJson(', '\nfunction readMediaBlob(') +
+    block('function catalogTransport(', '\nconst visualHashJobs'), context);
   const result = await context.request('/api/detail?source=danbooru&id=2',
     { cache: 'reload', priority: 'foreground' });
   assert.equal(result.key, 'danbooru:2');

@@ -68,9 +68,16 @@ for (const source of ['danbooru', 'gelbooru', 'sankaku']) {
 }
 
 test('a partial failure preserves successful source advancement and the visible card prefix', async () => {
-  const f = fixture(['danbooru', 'gelbooru'], (call, count) => count === 1
-    ? { items: [work('danbooru:visible')], errors: { gelbooru: 'HTTP 503' }, hasMoreSources: ['danbooru'] }
-    : { items: call.sources.map(source => work(`${source}:${call.page}`, source)), errors: {}, hasMoreSources: [] });
+  let failed = false;
+  const f = fixture(['danbooru', 'gelbooru'], call => {
+    const source = call.sources[0];
+    if (source === 'gelbooru' && !failed) {
+      failed = true;
+      return { items: [], errors: { gelbooru: 'HTTP 503' }, hasMoreSources: [] };
+    }
+    return { items: [work(`${source}:${call.page}`, source)], errors: {},
+      hasMoreSources: source === 'danbooru' && call.page === 0 ? ['danbooru'] : [] };
+  });
   await f.loadRecommendations(f.tab);
   assert.ok(f.streams().some(stream => stream.sources.includes('gelbooru') && stream.nextPage === 0));
   assert.ok(f.streams().some(stream => stream.sources.includes('danbooru') && stream.nextPage === 1));
@@ -241,7 +248,7 @@ test('saving unrelated credentials leaves a Danbooru batch waiting for its backg
   assert.equal(f.streams()[0].nextPage, 1);
 });
 
-test('an affected settings change during the background await leaves the uncommitted page retryable', async () => {
+test('settings changed during optional background sampling retain already committed cards and cursors', async () => {
   let finishBackground, backgroundRequests = 0;
   const f = fixture(['gelbooru'], call => call.q === ''
     ? ++backgroundRequests === 1 ? new Promise(resolve => { finishBackground = resolve; })
@@ -250,13 +257,14 @@ test('an affected settings change during the background await leaves the uncommi
   f.context.likes = Array.from({ length: 24 }, (_, i) => work(`liked:${i}`));
   const pending = f.loadRecommendations(f.tab);
   await flushAsyncWork();
+  assert.equal(f.tab.items[0].key, 'gelbooru:page0', 'visible results commit before optional calibration');
+  assert.equal(f.streams()[0].nextPage, 1);
   f.retry(f.tab, ['gelbooru'], false);
   finishBackground({ items: [], errors: {}, hasMoreSources: [] });
   await pending;
-  assert.equal(f.requests.find(call => call.q).signal.aborted, true);
-  assert.equal(f.streams()[0].nextPage, 0, 'a page with discarded cards has not been consumed');
+  assert.equal(f.streams()[0].nextPage, 1, 'a page already published must not be requested again');
   await f.loadRecommendations(f.tab, true);
-  assert.equal(f.requests.filter(call => call.q).at(-1).page, 0);
+  assert.equal(f.requests.filter(call => call.q).at(-1).page, 1);
   assert.equal(f.tab.items[0].key, 'gelbooru:page0');
 });
 

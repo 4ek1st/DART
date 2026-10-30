@@ -105,6 +105,78 @@ test('an expired known signature does not occupy the preload slot or suppress th
   f.reads[0].ready.resolve(); await f.route.warming;
 });
 
+test('a video transition does not wait for its unavailable poster or schedule an image decode', async t => {
+  const f = fixture(t);
+  f.item.images = ['https://cdn.donmai.us/original/neutral.mp4'];
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  let ready = false;
+  const preparing = f.context.prepareArtworkMedia(f.item, controller.signal).then(release => {
+    ready = true; release?.();
+  });
+  await tick();
+  assert.equal(ready, true, 'playable video must be selected without waiting up to 4.5 seconds for a poster');
+  assert.equal(f.reads.length, 0, 'the video element owns media loading; no blocking poster transport is needed');
+  assert.equal(f.decodes.length, 0);
+  await preparing;
+});
+
+test('a video selected from a mixed gallery bypasses unrelated image preparation', async t => {
+  const f = fixture(t), video = 'https://cdn.donmai.us/original/neutral.webm';
+  f.item.images.push(video);
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  let ready = false;
+  const preparing = f.context.prepareArtworkMedia(f.item, controller.signal,
+    CatalogLogic.previewMedia(f.item)).then(release => { ready = true; release?.(); });
+  await tick();
+  assert.equal(ready, true, 'Space navigation selects the playable file even when a picture precedes it');
+  assert.equal(f.reads.length, 0);
+  await preparing;
+});
+
+test('Space navigation passes the selected mixed-gallery video into media preparation', async t => {
+  const f = fixture(t), video = 'https://cdn.donmai.us/original/neutral.webm';
+  f.item.images.push(video);
+  f.preview.open = true;
+  Object.assign(f.context, { quickPreviewRoute: f.route, quickPreviewWork: { key: 'danbooru:1' },
+    ratingFilterFor: () => 'general', toast() {} });
+  f.route.engine.items = [f.item];
+  f.route.engine.move = async () => f.item;
+  f.route.engine.sync = () => {};
+  const opened = [];
+  f.context.openQuickPreview = value => opened.push(value);
+  vm.runInContext(block('async function moveArtwork(', '\nfunction openDetail('), f.context);
+  const moving = f.context.moveArtwork(1);
+  t.after(() => f.route.navigationController?.abort());
+  await tick();
+  assert.equal(opened.length, 1, 'the selected video should open before a cold poster is ready');
+  assert.equal(opened[0].url, video);
+  assert.equal(f.reads.length, 0);
+  await moving;
+});
+
+test('a photo transition still waits for prepared pixels to decode before switching', async t => {
+  const f = fixture(t), decoded = deferred();
+  f.decoding(decoded.promise);
+  const controller = new AbortController();
+  t.after(() => { controller.abort(); decoded.resolve(); });
+  let ready = false;
+  const preparing = f.context.prepareArtworkMedia(f.item, controller.signal).then(release => {
+    ready = true; return release;
+  });
+  await tick();
+  assert.equal(ready, false, 'the new photo waits while its prepared thumbnail loads');
+  assert.equal(f.reads[0].url, f.item.thumbnail);
+  f.reads[0].ready.resolve(); await tick();
+  assert.equal(ready, false, 'a loaded but undecoded photo must not replace the current viewer');
+  decoded.resolve();
+  const release = await preparing;
+  assert.equal(ready, true);
+  assert.equal(typeof release, 'function');
+  release();
+});
+
 test('a next-artwork thumbnail starts with foreground capacity while normal media are pending', async t => {
   // The production proxy also limits upstream images to four transports.
   const f = fixture(t, { transportSlots: 4 }), background = [];

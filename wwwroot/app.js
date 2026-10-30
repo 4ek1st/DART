@@ -112,6 +112,9 @@ let recommendationTagPreferences = {};
 let recommendationPreferenceSaveQueue = Promise.resolve();
 let recommendationVisitCount = 0;
 let recommendationExposure = [];
+let recommendationExposureGroups = [];
+let recommendationExposureSaveTimer;
+let recommendationExposureDirty = false;
 const visualHashCache = new Map();
 const visualFingerprintValues = new Map();
 const clientStateWriter = DartClientState.createWriter({
@@ -161,6 +164,11 @@ function cleanRecommendationExposure(value) {
 }
 try { recommendationExposure = cleanRecommendationExposure(JSON.parse(
   localStorage.getItem('dart-recommendation-exposure') || '[]')); } catch { /* Empty history is valid. */ }
+try {
+  const savedGroups = JSON.parse(localStorage.getItem('dart-recommendation-exposure-groups') || 'null');
+  recommendationExposureGroups = DartRecommendationExposure.cleanGroups(
+    Array.isArray(savedGroups) ? savedGroups : recommendationExposure);
+} catch { recommendationExposureGroups = DartRecommendationExposure.cleanGroups(recommendationExposure); }
 
 async function request(path, options = {}) {
   const changesSources = options.method === 'POST' && /^\/api\/(settings|sankaku\/)/.test(path);
@@ -173,7 +181,7 @@ async function request(path, options = {}) {
     return result;
   }
   request.catalogCache ||= DartResourceCache.create({
-    load: (url, signal) => requestJson(url, { signal }),
+    load: (url, signal, scheduling) => requestJson(url, { ...scheduling, signal }),
     ttl: 45000, maxEntries: 60, maxBytes: 8 * 1024 * 1024, timeout: 90000,
     concurrency: 6, foregroundReserve: 1, backgroundConcurrency: 2,
     size: value => JSON.stringify(value).length * 2,
@@ -211,19 +219,22 @@ function clearCatalogResponses() { request.catalogCache?.clear(); }
 async function requestJson(path, options = {}) {
   // Scheduling lanes use foreground/background, while Fetch only accepts
   // high/low/auto. Reloads and uncached requests still use the same transport.
-  const { priority, ...transportOptions } = options;
-  const response = await fetch(path, transportOptions);
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw Object.assign(new Error(body.error || `HTTP ${response.status}`),
-      { authRequired: !!body.authRequired, status: response.status, retryAt: body.retryAt });
-  }
-  const result = await response.json();
-  if (Array.isArray(result) && /^\/api\/(likes|bookmarks)$/.test(path))
-    Object.defineProperty(result, 'savedRevision', {
-      value: response.headers?.get('X-DART-Saved-Revision') || '' });
-  if (Array.isArray(result?.items)) result.items = CatalogLogic.filterCatalogItems(result.items);
-  return result;
+  const { priority, onPriorityChange, ...transportOptions } = options;
+  const lane = priority || (options.method && !/^(GET|HEAD)$/i.test(options.method) ? 'foreground' : undefined);
+  return catalogTransport().run(async signal => {
+    const response = await fetch(path, { ...transportOptions, signal });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw Object.assign(new Error(body.error || `HTTP ${response.status}`),
+        { authRequired: !!body.authRequired, status: response.status, retryAt: body.retryAt });
+    }
+    const result = await response.json();
+    if (Array.isArray(result) && /^\/api\/(likes|bookmarks)$/.test(path))
+      Object.defineProperty(result, 'savedRevision', {
+        value: response.headers?.get('X-DART-Saved-Revision') || '' });
+    if (Array.isArray(result?.items)) result.items = CatalogLogic.filterCatalogItems(result.items);
+    return result;
+  }, options.signal, { priority: lane, onPriorityChange });
 }
 
 function readMediaBlob(url, signal, options = {}) {
@@ -231,13 +242,19 @@ function readMediaBlob(url, signal, options = {}) {
     key: CatalogLogic.mediaCacheKey, ttl: 5 * 60 * 1000,
     maxEntries: 256, maxBytes: 16 * 1024 * 1024, size: blob => blob.size,
     concurrency: 4, timeout: 25000, foregroundReserve: 1, backgroundConcurrency: 2,
-    load: async (url, signal) => {
-      const response = await fetch(`/api/image?url=${encodeURIComponent(url)}`, { signal });
+    load: (url, signal, scheduling) => catalogTransport().run(async transportSignal => {
+      const response = await fetch(`/api/image?url=${encodeURIComponent(url)}`, { signal: transportSignal });
       if (!response.ok) throw new Error('Image unavailable');
       return response.blob();
-    }
+    }, signal, scheduling)
   });
   return readMediaBlob.cache.get(url, signal, options);
+}
+
+function catalogTransport() {
+  // JSON and image bodies share one origin with native video elements. Keep
+  // their combined occupancy below the browser's six HTTP/1 connections.
+  return catalogTransport.queue ||= DartResourceCache.createTransport();
 }
 
 const visualHashJobs = [];
@@ -440,6 +457,7 @@ function itemForControl(control) {
 }
 
 function captureClientState() {
+  if (typeof flushRecommendationExposure === 'function') flushRecommendationExposure(false);
   if (currentTab() && main.dataset.tabId === String(activeId)) currentTab().scrollTop = main.scrollTop;
   const descriptors = tabs.map(tab => ({
     kind: tab.kind, title: tab.title, query: tab.query || '',
@@ -458,7 +476,7 @@ function captureClientState() {
   }
   catch { /* Browser storage may be unavailable. */ }
   return { session, themePreference: globalThis.DartTheme?.preference || 'system',
-      recent, searchHistory: getSearchHistory(), recommendationExposure,
+      recent, searchHistory: getSearchHistory(), recommendationExposure, recommendationExposureGroups,
       mediaDuplicatePairs: detailImageDeduper.duplicates.entries(),
       mediaVerifiedImages: [...detailImageDeduper.verified] };
 }
@@ -508,6 +526,10 @@ async function loadClientState() {
       recommendationExposure = cleanRecommendationExposure(state.recommendationExposure);
       localStorage.setItem('dart-recommendation-exposure', JSON.stringify(recommendationExposure));
     }
+    recommendationExposureGroups = DartRecommendationExposure.cleanGroups(
+      Array.isArray(state.recommendationExposureGroups) ? state.recommendationExposureGroups :
+        [...recommendationExposureGroups, ...recommendationExposure]);
+    localStorage.setItem('dart-recommendation-exposure-groups', JSON.stringify(recommendationExposureGroups));
     detailImageDeduper.duplicates.restore(state.mediaDuplicatePairs);
     for (const key of (Array.isArray(state.mediaVerifiedImages) ? state.mediaVerifiedImages : []).slice(-256))
       if (typeof key === 'string' && key.length <= 1000 && /^https?:\/\//i.test(key)) detailImageDeduper.verified.add(key);
@@ -1308,7 +1330,7 @@ async function loadRecommendationBackground(tab, signal) {
   try {
     const params = new URLSearchParams({ q: '', page: '0', sources: tab.selectedSources.join(','),
       rating: tab.rating, sort: 'recent', kind: 'illustrations' });
-    const result = await request(`/api/search?${params}`, { signal: controller.signal });
+    const result = await request(`/api/search?${params}`, { signal: controller.signal, priority: 'background' });
     if (signal.aborted) return [];
     tab.recommendationBackground = result.items || [];
     tab.recommendationBackgroundKey = key;
@@ -1318,18 +1340,36 @@ async function loadRecommendationBackground(tab, signal) {
   finally { clearTimeout(timeout); signal.removeEventListener('abort', abort); }
 }
 
-function rememberRecommendationExposure(tab) {
-  const keys = tab.items.slice(0, 48).flatMap(item => item.memberKeys || [item.key]);
-  tab.recommendationExposure = [...new Set([...(tab.recommendationExposure || []), ...keys])].slice(-512);
-  if (typeof recommendationExposure === 'undefined') return;
+function rememberRecommendationExposure(tab, exposed = []) {
+  const groups = exposed.map(item => Array.isArray(item) ? item : [item.key, ...(item.memberKeys || [])]);
+  if (!groups.length) return;
   // Soft ranking history is separate from opened/viewed works. Never mark an
   // artwork as viewed merely because it was suggested.
-  const fresh = new Set(keys);
-  recommendationExposure = cleanRecommendationExposure([
-    ...recommendationExposure.filter(key => !fresh.has(key)), ...keys]);
-  try { localStorage.setItem('dart-recommendation-exposure', JSON.stringify(recommendationExposure)); }
-  catch { /* Server session persistence remains available. */ }
-  saveSession();
+  recommendationExposureGroups = DartRecommendationExposure.append(recommendationExposureGroups, groups);
+  recommendationExposure = cleanRecommendationExposure(DartRecommendationExposure.keys(recommendationExposureGroups));
+  recommendationExposureDirty = true;
+  if (recommendationExposureSaveTimer === undefined)
+    recommendationExposureSaveTimer = setTimeout(() => flushRecommendationExposure(), 750);
+}
+
+function flushRecommendationExposure(save = true) {
+  if (typeof recommendationExposureDirty === 'undefined' || !recommendationExposureDirty) return;
+  if (recommendationExposureSaveTimer !== undefined) clearTimeout(recommendationExposureSaveTimer);
+  recommendationExposureSaveTimer = undefined;
+  recommendationExposureDirty = false;
+  try {
+    localStorage.setItem('dart-recommendation-exposure', JSON.stringify(recommendationExposure));
+    localStorage.setItem('dart-recommendation-exposure-groups', JSON.stringify(recommendationExposureGroups));
+  } catch { /* Server session persistence remains available. */ }
+  if (save) saveSession();
+}
+
+function recommendationRecentExposureKeys(tab) {
+  if (typeof recommendationExposureGroups !== 'undefined' &&
+      typeof DartRecommendationExposure !== 'undefined')
+    return DartRecommendationExposure.keys(recommendationExposureGroups);
+  return typeof recommendationExposure === 'undefined'
+    ? [...(tab.recommendationExposure || [])] : [...recommendationExposure];
 }
 
 function nextRecommendationGroup(tab, kind, excluded = new Set()) {
@@ -1387,8 +1427,7 @@ function prepareRecommendationProfile(tab, liked = recommendationLikedWorks(), n
       recommendationVisitCount) >>> 0 || 1;
     if (tab.recommendationSeed === previousSeed)
       tab.recommendationSeed = (tab.recommendationSeed + 1) >>> 0 || 1;
-    tab.recommendationRecentKeys = typeof recommendationExposure === 'undefined'
-      ? [...(tab.recommendationExposure || [])] : [...recommendationExposure];
+    tab.recommendationRecentKeys = recommendationRecentExposureKeys(tab);
   }
   tab.recommendationTags = CatalogLogic.recommendationTags(liked, 6);
   tab.recommendationTagGroups = CatalogLogic.recommendationTagGroups(liked, 2, recommendationTagPreferences);
@@ -1505,92 +1544,121 @@ async function loadRecommendations(tab, append = false) {
   tab.loading = true;
   if (activeId === tab.id) render();
   try {
-    const backgroundTask = visibleLikes.length >= 24
-      ? loadRecommendationBackground(tab, controller.signal) : Promise.resolve([]);
+    const valid = () => alive() && version === tab.recommendationVersion && !controller.signal.aborted;
+    const previousCount = tab.items.length;
+    const sourceFailures = new Map(), successfulSources = new Set(), readyResults = [];
+    const backgroundKey = `${tab.rating}:${[...tab.selectedSources].sort().join(',')}`;
+    let background = tab.recommendationBackgroundKey === backgroundKey
+      ? tab.recommendationBackground || [] : [];
+    let backgroundStarted = false, publication = Promise.resolve();
+    tab.loadError = false;
     const jobs = groups.flatMap(group => group.streams.filter(stream =>
       stream.sources.length && (!stream.retryAt || stream.retryAt <= Date.now()))
-      .map(stream => ({ group, stream })));
-    const results = await Promise.all(jobs.map(async ({ group, stream }) => {
-      const params = new URLSearchParams({
-        q: group.query,
-        page: String(stream.nextPage), sources: stream.sources.join(','),
-        rating: tab.rating, sort: 'recent', kind: 'illustrations' });
-      try {
-        return { group, stream, response: await request(`/api/search?${params}`,
-          { signal: controller.signal }) };
-      } catch (error) { return { group, stream, error }; }
-    }));
-    if (!alive() || version !== tab.recommendationVersion ||
-        controller.signal.aborted) return;
-    const candidateGroups = groups.map(group => ({ kind: group.kind, items: [] }));
-    for (const { group, response } of results)
-      if (response) candidateGroups[groups.indexOf(group)].items.push(...(response.items || []));
-    const previousCount = tab.items.length;
-    const background = await backgroundTask;
-    if (!alive() || version !== tab.recommendationVersion || controller.signal.aborted) return;
-    let ranked, rankingCuration;
-    do {
-      rankingCuration = contentPreferences.curation;
-      ranked = await mergeRecommendationsAsync(visibleLikes, tab.items,
-        candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed,
-        { background, recentKeys: tab.recommendationRecentKeys, curation: rankingCuration });
-      if (!alive() || version !== tab.recommendationVersion || controller.signal.aborted) return;
-    } while (JSON.stringify(rankingCuration) !== JSON.stringify(contentPreferences.curation));
-    // Commit page cursors, retries, errors and cards together after the final
-    // await. An interrupted sample/worker must leave discarded pages retryable.
-    const sourceFailures = new Map(), successfulSources = new Set();
-    tab.loadError = false;
-    for (const { group, stream, response, error } of results) {
-      if (error) {
-        if (error.name !== 'AbortError') tab.loadError = true;
-        continue;
-      }
-      const requestedSources = [...stream.sources];
-      for (const source of requestedSources)
-        if (!response.errors?.[source]) {
+      .flatMap(stream => stream.sources.map(source => ({ group, source, page: stream.nextPage }))));
+
+    // Only committed results split a combined stream. A cancelled worker leaves
+    // the original source pages intact; each request has its own captured page.
+    const sourceStream = ({ group, source, page }) => {
+      const stream = group.streams.find(value => value.nextPage === page && value.sources.includes(source));
+      if (!stream || stream.sources.length === 1) return stream;
+      const child = { ...stream, sources: [source] };
+      stream.sources = stream.sources.filter(value => value !== source);
+      group.streams.push(child);
+      return child;
+    };
+    const publishReady = async () => {
+      if (!valid() || !readyResults.length) return;
+      const results = readyResults.splice(0);
+      const candidateGroups = results.map(({ group, response }) =>
+        ({ kind: group.kind, items: response?.items || [] }));
+      let ranked, rankingCuration, prefix, prefixLength, prefixRevision;
+      do {
+        prefix = tab.items; prefixLength = prefix.length;
+        prefixRevision = CatalogLogic.groupingRevision?.(prefix) || 0;
+        rankingCuration = contentPreferences.curation;
+        ranked = candidateGroups.some(group => group.items.length)
+          ? await mergeRecommendationsAsync(visibleLikes, prefix,
+            candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed,
+            { background, recentKeys: tab.recommendationRecentKeys, curation: rankingCuration }) : prefix;
+        if (!valid()) return;
+      } while (prefix !== tab.items || prefixLength !== tab.items.length ||
+        prefixRevision !== (CatalogLogic.groupingRevision?.(tab.items) || 0) ||
+        JSON.stringify(rankingCuration) !== JSON.stringify(contentPreferences.curation));
+      let items = CatalogLogic.filterWorks(ranked, contentPreferences);
+      if (contentPreferences.hideFollowedArtists) items = filterFollowedFeedWorks(items, tab);
+      if (contentPreferences.hideViewedAndSaved)
+        items = items.filter(item => !CatalogLogic.workHistoryTokens(item)
+          .some(token => viewedTokens.has(token)) || isRetainedFeedWork(tab, item));
+
+      // Commit cards and just their settled source cursors together. Failures
+      // dominate successes throughout this round, even across partial batches.
+      for (const result of results) {
+        const { group, source, page, response, error } = result;
+        const stream = sourceStream(result);
+        if (!stream) continue;
+        const message = response?.errors?.[source] || (error &&
+          `${error.message || 'Источник сейчас недоступен.'}${error.status ? ` HTTP ${error.status}` : ''}`);
+        if (message) {
+          tab.errors[source] = message;
+          const paused = deferRecommendationSource(group, stream, source,
+            message, response?.retryAt?.[source] ?? error?.retryAt);
+          if (!paused.querySpecific) {
+            const previous = sourceFailures.get(source);
+            sourceFailures.set(source, { error: paused.error, failures: paused.failures,
+              retryAt: Math.max(previous?.retryAt || 0, paused.retryAt), needsSettings: paused.needsSettings });
+          }
+        } else {
           successfulSources.add(source);
-          if (!response.notices?.[source]) delete tab.errors[source];
-        }
-      Object.assign(tab.errors, response.notices || {}, response.errors || {});
-      const failedPage = stream.nextPage;
-      const failedSources = requestedSources.filter(source => response.errors?.[source]);
-      for (const source of failedSources) {
-        // Split a failed source before advancing successful peers. Each source
-        // resumes at its own page and a partial failure never discards cards.
-        const paused = deferRecommendationSource(group, stream, source,
-          response.errors[source], response.retryAt?.[source]);
-        if (!paused.querySpecific) {
-          const previous = sourceFailures.get(source);
-          sourceFailures.set(source, { error: paused.error, failures: paused.failures,
-            retryAt: Math.max(previous?.retryAt || 0, paused.retryAt), needsSettings: paused.needsSettings });
+          if (!sourceFailures.has(source)) {
+            if (response?.notices?.[source]) tab.errors[source] = response.notices[source];
+            else delete tab.errors[source];
+          }
+          stream.nextPage = page + 1;
+          stream.sources = stream.nextPage < 100 && response?.hasMoreSources?.includes(source) ? [source] : [];
+          stream.retryAt = 0; stream.failures = 0;
+          delete stream.error; delete stream.needsSettings; delete stream.querySpecific;
         }
       }
-      if (requestedSources.length !== 1 || !failedSources.length) {
-        stream.nextPage = failedPage + 1;
-        stream.sources = stream.nextPage < 100 ? (response.hasMoreSources || [])
-          .filter(source => requestedSources.includes(source) && !failedSources.includes(source)) : [];
-        stream.retryAt = 0;
-        stream.failures = 0;
-        delete stream.error;
-        delete stream.needsSettings;
-        delete stream.querySpecific;
+      settleRecommendationSourceRetries(tab, sourceFailures, successfulSources);
+      tab.items = items;
+      tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
+      rememberItems(items);
+      if (activeId === tab.id) render();
+      // Calibration is supplementary. Enqueue it after the first usable cards,
+      // behind visible source work, and never hold a publication for it.
+      if (!backgroundStarted && visibleLikes.length >= 24 && items.length) {
+        backgroundStarted = true;
+        void loadRecommendationBackground(tab, controller.signal).then(value => { background = value; }).catch(() => {});
       }
-    }
-    settleRecommendationSourceRetries(tab, sourceFailures, successfulSources);
-    tab.items = CatalogLogic.filterWorks(ranked, contentPreferences);
-    if (contentPreferences.hideFollowedArtists)
-      tab.items = filterFollowedFeedWorks(tab.items, tab);
-    if (contentPreferences.hideViewedAndSaved)
-      tab.items = tab.items.filter(item => !CatalogLogic.workHistoryTokens(item)
-        .some(token => viewedTokens.has(token)) || isRetainedFeedWork(tab, item));
-    rememberRecommendationExposure(tab);
+    };
+    await Promise.all(jobs.map(async job => {
+      const params = new URLSearchParams({ q: job.group.query, page: String(job.page),
+        sources: job.source, rating: tab.rating, sort: 'recent', kind: 'illustrations' });
+      let result;
+      try { result = { ...job, response: await request(`/api/search?${params}`, { signal: controller.signal }) }; }
+      catch (error) { result = { ...job, error }; }
+      if (!valid()) return;
+      readyResults.push(result);
+      // Promise chaining serializes workers and coalesces responses which arrive
+      // during a rank. Keep these promises local: navigation snapshots are plain data.
+      publication = publication.then(publishReady);
+      await publication;
+    }));
+    await publication;
+    if (!valid()) return;
     tab.emptyRecommendationRounds = tab.items.length === previousCount
       ? (tab.emptyRecommendationRounds || 0) + 1 : 0;
     tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
     const ready = Object.values(tab.recommendationPools || {}).flat().some(group =>
       group.streams.some(stream => stream.sources.length && (!stream.retryAt || stream.retryAt <= Date.now())));
     tab.recommendationPaused = tab.hasMore && (!ready || tab.emptyRecommendationRounds >= 4);
-    rememberItems(tab.items);
+  } catch {
+    if (alive() && version === tab.recommendationVersion && !controller.signal.aborted) {
+      // A failed publication must stop its peers and leave uncommitted pages
+      // available to Retry, while keeping any prefix already on screen.
+      tab.loadError = true;
+      controller.abort();
+    }
   } finally {
     if (version === tab.recommendationVersion) {
       tab.loading = false;
@@ -2842,9 +2910,11 @@ function warmArtworkRoute(route) {
   });
 }
 
-async function prepareArtworkMedia(item, signal) {
-  const first = galleryImages(item)[0];
-  const full = first && !CatalogLogic.videoMimeType(first) ? first : '';
+async function prepareArtworkMedia(item, signal, selectedMedia = galleryImages(item)[0]) {
+  // Playback owns video loading. A missing poster must not delay the selected
+  // movie behind the image preparation timeout, including mixed galleries.
+  if (CatalogLogic.videoMimeType(selectedMedia)) return;
+  const full = selectedMedia || '';
   const url = full && imageLoader.cached(full) ? full : item.thumbnail || full;
   if (!url) return;
   // Keep the current viewer while preparing pixels, with a bounded fallback
@@ -2896,7 +2966,8 @@ async function moveArtwork(direction) {
     let item = route.warmed.get(next.key) || next;
     const current = preview ? quickPreviewWork : tab?.item;
     if (current && CatalogLogic.sameWork(current, item)) return;
-    const release = await prepareArtworkMedia(item, controller.signal);
+    const release = await prepareArtworkMedia(item, controller.signal,
+      preview ? CatalogLogic.previewMedia(item) : undefined);
     try {
       if (cancelled()) return;
       // Detail warming and source evidence can change while pixels decode.
@@ -3493,6 +3564,7 @@ function render() {
   restoreGridAnchor(anchor);
   globalThis.DartVideoPreview?.refresh();
   measureVirtualGrids(tab);
+  if (typeof recommendationExposureTracker !== 'undefined') recommendationExposureTracker.refresh();
   if (tab.kind === 'profile') scheduleProfileBanner(tab);
   autoFeed.mount();
   if (typeof scheduleRule34Recovery === 'function') scheduleRule34Recovery(tab);
@@ -5128,6 +5200,8 @@ document.addEventListener('visibilitychange', () => {
     pauseDetailVideos();
     quickPreview.querySelectorAll('video').forEach(video => video.pause());
   }
+  recommendationExposureTracker.refresh(true);
+  if (document.hidden) flushRecommendationExposure();
 });
 
 main.addEventListener('scroll', () => {
@@ -5168,6 +5242,8 @@ main.addEventListener('scroll', () => {
         break;
       }
     }
+    if (typeof recommendationExposureTracker !== 'undefined' && !recommendationExposureTracker.observerSupported)
+      recommendationExposureTracker.refresh();
   });
 });
 window.addEventListener('resize', () => {
@@ -5176,6 +5252,19 @@ window.addEventListener('resize', () => {
   if (tab) render();
 });
 new ResizeObserver(() => alignTabStrip(true)).observe(tabsNode);
+
+const recommendationExposureTracker = DartRecommendationExposure.createTracker({
+  root: main,
+  getSession: () => {
+    const tab = currentTab();
+    return tab?.kind === 'recommendations' && main.dataset.tabId === String(tab.id) ? tab : null;
+  },
+  getGeneration: tab => tab.recommendationSeed,
+  getKeys: card => [card.dataset.workKey, ...workMemberKeys(card)],
+  isVisible: () => !document.hidden && !quickPreview.open,
+  onExpose: rememberRecommendationExposure
+});
+quickPreview.addEventListener('close', () => recommendationExposureTracker.refresh(true));
 
 document.querySelectorAll('[data-icon]').forEach(node => node.innerHTML = svg(node.dataset.icon));
 document.getElementById('back-button').innerHTML = svg('back');
@@ -6066,6 +6155,7 @@ main.addEventListener('click', event => {
 window.addEventListener('online', () => { void clientStateWriter.flush(); });
 window.addEventListener('resize', () => { if (quickPreview.open) paintQuickPreview(true); });
 window.addEventListener('beforeunload', () => {
+  recommendationExposureTracker.stop();
   groupRepairs.stop(); stopQuickPreviewMedia();
   saveSession();
   const patch = tabs.length && clientStateWriter.unloadPatch(captureClientState());
