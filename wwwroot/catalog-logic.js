@@ -1152,6 +1152,23 @@
     return tags.sort((a, b) => rank(a) - rank(b));
   }
 
+  function artworkTagText(item) {
+    const seen = new Set(), tags = [];
+    // Export raw catalog tags, including those hidden behind "More tags".
+    // Confirmed contributors come first; uploader display names are not tags.
+    for (const value of [...workParticipants(item).map(person => person.tag),
+      ...(item?.copyrightTags || []), ...(item?.characterTags || []),
+      ...(item?.tags || []), ...(item?.allTags || [])]) {
+      if (typeof value !== 'string') continue;
+      const tag = value.trim().replace(/^#+/, '').trim().replace(/\s+/g, '_');
+      const key = tag.normalize('NFKC').toLowerCase();
+      if (!tag || seen.has(key)) continue;
+      seen.add(key);
+      tags.push(tag);
+    }
+    return tags.join(', ');
+  }
+
   const generatedTags = new Set([
     'ai generated', 'ai created', 'ai art', 'ai artwork', 'ai image', 'ai illustration',
     'stable diffusion', 'nai diffusion', 'novelai', 'midjourney',
@@ -2103,7 +2120,7 @@
     removeNavigationEntry, groupWorks, mergeGroupedWorks, groupingRevision, invalidateGrouping, refineGrouping,
     needsGroupRepair, repairLegacyGroup, replaceRepairedGroups,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
-    artworkTags, artworkTagKind,
+    artworkTags, artworkTagKind, artworkTagText,
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,
     sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType, previewMedia,
     mediaCacheKey, signedMediaExpired, renewWorkMedia, needsVisualFingerprint, perceptualImageHash,

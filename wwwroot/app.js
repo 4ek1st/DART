@@ -25,6 +25,7 @@ icons.palette = '<path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.4-3.4 1.5 1.5 0 0 1
 icons.shield = '<path d="m12 3 8 3v6c0 4.6-5.2 7.8-8 9-2.8-1.2-8-4.4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>';
 icons.language = '<path d="M3 5h12M9 3v2m3 0c-1 5-4 8-8 10M6 9c2 3 4 5 8 6m0 6 4-10h1l4 10m-7-3h5"/>';
 icons.download = '<path d="M12 3v12m-5-5 5 5 5-5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>';
+icons.copy = '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>';
 const svg = name => `<svg viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${icons[name]}</svg>`;
 const names = { danbooru: 'Danbooru', gelbooru: 'Gelbooru', rule34: 'Rule34', sankaku: 'Sankaku' };
 let favoriteTags = [];
@@ -3700,13 +3701,16 @@ function closeRecommendationTagMenu(returnFocus = false) {
 
 const contentTagSelector = '.tag-link[data-query], .tag-chip[data-query], [data-recommendation-tag], .tag-suggestion[data-tag], .favorite-tag-button[data-tag], .excluded-tag[data-tag], [data-context-tag]';
 function contentContextTarget(target) {
+  const artwork = target.closest('[data-artwork-tags-key]');
+  const item = artwork && itemIndex.get(artwork.dataset.artworkTagsKey);
   const chip = target.closest(contentTagSelector);
   if (chip) {
     const raw = chip.dataset.contextTag || chip.dataset.query || chip.dataset.tag;
     const tag = CatalogLogic.favoriteTagFromQuery(String(raw || '').trim().replace(/\s+/g, '_'));
-    if (tag) return { trigger: chip, kind: 'tag', tag,
+    if (tag) return { trigger: chip, kind: 'tag', tag, item,
       recommendationTag: chip.dataset.recommendationTag };
   }
+  if (item) return { trigger: artwork, kind: 'artwork-tags', item };
   const author = target.closest('[data-context-author-id]');
   if (!author) return null;
   const identity = { source: author.dataset.contextAuthorSource,
@@ -3719,13 +3723,14 @@ function openContentContextMenu(context, x, y) {
   const tag = context.tag;
   const hidden = context.kind === 'tag'
     ? contentPreferences.excludedTags.includes(CatalogLogic.normalizeExcludedTags([tag])[0])
-    : contentPreferences.hiddenAuthors.some(author => CatalogLogic.hiddenAuthorKey(author) === CatalogLogic.hiddenAuthorKey(context.author));
+    : context.kind === 'author' && contentPreferences.hiddenAuthors.some(author => CatalogLogic.hiddenAuthorKey(author) === CatalogLogic.hiddenAuthorKey(context.author));
   const current = recommendationTagPreferences[context.recommendationTag] || 'normal';
   recommendationTagMenu.context = { ...context, hidden, favorite: tag && favoriteTags.includes(tag) };
   recommendationTagMenu.tag = context.recommendationTag;
   recommendationTagMenu.trigger = context.trigger;
-  recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title" data-no-i18n>${escapeHtml(tag ? '#' + tag.replaceAll('_', ' ') : context.author.name)}</div>
-    <button type="button" role="menuitem" data-context-action="hide"${contentPreferencesSaving ? ' disabled' : ''}>${svg('hide')}<span>${hidden ? 'Unhide' : 'Hide'}</span></button>
+  recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title"${context.kind === 'artwork-tags' ? '' : ' data-no-i18n'}>${escapeHtml(tag ? '#' + tag.replaceAll('_', ' ') : context.author?.name || 'Artwork tags')}</div>
+    ${context.item ? `<button type="button" role="menuitem" data-context-action="copy" title="Copy all artwork tags">${svg('copy')}<span>Copy</span></button>` : ''}
+    ${context.kind !== 'artwork-tags' ? `<button type="button" role="menuitem" data-context-action="hide"${contentPreferencesSaving ? ' disabled' : ''}>${svg('hide')}<span>${hidden ? 'Unhide' : 'Hide'}</span></button>` : ''}
     ${tag ? `<button type="button" role="menuitem" data-context-action="favorite"${favoriteTagPending.has(tag) ? ' disabled' : ''}>${svg('star')}<span>${favoriteTags.includes(tag) ? 'Unfavorite' : 'Favorite'}</span></button>` : ''}
     ${context.recommendationTag ? `<div class="recommendation-tag-menu-separator" role="separator"></div>
     <button type="button" role="menuitemradio" aria-checked="${current === 'priority'}" data-tag-mode="priority"><span class="recommendation-menu-dot priority-dot"></span>Показывать чаще</button>
@@ -3739,6 +3744,34 @@ function openContentContextMenu(context, x, y) {
   recommendationTagMenu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - width - 8))}px`;
   recommendationTagMenu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - height - 8))}px`;
   recommendationTagMenu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
+}
+
+async function copyArtworkTags(item) {
+  const text = CatalogLogic.artworkTagText(itemIndex.get(item?.key) || item);
+  if (!text) { toast('No tags to copy.'); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Older/permission-restricted WebViews can still copy during this user action.
+    const focused = document.activeElement;
+    const input = document.createElement('textarea');
+    input.value = text;
+    input.readOnly = true;
+    input.style.cssText = 'position:fixed;left:-10000px;top:0';
+    document.body.append(input);
+    try {
+      input.focus({ preventScroll: true });
+      input.select();
+      if (!document.execCommand('copy')) throw new Error('Clipboard unavailable');
+    } catch {
+      toast('Could not copy tags. Please try again.');
+      return;
+    } finally {
+      input.remove();
+      focused?.focus({ preventScroll: true });
+    }
+  }
+  toast('All artwork tags copied.');
 }
 
 function filteredRecommendationOtherTags(tab) {
@@ -4345,7 +4378,7 @@ function renderArtworkTags(tab, tags, visibleTags) {
   return `${selected.size ? `<div class="tag-selection-toolbar" role="group" aria-label="Выбор тегов для поиска">
     <span class="tag-selection-status" role="status" aria-live="polite">Выбрано: ${selected.size}</span>
     <button data-action="detail-tags-reset"${selected.size ? '' : ' disabled'}>Сбросить</button>
-  </div>` : ''}<div class="tag-list">${visibleTags.map(tag => {
+  </div>` : ''}<div class="tag-list" data-artwork-tags-key="${escapeHtml(tab.item.key)}" tabindex="-1">${visibleTags.map(tag => {
     const kind = CatalogLogic.artworkTagKind(tab.item, tag);
     const picked = selected.has(tag);
     return `<button class="tag-link${kind ? ` tag-link-${kind}` : ''}${picked ? ' tag-link-selected' : ''}" data-action="query" data-query="${escapeHtml(tag)}" aria-pressed="${picked}" title="${picked ? 'Клик или Enter — искать выбранные теги. Ctrl + клик — снять выбор.' : 'Ctrl + клик — выбрать тег. Обычный клик — искать этот тег.'}">#${escapeHtml(tag.replaceAll('_', ' '))}</button>`;
@@ -5558,7 +5591,8 @@ recommendationTagMenu.addEventListener('click', async event => {
   const context = recommendationTagMenu.context;
   if (action && context) {
     closeRecommendationTagMenu(true);
-    if (action === 'favorite') await toggleFavoriteTag(context.tag, !context.favorite);
+    if (action === 'copy') await copyArtworkTags(context.item);
+    else if (action === 'favorite') await toggleFavoriteTag(context.tag, !context.favorite);
     else if (context.kind === 'author') await setAuthorHidden(context.author, !context.hidden);
     else {
       const tag = CatalogLogic.normalizeExcludedTags([context.tag])[0];

@@ -3,6 +3,12 @@
 (function(root) {
   const rows = `
 Home|Главная|Startseite
+Copy|Копировать|Kopieren
+Artwork tags|Теги работы|Werk-Tags
+Copy all artwork tags|Копировать все теги работы|Alle Werk-Tags kopieren
+All artwork tags copied.|Все теги работы скопированы.|Alle Werk-Tags wurden kopiert.
+No tags to copy.|Нет тегов для копирования.|Keine Tags zum Kopieren vorhanden.
+Could not copy tags. Please try again.|Не удалось скопировать теги. Попробуйте ещё раз.|Tags konnten nicht kopiert werden. Versuche es erneut.
 Could not save the session. Retrying automatically.|Не удалось сохранить состояние. Повторим автоматически.|Der Sitzungszustand konnte nicht gespeichert werden. Ein neuer Versuch erfolgt automatisch.
 Could not save the session. Please try again.|Не удалось сохранить состояние. Повторите попытку.|Der Sitzungszustand konnte nicht gespeichert werden. Bitte versuche es erneut.
 Multiple images · Count verified when opened|Несколько изображений · Число уточняется при открытии|Mehrere Bilder · Die Anzahl wird beim Öffnen geprüft
