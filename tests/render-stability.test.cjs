@@ -36,6 +36,10 @@ class Element {
     };
   }
   get attributes() { return Object.entries(this.attrs).map(([name, value]) => ({ name, value })); }
+  get outerHTML() {
+    return `<${this.tagName} ${Object.entries(this.attrs).map(([name, value]) =>
+      `${name}="${value}"`).join(' ')}>${this.childNodes.map(node => node.outerHTML).join('')}</${this.tagName}>`;
+  }
   get firstChild() { return this.childNodes[0] || null; }
   get nextSibling() {
     const siblings = this.parentNode?.childNodes || [];
@@ -144,6 +148,93 @@ for (const [before, after] of [[160, 161], [161, 160]]) {
     assert.equal(frame.hasAttribute('hidden'), false, 'Background reconciliation must not hide a playing hover preview');
   });
 }
+
+test('an unchanged viewport avoids revisiting every card descendant during publication', () => {
+  const harness = gridHarness(), wrapper = harness.render(84);
+  harness.reconcileNode(wrapper, harness.render(84));
+  let attributeReads = 0;
+  const countReads = node => {
+    Object.defineProperty(node, 'attributes', { get() {
+      attributeReads++;
+      return Object.entries(this.attrs).map(([name, value]) => ({ name, value }));
+    } });
+    node.childNodes.forEach(countReads);
+  };
+  countReads(wrapper);
+  harness.reconcileNode(wrapper, harness.render(84));
+  assert(attributeReads <= 4, `Unchanged cards should avoid descendant attribute walks, got ${attributeReads}`);
+});
+
+function cardReconciliationFixture() {
+  const reconcile = extract('function workMemberKeys(', '\nfunction renderHome(', 'reconcileNode', {
+    Node: { ELEMENT_NODE: 1 }, CatalogLogic, document: {}
+  });
+  const desired = (title = 'Original', saved = false) => parseElements(`<article class="card" data-work-key="fixture:1">
+    <div class="card-art"><button class="card-art" title="${title}"><img data-image-url="https://fixture.test/1.jpg"><img class="video-preview-frame" hidden></button>
+    <button class="heart-button${saved ? ' saved' : ''}" aria-pressed="${saved}" title="${saved ? 'Unlike' : 'Like'}"></button></div></article>`);
+  const card = desired();
+  reconcile(card, desired());
+  return { reconcile, desired, card };
+}
+
+test('direct pending or optimistic heart mutations cannot prevent a failed-save rollback', () => {
+  const { reconcile, desired, card } = cardReconciliationFixture();
+  const heart = card.querySelector('.heart-button');
+  heart.setAttribute('disabled', '');
+  heart.setAttribute('aria-pressed', 'true');
+  heart.setAttribute('title', 'Unlike');
+  heart.classList.add('saved');
+  reconcile(card, desired());
+  assert.equal(heart.hasAttribute('disabled'), false);
+  assert.equal(heart.getAttribute('aria-pressed'), 'false');
+  assert.equal(heart.getAttribute('title'), 'Like');
+  assert.equal(heart.classList.contains('saved'), false);
+});
+
+test('decoded media, failed-loading state and the playing hover frame survive an unchanged publication', () => {
+  const { reconcile, desired, card } = cardReconciliationFixture();
+  const art = card.querySelector('button.card-art'), image = art.querySelector('img[data-image-url]');
+  const frame = art.querySelector('.video-preview-frame');
+  image.src = 'blob:decoded';
+  art.classList.add('failed');
+  frame.src = 'blob:hover-frame';
+  frame.removeAttribute('hidden');
+  reconcile(card, desired());
+  assert.ok(card.querySelector('img[data-image-url]') === image);
+  assert.equal(image.src, 'blob:decoded');
+  assert.equal(art.classList.contains('failed'), true);
+  assert.equal(frame.src, 'blob:hover-frame');
+  assert.equal(frame.hasAttribute('hidden'), false);
+});
+
+test('changed desired metadata, translated labels and saved state update a warm card', () => {
+  const { reconcile, desired, card } = cardReconciliationFixture();
+  reconcile(card, desired('Translated landscape', true));
+  assert.equal(card.querySelector('button.card-art').getAttribute('title'), 'Translated landscape');
+  assert.equal(card.querySelector('.heart-button').getAttribute('aria-pressed'), 'true');
+  assert.equal(card.querySelector('.heart-button').classList.contains('saved'), true);
+});
+
+test('a failed reconciliation is retried instead of being remembered as a successful card publication', () => {
+  const { reconcile, desired, card } = cardReconciliationFixture();
+  const art = card.querySelector('button.card-art'), original = art.setAttribute;
+  let fail = true;
+  art.setAttribute = function(name, value) {
+    if (name === 'title' && fail) { fail = false; throw new Error('Simulated DOM write failure'); }
+    return original.call(this, name, value);
+  };
+  assert.throws(() => reconcile(card, desired('Updated')), /Simulated DOM write failure/);
+  reconcile(card, desired('Updated'));
+  assert.equal(art.getAttribute('title'), 'Updated');
+});
+
+test('a replaced card with the same work key receives its own complete reconciliation', () => {
+  const { reconcile, desired } = cardReconciliationFixture();
+  const replacement = desired();
+  reconcile(replacement, desired('Replacement metadata', true));
+  assert.equal(replacement.querySelector('button.card-art').getAttribute('title'), 'Replacement metadata');
+  assert.equal(replacement.querySelector('.heart-button').getAttribute('aria-pressed'), 'true');
+});
 
 function loaderHarness(count = 3) {
   const images = Array.from({ length: count }, (_, index) => new Element('img', {

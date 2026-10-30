@@ -3598,6 +3598,12 @@ function reconcileNode(current, next) {
     if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
     return;
   }
+  // Compare both requested and actual card markup. Direct save/loading/media
+  // updates must still take the normal path, including a failed-save rollback.
+  const cardMarkup = next.matches?.('article.card[data-work-key]') ? next.outerHTML : '';
+  const cards = cardMarkup && (reconcileNode.cards ||= new WeakMap());
+  const previousCard = cards && cards.get(current);
+  if (previousCard && previousCard.desired === cardMarkup && previousCard.actual === current.outerHTML) return;
   // The hover controller owns this overlay. Keep its decoded frame across
   // background feed updates; the normal thumbnail remains imageLoader's node.
   if (current.classList?.contains('video-preview-frame') && next.classList?.contains('video-preview-frame')) return;
@@ -3623,6 +3629,7 @@ function reconcileNode(current, next) {
     else if (current.value !== next.value) current.value = next.value;
   }
   reconcileChildren(current, next);
+  if (cards) cards.set(current, { desired: cardMarkup, actual: current.outerHTML });
 }
 
 function renderHome(tab) {

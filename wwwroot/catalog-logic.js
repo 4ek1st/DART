@@ -3,6 +3,7 @@
   const ordinaryRatings = Object.freeze(['g', 'general', 's', 'sensitive', 'safe', 'sfw']);
 
   const attributionCache = new WeakMap(), sampleCache = new WeakMap(), contentCache = new WeakMap();
+  const visualCreatorKey = Symbol('visualCreator');
   const identityCache = new WeakMap();
   const attributionFields = ['source', 'creatorTag', 'creatorName', 'artistId', 'artist',
     'participants', 'uploaderId', 'uploaderName', 'originalUrl'];
@@ -11,10 +12,24 @@
   const contentFields = [...attributionFields, 'tags', 'allTags', 'followedArtistTag'];
   function derived(cache, item, fields, compute) {
     if (!item || typeof item !== 'object') return compute();
-    const values = fields.flatMap(field => Array.isArray(item[field]) ? [item[field], item[field].length] : [item[field]]);
     const cached = cache.get(item);
-    if (cached && values.every((value, index) => value === cached.values[index]) &&
-        values.length === cached.values.length) return cached.result;
+    if (cached) {
+      let position = 0, unchanged = true;
+      for (const field of fields) {
+        const value = item[field];
+        if (value !== cached.values[position++] ||
+            Array.isArray(value) && value.length !== cached.values[position++]) {
+          unchanged = false; break;
+        }
+      }
+      if (unchanged && position === cached.values.length) return cached.result;
+    }
+    const values = [];
+    for (const field of fields) {
+      const value = item[field];
+      values.push(value);
+      if (Array.isArray(value)) values.push(value.length);
+    }
     const result = compute();
     cache.set(item, { values, result });
     return result;
@@ -214,6 +229,7 @@
       ? `hash:${item.contentHash.toLowerCase()}` : '';
     const members = [item.key, ...(item.memberKeys || [])].filter(key =>
       typeof key === 'string' && /^(danbooru|gelbooru|rule34|sankaku):[a-z0-9]+$/i.test(key));
+    const imageRecords = itemImageRecords(item);
     return [...new Set([...(item.identityKeys || []),
       ...members.map(key => `key:${key}`),
       // A child can point at a parent whose response omits has_children. Include
@@ -222,8 +238,8 @@
       item.groupKey && `group:${item.groupKey}`,
       item.pixivGroupKey && `group:${item.pixivGroupKey}`,
       originalPostIdentity(item.originalUrl), hash,
-      ...itemImageRecords(item).map(record => mediaUrlIdentity(record.url)),
-      ...itemImageRecords(item).filter(record => /^[a-f0-9]{32}$/i.test(record.hash || ''))
+      ...imageRecords.map(record => mediaUrlIdentity(record.url)),
+      ...imageRecords.filter(record => /^[a-f0-9]{32}$/i.test(record.hash || ''))
         .map(record => `hash:${record.hash.toLowerCase()}`)].filter(Boolean))];
   }
 
@@ -431,8 +447,11 @@
   };
 
   function visualCreator(item) {
-    const tag = normalizeFilterTag(workAttribution(item).creator?.follow?.artistId || '');
-    return /^(artist request|unknown artist|anonymous artist|anonymous|unknown)$/.test(tag) ? '' : tag;
+    const choices = derived(attributionCache, item, attributionFields, () => ({}));
+    if (choices[visualCreatorKey] !== undefined) return choices[visualCreatorKey];
+    const creator = workParticipants(item).find(person => person.role === 'artist' || person.role === 'animator');
+    const tag = normalizeFilterTag(creator?.tag || '');
+    return choices[visualCreatorKey] = /^(artist request|unknown artist|anonymous artist|anonymous|unknown)$/.test(tag) ? '' : tag;
   }
 
   function needsVisualFingerprint(item) {
@@ -1090,9 +1109,22 @@
     return { images: imageRecords.map(record => record.url), imageRecords };
   }
 
+  const normalizedFilterTags = new Map();
   function normalizeFilterTag(tag) {
-    return String(tag || '').normalize('NFKC').toLowerCase().trim()
+    const retain = typeof tag === 'string' && tag.length <= 200;
+    if (retain) {
+      const cached = normalizedFilterTags.get(tag);
+      if (cached !== undefined) return cached;
+    }
+    const normalized = String(tag || '').normalize('NFKC').toLowerCase().trim()
       .replace(/^#+/, '').replace(/[_\-\s]+/g, ' ').trim();
+    // Share only pure, short string results; mutable input and long keys stay uncached.
+    if (retain) {
+      if (normalizedFilterTags.size >= 4096)
+        normalizedFilterTags.delete(normalizedFilterTags.keys().next().value);
+      normalizedFilterTags.set(tag, normalized);
+    }
+    return normalized;
   }
 
   function normalizeExcludedTags(tags) {
