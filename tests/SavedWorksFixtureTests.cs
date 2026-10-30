@@ -20,6 +20,7 @@ internal static class SavedWorksFixtureTests
         Directory.CreateDirectory(root);
         try
         {
+            RevisionFixture(Path.Combine(root, "revision"));
             var oldFile = Path.Combine(root, "bookmarks-v4.json");
             const string legacy = """
                 [{"key":"danbooru:1","source":"danbooru","id":"1","title":"First",
@@ -152,6 +153,71 @@ internal static class SavedWorksFixtureTests
             Console.WriteLine("Saved works migration, independent collections, recovery, concurrent writes and large session persistence: PASS");
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static void RevisionFixture(string directory)
+    {
+        var snapshot = Store.GetMethod("GetSavedWorksSnapshot");
+        var change = Store.GetMethod("ChangeSavedWork");
+        Expect(snapshot is not null && change is not null, "Saved-work snapshots and changes need a compact revision acknowledgement");
+        var first = Open(directory);
+        object ReadSnapshot(object store) => snapshot!.Invoke(store, ["likes"])!;
+        string Revision(object value) => (string)value.GetType().GetProperty("Revision")!.GetValue(value)!;
+        List<CatalogItem> Items(object value) => (List<CatalogItem>)value.GetType().GetProperty("Items")!.GetValue(value)!;
+        var before = ReadSnapshot(first);
+        var item = new CatalogItem { Key = "danbooru:123", Source = "danbooru", Id = "123", Tags = ["forest"] };
+        var result = change!.Invoke(first, ["likes", item, false])!;
+        Expect((bool)result.GetType().GetProperty("Saved")!.GetValue(result)! &&
+            (string)result.GetType().GetProperty("PreviousRevision")!.GetValue(result)! == Revision(before),
+            "An unchanged snapshot must accept a compact local delta");
+        var after = ReadSnapshot(first);
+        Expect(Revision(after) == Revision(result) && Revision(after) != Revision(before) && Items(after).Count == 1,
+            "The acknowledgement and the complete collection must share one committed revision");
+        Items(after)[0].Tags.Clear();
+        Expect(Items(ReadSnapshot(first))[0].Tags.SequenceEqual(["forest"]), "A caller cannot mutate the validated store cache");
+        var noOp = change.Invoke(first, ["likes", item, true])!;
+        Expect(Revision(noOp) == Revision(after), "An already-saved idempotent like must retain its revision");
+        var second = Open(directory);
+        var other = new CatalogItem { Key = "gelbooru:456", Source = "gelbooru", Id = "456", Tags = ["landscape"] };
+        Toggle(second, "Like", other);
+        var external = ReadSnapshot(first);
+        Expect(Revision(external) != Revision(after) && Items(external).Count == 2,
+            "The cache must detect another window's atomic file replacement");
+        var file = Path.Combine(directory, "saved-works-v1.json");
+        var data = JsonNode.Parse(File.ReadAllText(file))!;
+        data["likes"]![0]!["futureField"] = "retained";
+        File.WriteAllText(file, data.ToJsonString());
+        Toggle(first, "Bookmark", item);
+        Expect(JsonNode.Parse(File.ReadAllText(file))!["likes"]![0]!["futureField"]!.GetValue<string>() == "retained",
+            "Caching and compact acknowledgements must preserve external unknown fields");
+        var sankaku = new CatalogItem { Key = "sankaku:abc", Source = "sankaku", Id = "abc", Tags = ["forest"] };
+        Toggle(first, "Like", sankaku);
+        var membership = Revision(ReadSnapshot(first));
+        var detail = new CatalogItem { Key = sankaku.Key, Source = sankaku.Source, Id = sankaku.Id,
+            Tags = ["forest", "series", "character"], CharacterTags = ["character"], CopyrightTags = ["series"],
+            ContentHash = "0123456789abcdef0123456789abcdef", GroupKey = "sankaku:group", PixivGroupKey = "pixiv:123" };
+        Store.GetMethod("RefreshSavedMetadata")!.Invoke(first, [detail]);
+        var durable = Read(Open(directory), "Likes").Single(saved => saved.Key == sankaku.Key);
+        Expect(durable.CopyrightTags.SequenceEqual(["series"]) && durable.CharacterTags.SequenceEqual(["character"]) &&
+            durable.ContentHash == detail.ContentHash && durable.GroupKey == detail.GroupKey &&
+            durable.PixivGroupKey == detail.PixivGroupKey,
+            "Metadata learned after saving must retain its categories and identities through restart");
+        Expect(Revision(ReadSnapshot(first)) == membership, "Metadata-only enrichment keeps the membership revision");
+        Toggle(first, "Like", sankaku);
+        Store.GetMethod("RefreshSavedMetadata")!.Invoke(first, [detail]);
+        Expect(Read(Open(directory), "Likes").All(saved => saved.Key != sankaku.Key),
+            "Late metadata cannot restore a like removed while the provider was loading");
+        var confirmed = Revision(ReadSnapshot(first));
+        using (var blockedBackup = new FileStream(file + ".bak", FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var failed = false;
+            try { Toggle(first, "Like", new CatalogItem { Key = "danbooru:999", Source = "danbooru", Id = "999" }); }
+            catch (TargetInvocationException error) when (error.InnerException is IOException) { failed = true; }
+            Expect(failed, "A blocked atomic backup must report the write failure");
+        }
+        Expect(Revision(ReadSnapshot(first)) == confirmed && Items(ReadSnapshot(first)).All(saved => saved.Id != "999"),
+            "A failed write must not leak an unconfirmed record into the cached library");
+        Console.WriteLine("Saved-work revisions, external changes and cache ownership: PASS");
     }
 
     private static void GroupRepairFixture(string directory)

@@ -208,6 +208,9 @@ internal sealed class LocalStore : ISankakuSessionStore
 
     public List<CatalogItem> GetBookmarks() => savedWorks.Get("bookmarks");
     public List<CatalogItem> GetLikes() => savedWorks.Get("likes");
+    public SavedWorksSnapshot GetSavedWorksSnapshot(string collection) => savedWorks.GetSnapshot(collection);
+    public SavedWorkChange ChangeSavedWork(string collection, CatalogItem item, bool ensureSaved) =>
+        savedWorks.Change(collection, item, ensureSaved);
     public bool RepairSavedGroup(CatalogItem expected, List<CatalogItem> groups) => savedWorks.RepairGroup(expected, groups);
     public bool ToggleBookmark(CatalogItem item) => savedWorks.Toggle("bookmarks", item);
     public bool ToggleLike(CatalogItem item) => savedWorks.Toggle("likes", item);
@@ -276,6 +279,22 @@ internal sealed class LocalStore : ISankakuSessionStore
             }
             if (item.Source == "sankaku")
             {
+                Update("contentHash", item.ContentHash);
+                Update("groupKey", item.GroupKey);
+                if (item.CopyrightTags.Count > 0)
+                {
+                    var previousCopyrights = saved["copyrightTags"]?.Deserialize<List<string>>(Json) ?? [];
+                    var copyrights = previousCopyrights.Concat(item.CopyrightTags).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    if (!previousCopyrights.SequenceEqual(copyrights))
+                    { saved["copyrightTags"] = JsonSerializer.SerializeToNode(copyrights, Json); changed = true; }
+                }
+                if (saved["allTags"] is JsonArray || item.AllTags.Count > 0)
+                {
+                    var previousTags = saved["allTags"]?.Deserialize<List<string>>(Json) ?? [];
+                    var allTags = previousTags.Concat(item.AllTags).Concat(item.Tags).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    if (!previousTags.SequenceEqual(allTags))
+                    { saved["allTags"] = JsonSerializer.SerializeToNode(allTags, Json); changed = true; }
+                }
                 // Renew signed URLs in place while retaining other pages of a saved series.
                 var fresh = item.Images.GroupBy(CatalogService.SankakuMediaIdentity)
                     .ToDictionary(group => group.Key, group => group.Last());

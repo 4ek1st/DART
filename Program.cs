@@ -140,8 +140,18 @@ internal static class Program
             }
         });
 
-        app.MapGet("/api/bookmarks", (LocalStore store) => Results.Ok(store.GetBookmarks()));
-        app.MapGet("/api/likes", (LocalStore store) => Results.Ok(store.GetLikes()));
+        app.MapGet("/api/bookmarks", (HttpContext context, LocalStore store) =>
+        {
+            var snapshot = store.GetSavedWorksSnapshot("bookmarks");
+            context.Response.Headers["X-DART-Saved-Revision"] = snapshot.Revision;
+            return Results.Ok(snapshot.Items);
+        });
+        app.MapGet("/api/likes", (HttpContext context, LocalStore store) =>
+        {
+            var snapshot = store.GetSavedWorksSnapshot("likes");
+            context.Response.Headers["X-DART-Saved-Revision"] = snapshot.Revision;
+            return Results.Ok(snapshot.Items);
+        });
         app.MapGet("/api/favorite-tags", (LocalStore store) =>
             Results.Ok(store.GetFavoriteTags()));
         app.MapPost("/api/favorite-tags", async (HttpContext context, LocalStore store) =>
@@ -218,21 +228,21 @@ internal static class Program
             if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
             var item = await context.Request.ReadFromJsonAsync<CatalogItem>(context.RequestAborted);
             if (item is null || !CatalogService.IsValidItem(item)) return Results.BadRequest();
-            return Results.Ok(new { saved = store.ToggleBookmark(item) });
+            return Results.Ok(store.ChangeSavedWork("bookmarks", item, ensureSaved: false));
         });
         app.MapPost("/api/likes", async (HttpContext context, LocalStore store) =>
         {
             if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
             var item = await context.Request.ReadFromJsonAsync<CatalogItem>(context.RequestAborted);
             if (item is null || !CatalogService.IsValidItem(item)) return Results.BadRequest();
-            return Results.Ok(new { saved = store.ToggleLike(item) });
+            return Results.Ok(store.ChangeSavedWork("likes", item, ensureSaved: false));
         });
         app.MapPut("/api/likes", async (HttpContext context, LocalStore store) =>
         {
             if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
             var item = await context.Request.ReadFromJsonAsync<CatalogItem>(context.RequestAborted);
             if (item is null || !CatalogService.IsValidItem(item)) return Results.BadRequest();
-            return Results.Ok(new { saved = store.EnsureLike(item) });
+            return Results.Ok(store.ChangeSavedWork("likes", item, ensureSaved: true));
         });
 
         app.MapPost("/api/grouping/repair", async (HttpContext context, LocalStore store) =>

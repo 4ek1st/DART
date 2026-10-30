@@ -332,7 +332,7 @@ test('cancelled responses do not create retry streams or replace existing cards'
 });
 
 test('recommendation warning Retry uses the incremental recovery action', () => {
-  const renderSource = app.slice(app.indexOf('function renderRecommendations('),
+  const renderSource = app.slice(app.indexOf('function renderRecommendationTail('),
     app.indexOf('\nfunction followButton('));
   let action;
   const profileSource = app.slice(app.indexOf('function recommendationLikedWorks('),

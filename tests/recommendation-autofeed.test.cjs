@@ -9,7 +9,7 @@ test('an empty recommendation sample mounts its continuation only after loading 
   const source = fs.readFileSync(path.join(__dirname, '..', 'wwwroot', 'app.js'), 'utf8');
   const profile = source.slice(source.indexOf('function recommendationLikedWorks('),
     source.indexOf('\nfunction recommendationPoolsHaveMore('));
-  const renderSource = source.slice(source.indexOf('function renderRecommendations('),
+  const renderSource = source.slice(source.indexOf('function renderRecommendationTail('),
     source.indexOf('\nfunction followButton('));
   const render = vm.runInNewContext(profile + renderSource + '\nrenderRecommendations', {
     CatalogLogic, likes: [{ key: 'danbooru:liked', tags: ['latex'] }],

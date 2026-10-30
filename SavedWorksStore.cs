@@ -5,6 +5,9 @@ using System.Text.Json.Nodes;
 
 namespace ArtCatalog;
 
+public sealed record SavedWorksSnapshot(List<CatalogItem> Items, string Revision);
+public sealed record SavedWorkChange(bool Saved, string PreviousRevision, string Revision);
+
 internal sealed class SavedWorksStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -12,6 +15,9 @@ internal sealed class SavedWorksStore
     private readonly string directory;
     private readonly string path;
     private readonly string lockPath;
+    private JsonObject? cachedState;
+    private (long Length, long Modified, long Created) cachedStamp;
+    private string revision = Guid.NewGuid().ToString("N");
 
     public SavedWorksStore(string directory)
     {
@@ -24,21 +30,27 @@ internal sealed class SavedWorksStore
         else MigrateBookmarks();
     }
 
-    public List<CatalogItem> Get(string collection)
+    public List<CatalogItem> Get(string collection) => GetSnapshot(collection).Items;
+
+    public SavedWorksSnapshot GetSnapshot(string collection)
     {
         using var fileLock = AcquireLock();
-        return Read()[collection]!.Deserialize<List<CatalogItem>>(Json)!
+        var items = Read()[collection]!.Deserialize<List<CatalogItem>>(Json)!
             .Where(item => CatalogState.IsSupported(item.Source)).ToList();
+        return new(items, revision);
     }
 
-    public bool Toggle(string collection, CatalogItem item) => Update(collection, item, ensureSaved: false);
+    public bool Toggle(string collection, CatalogItem item) => Change(collection, item, ensureSaved: false).Saved;
 
-    public bool EnsureSaved(string collection, CatalogItem item) => Update(collection, item, ensureSaved: true);
+    public bool EnsureSaved(string collection, CatalogItem item) => Change(collection, item, ensureSaved: true).Saved;
 
-    private bool Update(string collection, CatalogItem item, bool ensureSaved)
+    public SavedWorkChange Change(string collection, CatalogItem item, bool ensureSaved)
     {
         using var fileLock = AcquireLock();
-        var state = Read();
+        // Mutate a private copy: a failed atomic write must not change the
+        // validated cached snapshot or another request's acknowledgement.
+        var state = Read().DeepClone().AsObject();
+        var previousRevision = revision;
         var items = (JsonArray)state[collection]!;
         var keys = item.MemberKeys.Append(item.Key).ToHashSet(StringComparer.Ordinal);
         var existing = items.OfType<JsonObject>().Where(saved =>
@@ -47,17 +59,17 @@ internal sealed class SavedWorksStore
                 key is JsonValue value && value.TryGetValue<string>(out var text) && keys.Contains(text))).ToArray();
         // Double-click likes are idempotent even with stale clients or concurrent windows.
         // Keep existing metadata, unknown fields and library order byte-for-byte.
-        if (ensureSaved && existing.Length > 0) return true;
+        if (ensureSaved && existing.Length > 0) return new(true, previousRevision, revision);
         foreach (var saved in existing) items.Remove(saved);
         if (existing.Length == 0) items.Insert(0, JsonSerializer.SerializeToNode(item, Json));
         Write(state);
-        return existing.Length == 0;
+        return new(existing.Length == 0, previousRevision, revision);
     }
 
     public bool RefreshMetadata(CatalogItem item, Func<JsonObject, bool> update)
     {
         using var fileLock = AcquireLock();
-        var state = Read();
+        var state = Read().DeepClone().AsObject();
         var changed = false;
         foreach (var collection in new[] { "likes", "bookmarks" })
             foreach (var saved in ((JsonArray)state[collection]!).OfType<JsonObject>().Where(saved =>
@@ -67,7 +79,9 @@ internal sealed class SavedWorksStore
                 members.OfType<JsonObject>().Any(member => member["key"]?.GetValue<string>() == item.Key &&
                     member["source"]?.GetValue<string>() == item.Source && member["id"]?.GetValue<string>() == item.Id)))
                 changed |= update(saved);
-        if (changed) Write(state);
+        // The revision tracks membership. Refreshing the same saved artwork's
+        // metadata must not force every subsequent like to reload the library.
+        if (changed) Write(state, preserveRevision: true);
         return changed;
     }
 
@@ -78,7 +92,7 @@ internal sealed class SavedWorksStore
         if (groups.Count is < 1 or > 100 || !expectedKeys.SetEquals(groups.SelectMany(group => Keys(group))))
             throw new InvalidDataException("Repair must retain every saved member.");
         using var fileLock = AcquireLock();
-        var state = Read(); var changed = false;
+        var state = Read().DeepClone().AsObject(); var changed = false;
         foreach (var collection in new[] { "likes", "bookmarks" })
         {
             var items = (JsonArray)state[collection]!;
@@ -165,6 +179,7 @@ internal sealed class SavedWorksStore
 
     private JsonObject Read()
     {
+        if (cachedState is not null && File.Exists(path) && Stamp() == cachedStamp) return cachedState;
         foreach (var candidate in new[] { path, path + ".bak" })
         {
             if (!File.Exists(candidate)) continue;
@@ -181,6 +196,7 @@ internal sealed class SavedWorksStore
                     if (File.Exists(path)) File.Copy(path, path + ".corrupt-" + Guid.NewGuid().ToString("N"));
                     File.Copy(candidate, path, overwrite: true);
                 }
+                Remember(state);
                 return state;
             }
             catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException) { }
@@ -188,7 +204,20 @@ internal sealed class SavedWorksStore
         throw new InvalidDataException("Не удалось прочитать лайки и закладки. Файлы сохранены для восстановления.");
     }
 
-    private void Write(JsonObject state)
+    private (long Length, long Modified, long Created) Stamp()
+    {
+        var file = new FileInfo(path);
+        return (file.Length, file.LastWriteTimeUtc.Ticks, file.CreationTimeUtc.Ticks);
+    }
+
+    private void Remember(JsonObject state, bool preserveRevision = false)
+    {
+        cachedState = state;
+        cachedStamp = Stamp();
+        if (!preserveRevision) revision = Guid.NewGuid().ToString("N");
+    }
+
+    private void Write(JsonObject state, bool preserveRevision = false)
     {
         var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
@@ -196,6 +225,7 @@ internal sealed class SavedWorksStore
             File.WriteAllBytes(temporary, JsonSerializer.SerializeToUtf8Bytes(state, Json));
             if (File.Exists(path)) File.Copy(path, path + ".bak", overwrite: true);
             File.Move(temporary, path, overwrite: true);
+            Remember(state, preserveRevision);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }

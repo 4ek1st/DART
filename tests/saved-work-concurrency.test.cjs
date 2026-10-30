@@ -113,3 +113,93 @@ test('removing a legacy overlapping saved series includes every connected saved 
   f.writes[0].resolve({ saved: false }); await pending;
   assert.equal(f.context.likes.length, 0);
 });
+
+test('a pending like changes all mirrored hearts immediately and rolls back on failure', async () => {
+  const f = fixture();
+  const pending = f.context.toggleSavedWork(f.first, 'likes');
+  assert.equal(f.context.isSavedWork(f.first, 'likes'), true);
+  assert.equal(f.context.isSavedWork(f.mirror, 'likes'), true);
+  assert.equal(f.controls[0].attributes['aria-pressed'], 'true');
+  assert.equal(f.context.likes.length, 0, 'An unconfirmed intent must not enter the persisted library');
+  f.writes[0].reject(new Error('Disk unavailable')); await pending;
+  assert.equal(f.context.isSavedWork(f.first, 'likes'), false);
+  assert.equal(f.controls[0].attributes['aria-pressed'], 'false');
+  assert.equal(f.context.savedWorkPending.size, 0);
+});
+
+test('a pending unlike is immediate, remains independent of bookmarks and restores on failure', async () => {
+  const f = fixture(); f.context.setSavedWorks('likes', [f.first]);
+  f.context.setSavedWorks('bookmarks', [f.first]);
+  const pending = f.context.toggleSavedWork(f.mirror, 'likes');
+  assert.equal(f.context.isSavedWork(f.first, 'likes'), false);
+  assert.equal(f.context.isSavedWork(f.first, 'bookmarks'), true);
+  f.writes[0].reject(new Error('Disk unavailable')); await pending;
+  assert.equal(f.context.isSavedWork(f.first, 'likes'), true);
+});
+
+test('a matching native acknowledgement avoids rereading the entire library', async () => {
+  const f = fixture(); let refreshes = 0;
+  f.context.refreshSavedWorks = async () => { refreshes++; };
+  f.context.refreshSavedWorks.states = { likes: { serverRevision: 'before' } };
+  const pending = f.context.toggleSavedWork(f.first, 'likes');
+  f.writes[0].resolve({ saved: true, previousRevision: 'before', revision: 'after' }); await pending;
+  assert.equal(refreshes, 0);
+  assert.equal(f.context.refreshSavedWorks.states.likes.serverRevision, 'after');
+  assert.equal(f.context.isSavedWork(f.first, 'likes'), true);
+});
+
+test('a changed native library is reconciled rather than hiding writes from another window', async () => {
+  const f = fixture(); let refreshes = 0;
+  f.context.refreshSavedWorks = async () => { refreshes++; };
+  f.context.refreshSavedWorks.states = { likes: { serverRevision: 'old' } };
+  const pending = f.context.toggleSavedWork(f.first, 'likes');
+  f.writes[0].resolve({ saved: true, previousRevision: 'other-window', revision: 'after' }); await pending;
+  assert.equal(refreshes, 1);
+  assert.equal(f.context.savedWorkPending.size, 0);
+});
+
+test('a confirmed local like does not invalidate the unchanged bookmark snapshot', async () => {
+  const f = fixture(); let refreshes = 0;
+  f.context.refreshSavedWorks = async () => { refreshes++; };
+  f.context.refreshSavedWorks.states = { likes: { serverRevision: 'before' }, bookmarks: { serverRevision: 'before' } };
+  const like = f.context.toggleSavedWork(f.first, 'likes');
+  f.writes[0].resolve({ saved: true, previousRevision: 'before', revision: 'middle' }); await like;
+  const bookmark = f.context.toggleSavedWork(f.first, 'bookmarks');
+  f.writes[1].resolve({ saved: true, previousRevision: 'middle', revision: 'after' }); await bookmark;
+  assert.equal(refreshes, 0);
+  assert.equal(f.context.refreshSavedWorks.states.likes.serverRevision, 'after');
+  assert.equal(f.context.refreshSavedWorks.states.bookmarks.serverRevision, 'after');
+});
+
+test('liking Sankaku does not wait for a remote metadata request before persisting', async () => {
+  const f = fixture();
+  const item = { ...f.first, key: 'sankaku:sample', source: 'sankaku', id: 'sample', memberKeys: [] };
+  const pending = f.context.toggleSavedWork(item, 'likes');
+  assert.equal(f.writes[0].url, '/api/likes');
+  f.writes[0].resolve({ saved: true }); await pending;
+  assert.equal(f.context.isSavedWorkPending(item, 'likes'), false);
+  const detail = f.writes.find(entry => entry.url.startsWith('/api/detail?'));
+  assert.ok(detail, 'Available metadata still refreshes after saving');
+  detail.reject(new Error('Provider unavailable')); await tick();
+  assert.equal(f.context.isSavedWork(item, 'likes'), true);
+});
+
+test('a like during recommendation pagination restores its tail without rebuilding the grid', async () => {
+  const f = fixture(); let mounts = 0;
+  const tab = { id: 1, kind: 'recommendations', items: [f.first], loading: true, hasMore: true,
+    recommendationController: new AbortController() };
+  const tail = { innerHTML: 'Подбираем ещё…' };
+  f.context.tabs = [tab]; f.context.activeId = 1; f.context.currentTab = () => tab;
+  f.context.main.querySelector = selector => selector === '[data-recommendation-tail]' ? tail : null;
+  f.context.autoFeed = { mount() { mounts++; } };
+  f.context.refreshSavedWorks.states = { likes: { serverRevision: 'before' } };
+  f.context.render = () => assert.fail('The existing recommendation grid must not be rebuilt for a like');
+  const start = source.indexOf('function renderRecommendationTail(');
+  if (start >= 0) vm.runInContext(source.slice(start, source.indexOf('\nfunction renderRecommendations(', start)), f.context);
+  const pending = f.context.toggleSavedWork(f.first, 'likes');
+  f.writes[0].resolve({ saved: true, previousRevision: 'before', revision: 'after' }); await pending;
+  assert.equal(tab.loading, false);
+  assert.equal(tab.recommendationController.signal.aborted, true);
+  assert.match(tail.innerHTML, /data-auto-load="recommendations"/);
+  assert.equal(mounts, 1);
+});

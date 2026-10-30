@@ -219,6 +219,9 @@ async function requestJson(path, options = {}) {
       { authRequired: !!body.authRequired, status: response.status, retryAt: body.retryAt });
   }
   const result = await response.json();
+  if (Array.isArray(result) && /^\/api\/(likes|bookmarks)$/.test(path))
+    Object.defineProperty(result, 'savedRevision', {
+      value: response.headers?.get('X-DART-Saved-Revision') || '' });
   if (Array.isArray(result?.items)) result.items = CatalogLogic.filterCatalogItems(result.items);
   return result;
 }
@@ -1015,7 +1018,7 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   }
 }
 
-function setSavedWorks(collection, items) {
+function setSavedWorks(collection, items, changed = items) {
   const state = refreshSavedWorks.states ||= {};
   state[collection] ||= { revision: 0 };
   state[collection].loaded = true;
@@ -1023,7 +1026,7 @@ function setSavedWorks(collection, items) {
   const keys = new Set(items.flatMap(item => [item.key, ...(item.memberKeys || [])]));
   if (collection === 'likes') { likes = items; likedKeys = keys; }
   else { bookmarks = items; savedKeys = keys; }
-  rememberItems(items);
+  rememberItems(changed);
   for (const tab of tabs.filter(tab => tab.kind === collection)) tab.items = items;
   scheduleRelatedKnownRefresh();
 }
@@ -1040,9 +1043,11 @@ async function refreshSavedWorks(collection, force = false) {
   const revision = state.revision;
   state.pending = (async () => {
     try {
-      const items = CatalogLogic.filterCatalogItems(await request(`/api/${collection}`));
+      const response = await request(`/api/${collection}`);
+      const items = CatalogLogic.filterCatalogItems(response);
       if (revision === state.revision) {
         setSavedWorks(collection, items);
+        state.serverRevision = response.savedRevision || '';
         state.syncedRevision = state.revision;
       }
       return true;
@@ -1055,13 +1060,14 @@ async function refreshSavedWorks(collection, force = false) {
 function refreshSavedDetail(detail) {
   const keys = new Set([detail.key, ...(detail.memberKeys || [])]);
   for (const [collection, items] of [['likes', likes], ['bookmarks', bookmarks]]) {
-    let changed = false;
+    const changed = [];
     const merged = items.map(item => {
       if (![item.key, ...(item.memberKeys || [])].some(key => keys.has(key))) return item;
-      changed = true;
-      return CatalogLogic.mergeDetailPages(item, detail);
+      const next = CatalogLogic.mergeDetailPages(item, detail);
+      changed.push(next);
+      return next;
     });
-    if (changed) setSavedWorks(collection, merged);
+    if (changed.length) setSavedWorks(collection, merged, changed);
   }
 }
 
@@ -2966,6 +2972,9 @@ function openDetail(item, options = {}) {
 }
 
 function isSavedWork(item, collection) {
+  const intentions = savedWorkPending.intentions;
+  if (intentions?.size) for (const key of pendingSavedWorkKeys(item, collection))
+    if (intentions.has(key)) return intentions.get(key);
   const keys = collection === 'likes' ? likedKeys : savedKeys;
   if ([item.key, ...(item.memberKeys || [])].some(key => keys.has(key))) return true;
   const index = savedWorkIdentityIndex(collection);
@@ -3245,32 +3254,24 @@ function closeQuickPreview() {
 }
 
 async function toggleSavedWork(item, collection, likeOnly = false) {
+  if (isSavedWorkPending(item, collection)) return;
   if (likeOnly && isSavedWork(item, 'likes')) {
     syncSavedWorkButtons();
     toast('Добавлено в понравившиеся');
     return;
   }
-  if (isSavedWorkPending(item, collection)) return;
-  let aliases = savedWorkAliases(item, collection);
+  const aliases = savedWorkAliases(item, collection);
   const pendingKeys = new Set([item, ...aliases].flatMap(saved => pendingSavedWorkKeys(saved, collection)));
   if ([...pendingKeys].some(key => savedWorkPending.has(key))) return;
-  for (const key of pendingKeys) savedWorkPending.add(key);
+  const desired = likeOnly || !isSavedWork(item, collection);
+  const intentions = savedWorkPending.intentions ||= new Map();
+  for (const key of pendingKeys) { savedWorkPending.add(key); intentions.set(key, desired); }
   syncSavedWorkButtons();
   const sourceTab = currentTab();
   const clickedVisibleFeedCard = visibleFeedCard(sourceTab, item);
   const clickedVisibleFeedHeight = clickedVisibleFeedCard?.getBoundingClientRect().height || 0;
+  let enrich = false;
   try {
-    if (item.source === 'sankaku' && !isSavedWork(item, collection)) {
-      try {
-        const detail = await request(`/api/detail?source=sankaku&id=${encodeURIComponent(item.id)}`);
-        item = rememberItem(CatalogLogic.mergeDetailPages(item, detail));
-      } catch { /* Retain the available preview and tag names if details are restricted. */ }
-    }
-    aliases = savedWorkAliases(item, collection);
-    const learnedKeys = [item, ...aliases].flatMap(saved => pendingSavedWorkKeys(saved, collection));
-    if (learnedKeys.some(key => !pendingKeys.has(key) && savedWorkPending.has(key))) return;
-    for (const key of learnedKeys) { pendingKeys.add(key); savedWorkPending.add(key); }
-    syncSavedWorkButtons();
     // The native library mutates by post keys. Include already-saved aliases
     // confirmed by the same file/group evidence used to render this control.
     item = { ...item, memberKeys: [...new Set([item.key, ...(item.memberKeys || []),
@@ -3278,36 +3279,70 @@ async function toggleSavedWork(item, collection, likeOnly = false) {
     const response = await request(`/api/${collection}`, {
       method: likeOnly ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item)
     });
+    for (const key of pendingKeys) intentions.set(key, response.saved);
     const keys = new Set([item.key, ...(item.memberKeys || [])]);
     const remaining = (collection === 'likes' ? likes : bookmarks).filter(entry =>
       ![entry.key, ...(entry.memberKeys || [])].some(key => keys.has(key)));
-    setSavedWorks(collection, response.saved ? [item, ...remaining] : remaining);
+    setSavedWorks(collection, response.saved ? [item, ...remaining] : remaining, response.saved ? [item] : []);
     if (response.saved) {
       if (clickedVisibleFeedCard) retainFeedWork(sourceTab, item, clickedVisibleFeedHeight);
       void recordViewedWorks([item]);
     }
     syncSavedWorkButtons();
-    // A write can merge/remove an older mirror in the store. Reconcile only
-    // the collection actually changed; navigation and metadata reads reuse it.
-    await refreshSavedWorks(collection, true);
+    // A native acknowledgement is valid only for the snapshot this window
+    // already knows. Other-window changes and older servers still reconcile.
+    const state = refreshSavedWorks.states?.[collection];
+    const matchesSnapshot = response.previousRevision && response.revision && state?.serverRevision === response.previousRevision;
+    if (response.previousRevision && response.revision)
+      for (const known of Object.values(refreshSavedWorks.states || {}))
+        if (known.serverRevision === response.previousRevision) known.serverRevision = response.revision;
+    if (!matchesSnapshot) await refreshSavedWorks(collection, true);
     syncSavedWorkButtons();
-    for (const tab of tabs.filter(entry => entry.kind === 'recommendations')) {
-      if (collection !== 'likes') continue;
-      tab.recommendationController?.abort();
-      tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
-      tab.loading = false;
-      tab.loadError = false;
-      tab.recommendationProfileDirty = true;
-      // Existing cards, pagination position and visit seed survive a like.
-      // The next page uses the new preferences without restarting this visit.
-    }
+    invalidateSavedRecommendations(collection);
     const tab = currentTab();
-    if (tab?.kind === 'bookmarks' || tab?.kind === 'likes' || tab?.kind === 'recommendations') render();
-    if (response.saved && contentPreferences.hideViewedAndSaved && tab?.kind === 'detail') render();
+    if (tab?.kind === collection) render();
+    enrich = response.saved && item.source === 'sankaku';
     toast(collection === 'likes' ? response.saved ? 'Добавлено в понравившиеся' : 'Лайк удалён'
       : response.saved ? 'Добавлено в закладки' : 'Удалено из закладок');
   } catch { toast(collection === 'likes' ? 'Не удалось изменить лайк' : 'Не удалось изменить закладки'); }
-  finally { for (const key of pendingKeys) savedWorkPending.delete(key); syncSavedWorkButtons(); }
+  finally {
+    for (const key of pendingKeys) { savedWorkPending.delete(key); intentions.delete(key); }
+    syncSavedWorkButtons();
+  }
+  if (enrich) void enrichSavedWork(item, collection);
+}
+
+function invalidateSavedRecommendations(collection) {
+  if (collection !== 'likes') return;
+  for (const tab of tabs.filter(entry => entry.kind === 'recommendations')) {
+    tab.recommendationController?.abort();
+    tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
+    tab.loading = false;
+    tab.loadError = false;
+    tab.recommendationProfileDirty = true;
+    // Keep the visit; the next page uses the updated library without a rebuild.
+    if (tab.id === activeId) {
+      const tail = main.querySelector?.('[data-recommendation-tail]');
+      if (tail) {
+        tail.innerHTML = renderRecommendationTail(tab);
+        globalThis.DartI18n?.translateTree(tail);
+        if (typeof autoFeed !== 'undefined') autoFeed.mount();
+      }
+    }
+  }
+}
+
+async function enrichSavedWork(item, collection) {
+  try {
+    // Persist the click first. A slow or restricted provider must not hold the
+    // heart disabled; the native detail endpoint refreshes only still-saved works.
+    const detail = await request(`/api/detail?source=sankaku&id=${encodeURIComponent(item.id)}`,
+      { priority: 'background', cache: 'reload' });
+    const merged = rememberItem(CatalogLogic.mergeDetailPages(itemIndex.get(item.key) || item, detail));
+    refreshSavedDetail(merged);
+    invalidateSavedRecommendations(collection);
+    syncSavedWorkButtons();
+  } catch { /* The confirmed like and its existing metadata remain available. */ }
 }
 
 function syncSavedWorkButtons() {
@@ -3789,6 +3824,14 @@ function renderRecommendationOtherList(tab) {
     : '<span class="recommendation-other-empty">Таких тегов нет</span>';
 }
 
+function renderRecommendationTail(tab) {
+  const recovery = Object.values(tab.recommendationPools || {}).flat().flatMap(group => group.streams)
+    .filter(stream => stream.sources.length && stream.error);
+  const waitingForRetry = recovery.some(stream => Number.isFinite(stream.retryAt));
+  const waitingForSettings = recovery.length && recovery.every(stream => stream.needsSettings);
+  return tab.loading ? tab.items.length ? '<div class="feed-status">Подбираем ещё…</div>' : '' : tab.loadError ? '<div class="feed-status">Не удалось продолжить подбор. <button data-action="recommendation-more-retry">Повторить</button></div>' : tab.hasMore && tab.recommendationPaused && recovery.length ? `<div class="feed-status" role="status">${waitingForSettings ? 'Проверьте подключение источников в настройках.' : waitingForRetry ? 'Источники временно недоступны. Повторим автоматически.' : 'Автоматические повторы приостановлены.'} <button data-action="${waitingForSettings ? 'settings' : 'recommendation-more-retry'}">${waitingForSettings ? 'Настроить' : 'Повторить'}</button></div>` : tab.hasMore && tab.recommendationPaused ? '<div class="feed-status">Новых совпадений пока нет. <button data-action="recommendation-continue">Искать дальше</button></div>' : tab.hasMore ? `<div class="feed-sentinel" data-auto-load="recommendations" data-tab-id="${tab.id}" aria-hidden="true"></div>` : tab.items.length ? '<div class="feed-status">Все доступные рекомендации загружены</div>' : '';
+}
+
 function renderRecommendations(tab) {
   const tags = tab.recommendationTags || [];
   const visibleLikes = recommendationLikedWorks();
@@ -3800,10 +3843,6 @@ function renderRecommendations(tab) {
   const copyrights = groups.copyright || [];
   const visibleCopyrights = tab.showMoreRecommendationCopyright ? copyrights : copyrights.slice(0, 3);
   const hiddenCopyrightCount = Math.max(0, copyrights.length - 3);
-  const recovery = Object.values(tab.recommendationPools || {}).flat().flatMap(group => group.streams)
-    .filter(stream => stream.sources.length && stream.error);
-  const waitingForRetry = recovery.some(stream => Number.isFinite(stream.retryAt));
-  const waitingForSettings = recovery.length && recovery.every(stream => stream.needsSettings);
   return `<div class="content"><h1>Рекомендации</h1>
     <p class="section-sub">Подборка по тегам изображений, которые вы отметили сердечком. Понравившиеся работы не повторяются.</p>
     ${!likes.length && !hasChoices ? '<div class="empty feature-empty">Поставьте лайк сердечком, и здесь появятся рекомендации.</div>' : !visibleLikes.length && !hasChoices ? '<div class="empty feature-empty">Все понравившиеся работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.</div>' : !tags.length && !hasChoices ? '<div class="empty feature-empty">У понравившихся работ пока нет подходящих тегов для подбора.</div>' : `
@@ -3817,7 +3856,7 @@ function renderRecommendations(tab) {
       <section class="section"><div class="section-head"><h2>Для вас</h2><button class="text-button" data-action="recommendation-refresh">Обновить</button></div>
         ${renderErrors(tab.errors, 'recommendation-more-retry')}
          ${tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'recommendations') : contentPreferences.hideViewedAndSaved ? '<div class="empty">Непросмотренных работ по этим тегам пока нет. Попробуйте другой тег или источник.</div>' : '<div class="empty">По выбранным тегам пока нет подходящих работ. Попробуйте другой рейтинг или источник.</div>'}
-        ${tab.loading ? tab.items.length ? '<div class="feed-status">Подбираем ещё…</div>' : '' : tab.loadError ? '<div class="feed-status">Не удалось продолжить подбор. <button data-action="recommendation-more-retry">Повторить</button></div>' : tab.hasMore && tab.recommendationPaused && recovery.length ? `<div class="feed-status" role="status">${waitingForSettings ? 'Проверьте подключение источников в настройках.' : waitingForRetry ? 'Источники временно недоступны. Повторим автоматически.' : 'Автоматические повторы приостановлены.'} <button data-action="${waitingForSettings ? 'settings' : 'recommendation-more-retry'}">${waitingForSettings ? 'Настроить' : 'Повторить'}</button></div>` : tab.hasMore && tab.recommendationPaused ? '<div class="feed-status">Новых совпадений пока нет. <button data-action="recommendation-continue">Искать дальше</button></div>' : tab.hasMore ? `<div class="feed-sentinel" data-auto-load="recommendations" data-tab-id="${tab.id}" aria-hidden="true"></div>` : tab.items.length ? '<div class="feed-status">Все доступные рекомендации загружены</div>' : ''}
+        <div data-recommendation-tail>${renderRecommendationTail(tab)}</div>
       </section>`}
   </div>`;
 }
