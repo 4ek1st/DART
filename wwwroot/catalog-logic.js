@@ -676,6 +676,61 @@
       attributionCache.delete(item); sampleCache.delete(item); contentCache.delete(item);
     }
   }
+  function mergeVisualCandidates(samples, join) {
+    const acceleratedVisual = root.DartVisualSearch?.findMatches(samples);
+    if (acceleratedVisual) {
+      const { entries, pairs } = acceleratedVisual;
+      for (let position = 0; position < pairs.length; position += 3) {
+        const current = entries[pairs[position]], previous = entries[pairs[position + 1]];
+        const distance = pairs[position + 2];
+        if (compatibleVisualSamples(current.sample, previous.sample, distance))
+          join(current.index, previous.index, true,
+            crossPlatformVisualRepost(current.sample, previous.sample, distance));
+      }
+    } else {
+      const visualTrees = new Map();
+      const findVisualMatches = (node, sample, index) => {
+        if (!node) return;
+        const distance = visualDistance(sample.hash, node.hash);
+        if (distance <= 12)
+          for (const previous of node.entries)
+            if (compatibleVisualSamples(sample, previous.sample, distance))
+              join(index, previous.index, true, crossPlatformVisualRepost(sample, previous.sample, distance));
+        for (const [edge, child] of node.children)
+          if (edge >= distance - 12 && edge <= distance + 12)
+            findVisualMatches(child, sample, index);
+      };
+      const addVisualSample = (root, sample, index) => {
+        let node = root;
+        while (node) {
+          const distance = visualDistance(sample.hash, node.hash);
+          if (distance === 0) {
+            if (!node.entries.some(entry => entry.index === index &&
+                entry.sample.tags.join(' ') === sample.tags.join(' ')))
+              node.entries.push({ sample, index });
+            return;
+          }
+          if (!node.children.has(distance)) {
+            node.children.set(distance, { hash: sample.hash,
+              entries: [{ sample, index }], children: new Map() });
+            return;
+          }
+          node = node.children.get(distance);
+        }
+      };
+      samples.forEach((entries, index) => {
+        for (const sample of entries) {
+          const tree = visualTrees.get(sample.owner);
+          if (tree) {
+            findVisualMatches(tree, sample, index);
+            addVisualSample(tree, sample, index);
+          } else visualTrees.set(sample.owner, { hash: sample.hash,
+            entries: [{ sample, index }], children: new Map() });
+        }
+      });
+    }
+  }
+
   function groupWorks(items) {
     if (Array.isArray(items) && groupedCache.has(items)) return groupedCache.get(items);
     const works = groupInputs(items);
@@ -799,46 +854,7 @@
         } else anchors.push(entry);
       }
     }
-    const visualTrees = new Map();
-    const findVisualMatches = (node, sample, index) => {
-      if (!node) return;
-      const distance = visualDistance(sample.hash, node.hash);
-      if (distance <= 12)
-        for (const previous of node.entries)
-          if (compatibleVisualSamples(sample, previous.sample, distance))
-            join(index, previous.index, true, crossPlatformVisualRepost(sample, previous.sample, distance));
-      for (const [edge, child] of node.children)
-        if (edge >= distance - 12 && edge <= distance + 12)
-          findVisualMatches(child, sample, index);
-    };
-    const addVisualSample = (root, sample, index) => {
-      let node = root;
-      while (node) {
-        const distance = visualDistance(sample.hash, node.hash);
-        if (distance === 0) {
-          if (!node.entries.some(entry => entry.index === index &&
-              entry.sample.tags.join(' ') === sample.tags.join(' ')))
-            node.entries.push({ sample, index });
-          return;
-        }
-        if (!node.children.has(distance)) {
-          node.children.set(distance, { hash: sample.hash,
-            entries: [{ sample, index }], children: new Map() });
-          return;
-        }
-        node = node.children.get(distance);
-      }
-    };
-    works.forEach((item, index) => {
-      for (const sample of samples[index]) {
-        const tree = visualTrees.get(sample.owner);
-        if (tree) {
-          findVisualMatches(tree, sample, index);
-          addVisualSample(tree, sample, index);
-        } else visualTrees.set(sample.owner, { hash: sample.hash,
-          entries: [{ sample, index }], children: new Map() });
-      }
-    });
+    mergeVisualCandidates(samples, join);
     const components = new Map();
     works.forEach((item, index) => {
       const root = find(index);

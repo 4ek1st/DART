@@ -3,12 +3,14 @@
 /outputs/
 /publish/
 /docs/superpowers/
+/native/visual-core/target/
 /.dart-release-base.json
 *.bin
 *.pem
 *.key
 *.pfx
 *.lock
+!/native/visual-core/Cargo.lock
 *.log
 *.png
 *.jpg

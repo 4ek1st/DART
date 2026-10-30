@@ -1,0 +1,4 @@
+/native/visual-core/** text eol=lf
+/wwwroot/visual-search.js text eol=lf
+/wwwroot/rust/visual-search.manifest.json text eol=lf
+/wwwroot/rust/visual-search.wasm binary

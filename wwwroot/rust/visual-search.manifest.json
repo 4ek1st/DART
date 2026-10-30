@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "abiVersion": 1,
+  "build": {
+    "rustcVersion": "rustc 1.86.0 (05f9846f8 2025-03-31)",
+    "cargoVersion": "cargo 1.86.0 (adf9b6ad1 2025-02-28)",
+    "target": "wasm32-unknown-unknown",
+    "profile": "release",
+    "maxMemoryBytes": 134217728
+  },
+  "artifact": {
+    "path": "wwwroot/rust/visual-search.wasm",
+    "sha256": "c67fed9d43a5d0d1f50ddd91f4cbdecb81b4b191b0ded9cf8fbc4d728398589d",
+    "bytes": 22346
+  },
+  "sourceFiles": [
+    {
+      "path": "native/visual-core/.cargo/config.toml",
+      "sha256": "a0aa817c9b6dd9d206ae36a67057d61a64dc35c2c13a42dbcabee3605f135a06"
+    },
+    {
+      "path": "native/visual-core/Cargo.lock",
+      "sha256": "f95aca5e23e9f7c86d43686e598db9c2f0ed86f358438d1a5cec492ac2345794"
+    },
+    {
+      "path": "native/visual-core/Cargo.toml",
+      "sha256": "604841ec270655a35dcd138104d1847581eacc27d0e3c7fe69f52983c554fe4a"
+    },
+    {
+      "path": "native/visual-core/README.md",
+      "sha256": "bd39df479157612c20eb995977f711862cb03e7101f27e2ea17fa1565d57b9d9"
+    },
+    {
+      "path": "native/visual-core/src/lib.rs",
+      "sha256": "f29a712893c69d481f07fba7e0096c736242969b326a4cd032f4fa0c0172edd7"
+    },
+    {
+      "path": "native/visual-core/tests/search.rs",
+      "sha256": "da097b3814b15e1cf82343cbe1b1f188682d8de989f77c7006e1e6b7b723149d"
+    }
+  ],
+  "wrapper": {
+    "path": "wwwroot/visual-search.js",
+    "sha256": "e05d1195dcf8980cfa71069ca4c5bb5437ebb4c20989400e0930f280b6a71297"
+  }
+}

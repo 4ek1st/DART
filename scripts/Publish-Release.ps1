@@ -32,6 +32,7 @@ $dirty = & git status --porcelain
 if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Commit and review all intended source changes before building a release.' }
 $sourceCommit = (& git rev-parse HEAD).Trim()
 $sourceHash = Get-SourceHash
+Invoke-Checked node @('scripts/verify-visual-search.cjs')
 Invoke-Checked -Program dotnet -Arguments @('build','Updates/ReleaseTool/ReleaseTool.csproj','-c','Release','--nologo','-v','quiet')
 $releaseTool = Join-Path $sourceRoot 'Updates\ReleaseTool\bin\Release\net8.0-windows\ReleaseTool.dll'
 Invoke-Checked -Program dotnet -Arguments @($releaseTool,'check-base',$InstallationRoot,$sourceRoot)

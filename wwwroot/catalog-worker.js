@@ -1,4 +1,7 @@
 importScripts('/catalog-logic.js');
+try {
+  importScripts('/visual-search.js', '/visual-search-loader.js');
+} catch { /* Optional Rust assets must not disable catalog processing. */ }
 
 let recommendationProfile = null;
 self.addEventListener('message', ({ data }) => {
