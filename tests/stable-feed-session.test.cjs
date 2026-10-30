@@ -105,7 +105,8 @@ test('pagination preserves the viewed card and its order while merging an incomi
 test('liking a rendered recommendation preserves that card even when known-work hiding is disabled', async () => {
   const f = fixture('recommendations');
   f.context.contentPreferences.hideViewedAndSaved = false;
-  f.draw();
+  const initial = f.context.html = f.draw();
+  f.context.render = () => assert.fail('A like must keep the existing recommendation grid');
   Object.assign(f.context, { savedWorkPending: new Set(), likedKeys: new Set(), savedKeys: new Set(),
     tabs: [f.tab], syncSavedWorkButtons() {}, toast() {},
     recordViewedWorks: async () => {}, refreshSavedWorks: async () => true,
@@ -120,5 +121,7 @@ test('liking a rendered recommendation preserves that card even when known-work 
   await f.context.toggleSavedWork(f.first, 'likes');
   assert.equal(f.context.likes.length, 1);
   assert.deepEqual(Array.from(f.tab.items, item => item.key), ['danbooru:1', 'gelbooru:2']);
+  assert.equal(f.context.html, initial);
   assert.match(f.context.html, /data-key="danbooru:1"/);
+  assert.match(f.draw(), /data-key="danbooru:1"/, 'The retained card also survives a later layout update');
 });
