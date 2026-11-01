@@ -30,5 +30,6 @@
 - [x] Capture existing native settings and map all existing options to desktop sections.
 - [x] Build shared native settings view helpers and matching outline icons.
 - [x] Integrate index, pages, source subpages and route restoration with existing actions.
-- [ ] Update EN/RU/DE messages; verify real persisted switches, source validation, transfer and Back on the hidden emulator.
-- [ ] Run Android tests/lint, review the scoped diff, build/sign 0.1.13, verify update preservation and publish Android only.
+- [x] Update EN/RU/DE messages; verify real persisted switches, source validation, transfer and Back on the hidden emulator.
+- [x] Run Android tests/lint, review the scoped diff, build/sign 0.1.13 and verify update preservation.
+- [ ] Publish the verified Android-only APK and confirm the Windows latest release is unchanged.
