@@ -73,7 +73,36 @@ internal sealed class SavedWorksStore
         return new(existing.Length == 0, previousRevision, revision);
     }
 
-    public bool RefreshMetadata(CatalogItem item, Func<JsonObject, bool> update)
+    // Read the validated cached JSON, without materializing the entire saved library for
+    // each visible card. A group representative's hash belongs only to that representative.
+    internal string GetOwnedContentHash(string source, string id)
+    {
+        using var fileLock = AcquireLock();var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var collection in new[] { "likes", "bookmarks" })
+            foreach (var saved in ((JsonArray)Read()[collection]!).OfType<JsonObject>())
+            {
+                Collect(saved, 0);if (hashes.Count > 1) return "";
+            }
+        return hashes.Count == 1 ? hashes.Single() : "";
+        void Collect(JsonObject saved, int depth)
+        {
+            var direct = SavedText(saved, "key") == source + ":" + id &&
+                SavedText(saved, "source") == source && SavedText(saved, "id") == id;
+            var contentHash = direct ? SavedText(saved, "contentHash") : "";
+            if (ValidContentHash(contentHash)) hashes.Add(contentHash.ToLowerInvariant());
+            else if (saved["imageRecords"] is JsonArray records)
+                foreach (var record in records.OfType<JsonObject>().Where(record => SavedText(record, "owner") == source + ":" + id))
+                { var hash = SavedText(record, "hash");if (ValidContentHash(hash)) hashes.Add(hash.ToLowerInvariant()); }
+            if (depth < 2 && saved["groupMembers"] is JsonArray members)
+                foreach (var member in members.OfType<JsonObject>()) Collect(member, depth + 1);
+        }
+    }
+    private static string SavedText(JsonObject value, string name) => value[name] is JsonValue text && text.TryGetValue<string>(out var result) ? result : "";
+    private static bool ValidContentHash(string value) => value.Length == 32 && value.All(Uri.IsHexDigit);
+    internal static bool OwnsMediaRecord(JsonObject saved, string key) => saved["imageRecords"] is JsonArray records &&
+        records.OfType<JsonObject>().Any(record => SavedText(record, "owner") == key);
+
+    public bool RefreshMetadata(CatalogItem item, Func<JsonObject, bool> update, bool includeOwnedMedia = false)
     {
         using var fileLock = AcquireLock();
         var state = Read().DeepClone().AsObject();
@@ -84,7 +113,8 @@ internal sealed class SavedWorksStore
                 saved["source"]?.GetValue<string>() == item.Source &&
                 saved["id"]?.GetValue<string>() == item.Id || saved["groupMembers"] is JsonArray members &&
                 members.OfType<JsonObject>().Any(member => member["key"]?.GetValue<string>() == item.Key &&
-                    member["source"]?.GetValue<string>() == item.Source && member["id"]?.GetValue<string>() == item.Id)))
+                    member["source"]?.GetValue<string>() == item.Source && member["id"]?.GetValue<string>() == item.Id) ||
+                includeOwnedMedia && OwnsMediaRecord(saved, item.Key)))
                 changed |= update(saved);
         // The revision tracks membership. Refreshing the same saved artwork's
         // metadata must not force every subsequent like to reload the library.

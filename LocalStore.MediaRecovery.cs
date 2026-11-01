@@ -5,12 +5,13 @@ namespace ArtCatalog;
 
 internal sealed partial class LocalStore
 {
+    internal string GetSavedSankakuHash(string id) => savedWorks.GetOwnedContentHash("sankaku", id);
     // The lightweight post response may omit categorized credits/tags. Renew URLs without
     // replacing the saved descriptive metadata or changing collection membership/revision.
     public bool RefreshSavedMedia(CatalogItem item)
     {
         if (item.Source != "sankaku" || !SankakuApi.ValidId(item.Id)) return false;
-        return savedWorks.RefreshMetadata(item, UpdateMedia);
+        return savedWorks.RefreshMetadata(item, UpdateMedia, includeOwnedMedia: true);
         bool UpdateMedia(JsonObject saved)
         {
             var changed = false;
@@ -18,7 +19,7 @@ internal sealed partial class LocalStore
                 foreach (var member in members.OfType<JsonObject>().Where(member => member["key"]?.GetValue<string>() == item.Key))
                     changed |= UpdateMedia(member);
             var direct = saved["key"]?.GetValue<string>() == item.Key;
-            if (!direct && !changed) return false;
+            if (!direct && !changed && !SavedWorksStore.OwnsMediaRecord(saved, item.Key)) return false;
             var thumbnail = saved["thumbnail"]?.GetValue<string>() ?? "";
             if (item.Thumbnail.Length > 0 && (direct || thumbnail.Length == 0 ||
                 CatalogService.SankakuMediaIdentity(thumbnail) == CatalogService.SankakuMediaIdentity(item.Thumbnail)) &&

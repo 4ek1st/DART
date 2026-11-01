@@ -18,18 +18,33 @@ internal sealed partial class CatalogService
     private async Task<CatalogItem?> GetSankakuDetailAsync(string id, CancellationToken cancellationToken,
         bool mediaOnly = false)
     {
-        using var json = await Sankaku.PostAsync(id, cancellationToken);
-        var item = MapSankaku(json.RootElement);
+        // Legacy numeric IDs no longer work at /posts/{id}. Resolve only from the
+        // exact saved member's content hash; names, tags and neighboring variants are not identity.
+        var hash = id.All(char.IsDigit) ? store.GetSavedSankakuHash(id) : "";
+        using var json = hash.Length > 0 ? await Sankaku.PostByHashAsync(hash, cancellationToken)
+            : await Sankaku.PostAsync(id, cancellationToken);
+        var post = json.RootElement;
+        if (hash.Length > 0)
+        {
+            if (post.ValueKind == JsonValueKind.Object && post.TryGetProperty("data", out var data)) post = data;
+            if (post.ValueKind != JsonValueKind.Array || post.GetArrayLength() != 1) return null;
+            post = post[0];
+            if (post.ValueKind != JsonValueKind.Object || !String(post, "md5").Equals(hash, StringComparison.OrdinalIgnoreCase)) return null;
+        }
+        var item = MapSankaku(post);
+        if (hash.Length == 0 && item is not null && item.Id != id) return null;
         if (item is null)
         {
-            if (SankakuRestricted(json.RootElement)) throw new SankakuAccessException(
+            if (SankakuRestricted(post)) throw new SankakuAccessException(
                 store.GetSankakuSession().AccessToken.Length == 0);
             return null;
         }
         if (item.RequiresAuthentication) item.AccessMessage = new SankakuAccessException(
             store.GetSankakuSession().AccessToken.Length == 0).Message;
         // Saved-card URL renewal needs the post's media, not supplemental tag categories.
-        if (mediaOnly) return item;
+        var resolvedId = item.Id;
+        void RetainSavedIdentity() { if (hash.Length > 0) { item.Id = id;item.Key = "sankaku:" + id; } }
+        if (mediaOnly) { RetainSavedIdentity();return item; }
         // The post response may have all tag names but only five categorized tags.
         // Fetch categories to identify every character and credited participant.
         var tags = new List<JsonElement>();
@@ -37,7 +52,7 @@ internal sealed partial class CatalogService
         {
             for (var page = 1; page <= 6; page++)
             {
-                using var tagJson = await Sankaku.PostTagsAsync(id, page, cancellationToken);
+                using var tagJson = await Sankaku.PostTagsAsync(resolvedId, page, cancellationToken);
                 var root = tagJson.RootElement;
                 var data = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var entries)
                     ? entries : root;
@@ -47,9 +62,9 @@ internal sealed partial class CatalogService
             }
             if (tags.Count > 0)
             {
-                var post = System.Text.Json.Nodes.JsonNode.Parse(json.RootElement.GetRawText())!;
-                post["tags"] = JsonSerializer.SerializeToNode(tags);
-                using var complete = JsonDocument.Parse(post.ToJsonString());
+                var enriched = System.Text.Json.Nodes.JsonNode.Parse(post.GetRawText())!;
+                enriched["tags"] = JsonSerializer.SerializeToNode(tags);
+                using var complete = JsonDocument.Parse(enriched.ToJsonString());
                 item = MapSankaku(complete.RootElement) ?? item;
                 if (item.RequiresAuthentication) item.AccessMessage = new SankakuAccessException(
                     store.GetSankakuSession().AccessToken.Length == 0).Message;
@@ -58,7 +73,7 @@ internal sealed partial class CatalogService
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         { /* Supplemental tag metadata must not hide the available artwork. */ }
-        return item;
+        RetainSavedIdentity();return item;
     }
 
     private async Task<SourcePage> SearchSankakuAsync(string query, int page, string rating,

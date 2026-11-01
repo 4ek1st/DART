@@ -105,6 +105,12 @@ internal sealed class SankakuApi(ISankakuSessionStore sessions, HttpClient? tran
         return GetAsync("/posts/" + id + "?lang=en", cancellationToken);
     }
 
+    public Task<JsonDocument> PostByHashAsync(string hash, CancellationToken cancellationToken)
+    {
+        if (!Regex.IsMatch(hash, @"^[a-fA-F0-9]{32}$")) throw new InvalidOperationException("Неверный хеш Sankaku.");
+        return GetAsync("/v2/posts?lang=en&limit=2&page=1&tags=" + Uri.EscapeDataString("md5:" + hash.ToLowerInvariant()), cancellationToken);
+    }
+
     public Task<JsonDocument> TagsAsync(string query, CancellationToken cancellationToken) =>
         GetAsync("/tags?lang=en&limit=15&name=" + Uri.EscapeDataString(query), cancellationToken);
 

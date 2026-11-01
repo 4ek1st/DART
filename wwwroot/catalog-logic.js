@@ -928,7 +928,12 @@
       const characterTags = [...new Set(members.flatMap(item => item.characterTags || []))];
       const copyrightTags = [...new Set(members.flatMap(item => item.copyrightTags || []))];
       const complete = members.every(item => memberKeysOf(item).length === 1);
-      return { ...preferred, images, imageRecords, allTags: [...allTags], groupCount: count,
+      // A portable group can keep a metadata-rich preferred member without its
+      // media URL. Use an available mirror preview without rewriting that leaf.
+      const usablePreview = item => item.thumbnail && !signedMediaExpired(item.thumbnail);
+      const thumbnail = (usablePreview(preferred) ? preferred : members.find(usablePreview))?.thumbnail ||
+        preferred.thumbnail || members.find(item => item.thumbnail)?.thumbnail || '';
+      return { ...preferred, thumbnail, images, imageRecords, allTags: [...allTags], groupCount: count,
         characterTags, copyrightTags, title: titleFromCharacters(preferred.title, characterTags),
         participants, creatorTag: creator?.follow.artistId || '',
         creatorName: creator?.name || (participants.length ? '' : preferred.creatorName || ''),

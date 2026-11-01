@@ -20,9 +20,9 @@ function feedFixture() {
   return context;
 }
 
-test('one curation preference applies to every ordinary artwork list and both catalog sorts', () => {
+test('one curation preference applies to discovery lists and both catalog sorts', () => {
   for (const [kind, gridKey] of [['home', ''], ['search', 'search'], ['profile', 'profile'],
-    ['follows', 'follows'], ['likes', 'likes'], ['bookmarks', 'bookmarks'], ['recent', 'recent']]) {
+    ['follows', 'follows']]) {
     for (const sort of ['recent', 'popular']) {
       const context = feedFixture(), items = [work(1, 0), work(2, 30)];
       const tab = { kind, sort, rating: 'general', items };
@@ -30,6 +30,14 @@ test('one curation preference applies to every ordinary artwork list and both ca
         ['danbooru:2', 'danbooru:1'], `${kind}/${sort}`);
       assert.deepEqual(keys(items), ['danbooru:1', 'danbooru:2'], 'ranking must not rewrite the stored list');
     }
+  }
+});
+
+test('liked, bookmarked and recently viewed lists retain their saved chronology with curation enabled', () => {
+  for (const kind of ['likes', 'bookmarks', 'recent']) {
+    const context = feedFixture(), items = [work(1, 0), work(2, 30)];
+    assert.deepEqual(keys(context.filterFeedWorks(items, { kind }, false, kind)),
+      ['danbooru:1', 'danbooru:2'], kind);
   }
 });
 
@@ -49,12 +57,12 @@ test('global curation preserves existing feed positions when a better next page 
 });
 
 test('a settings change reranks cached views and disabling restores each original order', () => {
-  const context = feedFixture(), tab = { kind: 'bookmarks' }, items = [work(1, 0), work(2, 10)];
-  assert.deepEqual(keys(context.filterFeedWorks(items, tab, false, 'bookmarks')), ['danbooru:2', 'danbooru:1']);
+  const context = feedFixture(), tab = { kind: 'search' }, items = [work(1, 0), work(2, 10)];
+  assert.deepEqual(keys(context.filterFeedWorks(items, tab, false, 'search')), ['danbooru:2', 'danbooru:1']);
   context.contentPreferences.curation = { ...popularity, enabled: false };
-  assert.deepEqual(keys(context.filterFeedWorks(items, tab, false, 'bookmarks')), ['danbooru:1', 'danbooru:2']);
+  assert.deepEqual(keys(context.filterFeedWorks(items, tab, false, 'search')), ['danbooru:1', 'danbooru:2']);
   context.contentPreferences.curation = { ...popularity, popularity: false };
-  assert.deepEqual(keys(context.filterFeedWorks(items, tab, false, 'bookmarks')), ['danbooru:1', 'danbooru:2']);
+  assert.deepEqual(keys(context.filterFeedWorks(items, tab, false, 'search')), ['danbooru:1', 'danbooru:2']);
 });
 
 test('the home row slices retain the order already chosen for the complete home feed', () => {

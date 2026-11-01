@@ -4257,6 +4257,9 @@ function expireRetainedFeedWorks(tab) {
 }
 
 function curateFeedWorks(works, tab, gridKey = '') {
+  // A saved collection is ordered by the user's actions. Quality/popularity
+  // ranking belongs to discovery feeds, including when opening their galleries.
+  if (['likes', 'bookmarks', 'recent'].includes(tab?.kind)) return works;
   // These two lists already include a bounded curation boost in their relevance
   // scores. Applying another pure quality sort would erase that relevance.
   if (tab?.kind === 'recommendations' || tab?.kind === 'detail' && gridKey === 'related') return works;
@@ -4947,7 +4950,9 @@ const transferredMediaHydration = {
           const detail = await sankakuMediaRecovery.post(ref.id, controller.signal);
           if (controller.signal.aborted) return false;
           if (!detail?.thumbnail || CatalogLogic.signedMediaExpired(detail.thumbnail)) continue;
-          Object.assign(item, CatalogLogic.hydrateWorkMedia(item, detail));
+          const hydrated = CatalogLogic.hydrateWorkMedia(item, detail);
+          if (hydrated === item || !hydrated.thumbnail || CatalogLogic.signedMediaExpired(hydrated.thumbnail)) continue;
+          Object.assign(item, hydrated);
           sankakuMediaRecovery.apply?.(detail);rememberItem(item);
           if (currentTab()?.id === id) render();
           return true;
