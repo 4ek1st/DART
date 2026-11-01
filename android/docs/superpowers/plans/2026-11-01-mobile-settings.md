@@ -32,4 +32,4 @@
 - [x] Integrate index, pages, source subpages and route restoration with existing actions.
 - [x] Update EN/RU/DE messages; verify real persisted switches, source validation, transfer and Back on the hidden emulator.
 - [x] Run Android tests/lint, review the scoped diff, build/sign 0.1.13 and verify update preservation.
-- [ ] Publish the verified Android-only APK and confirm the Windows latest release is unchanged.
+- [x] Publish the verified Android-only APK and confirm the Windows latest release is unchanged.

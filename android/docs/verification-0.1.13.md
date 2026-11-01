@@ -26,7 +26,7 @@ The new Profile transfer import action opens the real Android document picker. S
 
 ## Signed package
 
-The final signed APK installs over 0.1.12 as `com.artcatalog.mobile`, versionName `0.1.13`, versionCode `14`, with the existing signing certificate. The owned emulator's pre-existing primary profile remains byte-for-byte unchanged and is never launched. A separate fresh temporary user opens the signed application's settings index offline. Release inspection verifies the APK signature and excludes debug fixtures/classes. No personal app or physical device is updated by these checks.
+The final signed APK installs over 0.1.12 as `com.artcatalog.mobile`, versionName `0.1.13`, versionCode `14`, with the existing signing certificate. The owned emulator's pre-existing primary profile remains byte-for-byte unchanged and is never launched. A separate fresh temporary user opens the signed application's settings index offline and confirms the installed version; no FATAL/ANR is observed. Release inspection verifies the APK signature and excludes debug fixtures/classes. The published APK is downloaded again and matches its checksum and the local signed APK. The Android release does not replace Windows v0.2.55 as GitHub's latest release. No personal app or physical device is updated by these checks. The owned test emulator is stopped after verification.
 
 ## Limits
 
