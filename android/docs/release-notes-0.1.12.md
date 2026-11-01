@@ -8,6 +8,7 @@
 - Following uses immutable visit baselines and separate successful-provider checkpoints. An initial response from a second catalog does not make its entire old catalog New, and a failed or unselected provider keeps its previous checkpoint. Late copies of opened works cannot regain the New badge.
 - Newly loaded images have a short transition; cached identical images are left untouched. Progressive quality upgrades preserve zoom and the viewed part of an image.
 - Fresh usable Sankaku media links can open directly; expired links and playback failures retain the renewal/retry path. Sources, grouping evidence, recommendations and saved profile formats remain compatible with the previous version.
+- Profile imports now require explicit agreement after reviewing the selected filename and collection counts. Changing the file or settings scope requires fresh agreement. Legitimate desktop tag punctuation remains intact across import and export.
 
 Install this APK over the existing Android app. Its package and signing identity are retained. These are shared compact-phone fixes; no Fold-only layout is required.
 

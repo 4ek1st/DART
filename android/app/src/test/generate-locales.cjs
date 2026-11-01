@@ -50,6 +50,11 @@ Loading video…|Загрузка видео…|Video wird geladen…
 Video could not load. Tap to retry.|Не удалось загрузить видео. Нажмите, чтобы повторить.|Video konnte nicht geladen werden. Zum Wiederholen antippen.
 Video preview unavailable|Превью видео недоступно|Videovorschau nicht verfügbar
 Video paused|Видео на паузе|Video pausiert
+Confirm profile transfer|Подтверждение переноса профиля|Profilübertragung bestätigen
+I confirm importing this file into my profile|Я подтверждаю перенос этого файла в мой профиль|Ich bestätige den Import dieser Datei in mein Profil
+Confirm transfer|Перенести|Übertragen
+Selected profile file|Выбранный файл профиля|Ausgewählte Profildatei
+DART profile|Профиль DART|DART-Profil
 Video|Видео|Video
 Animation|Анимация|Animation
 Voice|Озвучка|Sprecher

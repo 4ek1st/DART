@@ -42,7 +42,8 @@ final class ProfileTransfer {
     private static boolean controls(String value){for(int i=0;i<value.length();i++)if(Character.isISOControl(value.charAt(i)))return true;return false;}
     private static boolean catalogKey(String key){return WORK_KEY.matcher(key).matches();}
     private static boolean identity(String key){return !controls(key)&&(key.startsWith("key:")?catalogKey(key.substring(4)):IDENTITY.matcher(key).matches());}
-    private static boolean tag(String value){return !value.isBlank()&&value.length()<=100&&!controls(value)&&!value.contains("\\")&&!value.contains("/")&&!value.contains(":");}
+    // Portable tags are plain metadata, not paths or URLs; match the desktop contract.
+    private static boolean tag(String value){return value.length()>0&&value.length()<=100&&!controls(value)&&!value.codePoints().allMatch(c->Character.isWhitespace(c)||Character.isSpaceChar(c));}
     private static String recommendationTag(String value){return Normalizer.normalize(value,Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).trim().replaceAll("[_:]+"," ").replaceAll("\\s+"," ");}
     private static String text(JSONObject object,String field,int maximum){Object raw=object.opt(field);return raw==null||raw==JSONObject.NULL?"":string(raw,field,maximum);}
     private static long integer(JSONObject object,String field,boolean wide){Object raw=object.opt(field);if(!(raw instanceof Integer||raw instanceof Long||raw instanceof Short||raw instanceof Byte))throw invalid(field);long value=((Number)raw).longValue();if(!wide&&(value<Integer.MIN_VALUE||value>Integer.MAX_VALUE))throw invalid(field);return value;}

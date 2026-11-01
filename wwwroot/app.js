@@ -214,7 +214,11 @@ function catalogRequestKey(path) {
   return `${route}?${params}`;
 }
 
-function clearCatalogResponses() { request.catalogCache?.clear(); }
+function clearCatalogResponses() {
+  request.catalogCache?.clear();
+  if (typeof sankakuMediaRecovery !== 'undefined') sankakuMediaRecovery.posts.clear();
+  if (typeof transferredMediaHydration !== 'undefined') transferredMediaHydration.reset();
+}
 
 async function requestJson(path, options = {}) {
   // Scheduling lanes use foreground/background, while Fetch only accepts
@@ -4674,7 +4678,12 @@ function profileTransferController() {
       return flushClientState();
     },
     changed: () => {
-      if (currentTab()?.kind === 'settings' && currentTab().settingsSection === 'transfer') render();
+      if (currentTab()?.kind === 'settings' && currentTab().settingsSection === 'transfer') {
+        const focused = document.activeElement?.id;
+        render();
+        if (['profile-transfer-consent', 'profile-transfer-settings', 'profile-transfer-confirm'].includes(focused))
+          main.querySelector(`#${focused}`)?.focus({ preventScroll: true });
+      }
     },
     afterImport: async () => {
       // An older in-flight library read must not publish its pre-import snapshot.
@@ -4717,9 +4726,10 @@ function renderProfileTransferSettings() {
       <input id="profile-transfer-file" type="file" accept="application/json,.json" aria-label="Choose profile file" hidden></div>
     <p class="settings-hint">Use the same JSON file on either device. Maximum file size: 20 MB. A verified local backup is kept before changes are saved.</p>
     <p class="settings-hint">Recent lists keep their usual size. Viewed identities are merged separately so previously viewed works remain recognized.</p>
-    ${state.pending ? `<section class="profile-transfer-preview" aria-labelledby="profile-transfer-preview-title"><h3 id="profile-transfer-preview-title">Ready to import</h3><p data-no-i18n>${escapeHtml(state.pending.name)}</p>${profileTransferCounts(state.pending.counts)}
-      <label class="settings-toggle"><input type="checkbox" name="profileApplySettings" ${state.applySettings ? 'checked' : ''} ${state.busy ? 'disabled' : ''}><span><strong>Also apply imported content settings</strong><small>Includes filters and curation. Existing recommendation tag choices are kept unless this option is enabled.</small></span></label>
-      <div class="profile-transfer-actions"><button id="profile-transfer-confirm" type="button" class="primary-button" data-action="profile-import" ${state.busy ? 'disabled' : ''}>${state.busy === 'import' ? 'Importing…' : 'Merge profile'}</button><button type="button" class="secondary-button" data-action="profile-cancel" ${state.busy === 'import' ? 'disabled' : ''}>Cancel</button></div></section>` : ''}
+    ${state.pending ? `<section class="profile-transfer-preview" aria-labelledby="profile-transfer-preview-title"><h3 id="profile-transfer-preview-title">Confirm profile transfer</h3><p data-no-i18n>${escapeHtml(state.pending.name)}</p>${profileTransferCounts(state.pending.counts)}
+      <label class="settings-toggle"><input id="profile-transfer-settings" type="checkbox" name="profileApplySettings" ${state.applySettings ? 'checked' : ''} ${state.busy ? 'disabled' : ''}><span><strong>Also apply imported content settings</strong><small>Includes filters and curation. Existing recommendation tag choices are kept unless this option is enabled.</small></span></label>
+      <label class="settings-toggle"><input id="profile-transfer-consent" type="checkbox" name="profileTransferConsent" ${state.consent ? 'checked' : ''} ${state.busy ? 'disabled' : ''}><span><strong>I confirm importing this file into my profile</strong></span></label>
+      <div class="profile-transfer-actions"><button id="profile-transfer-confirm" type="button" class="primary-button" data-action="profile-import" ${state.busy || !state.consent ? 'disabled' : ''}>${state.busy === 'import' ? 'Importing…' : 'Confirm transfer'}</button><button type="button" class="secondary-button" data-action="profile-cancel" ${state.busy && state.busy !== 'preview' ? 'disabled' : ''}>Cancel</button></div></section>` : ''}
     ${state.result ? `<section class="profile-transfer-result" role="status"><h3>Profile merged</h3><p>Added to this device:</p>${profileTransferCounts(state.result.added)}<p>${state.result.changed ? 'Existing items were kept. Matching copies were not added twice.' : 'Everything in this file was already present. No changes were needed.'}</p></section>` : ''}
     ${state.error ? `<p class="profile-transfer-error" role="alert">${escapeHtml(state.error)}</p>` : ''}
   </div>`;
@@ -4835,6 +4845,7 @@ function renderSettings() {
 const sankakuMediaRecovery = {
   posts: new Map(), lanes: [Promise.resolve(), Promise.resolve()], lane: 0,
   post(id, signal) {
+    if (!/^[A-Za-z0-9]{1,64}$/.test(id)) return Promise.resolve(null);
     const cached = this.posts.get(id);
     if (cached && cached.until > Date.now()) {
       if (cached.until === Infinity) cached.signals.add(signal);
@@ -4845,9 +4856,16 @@ const sankakuMediaRecovery = {
     // Shared, bounded requests use the existing authenticated detail endpoint.
     // It also renews stored media in Likes/Bookmarks without toggling either.
     entry.promise = this.lanes[lane].then(() => [...entry.signals].every(signal => signal.aborted) ? null : request(
-      `/api/detail?source=sankaku&id=${encodeURIComponent(id)}`,
+      `/api/detail?source=sankaku&id=${encodeURIComponent(id)}&mediaOnly=true`,
       { signal: AbortSignal.timeout(20000), cache: 'reload' })).catch(() => null).then(detail => {
-        entry.until = [...entry.signals].every(signal => signal.aborted) ? 0 : Date.now() + 60000;
+        const now = Date.now();let until = now + 60000;
+        if (detail?.thumbnail && CatalogLogic.signedMediaExpired(detail.thumbnail)) detail = null;
+        if (detail) for (const url of [detail.thumbnail, ...(detail.images || [])].filter(Boolean)) {
+          if (CatalogLogic.mediaCacheKey(url) === url) continue;
+          const params = new URL(url).searchParams, expiry = Number(params.get('e') || params.get('expires'));
+          if (Number.isFinite(expiry) && expiry > 0) until = Math.min(until, Math.max(now + 1000, expiry * 1000 - 15000));
+        }
+        entry.until = [...entry.signals].every(signal => signal.aborted) ? 0 : until;
         entry.signals.clear();
         return detail;
       });
@@ -4864,7 +4882,7 @@ const sankakuMediaRecovery = {
     const items = new Set([...itemIndex.values(), ...lists.filter(Array.isArray).flat(),
       ...tabs.map(tab => tab.item), quickPreviewWork].filter(Boolean));
     for (const item of items) {
-      const updated = CatalogLogic.renewWorkMedia(item, detail);
+      const updated = CatalogLogic.hydrateWorkMedia(item, detail);
       if (updated !== item) Object.assign(item, updated);
     }
     for (const list of lists) CatalogLogic.invalidateGrouping(list);
@@ -4894,38 +4912,59 @@ const sankakuMediaRecovery = {
 // Portable profiles omit short-lived signed URLs. Rehydrate only visible
 // missing Sankaku thumbnails, through the existing bounded detail recovery.
 const transferredMediaHydration = {
-  active: new Map(), failedUntil: new Map(), tabId: null,
+  active: new Map(), failedUntil: new Map(), attempts: new Map(), tabId: null, retryTimer: null,
+  reset() {
+    for (const controller of this.active.values()) controller.abort();
+    this.active.clear();this.failedUntil.clear();this.attempts.clear();this.tabId = null;
+    if (this.retryTimer !== null) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+  },
   scan() {
+    if (this.retryTimer !== null) { clearTimeout(this.retryTimer); this.retryTimer = null; }
     const tab = currentTab();
     if (this.tabId !== tab?.id) {
       for (const controller of this.active.values()) controller.abort();
-      this.active.clear(); this.tabId = tab?.id;
+      this.active.clear(); this.attempts.clear(); this.tabId = tab?.id;
     }
     if (!tab || !['likes', 'bookmarks', 'recent'].includes(tab.kind)) return;
-    const bounds = main.getBoundingClientRect();
+    const bounds = main.getBoundingClientRect();let retryAt = Infinity;
     for (const card of main.querySelectorAll('article.card[data-work-key]')) {
       if (this.active.size >= 2) break;
       const item = itemIndex.get(card.dataset.workKey);
-      if (!item || item.source !== 'sankaku' || item.thumbnail || this.active.has(item.key) ||
-          (this.failedUntil.get(item.key) || 0) > Date.now()) continue;
+      if (!item || item.thumbnail && !CatalogLogic.signedMediaExpired(item.thumbnail) || this.active.has(item.key) ||
+          (this.attempts.get(item.key) || 0) >= 3) continue;
       const rect = card.getBoundingClientRect();
       if (rect.bottom < bounds.top - 200 || rect.top > bounds.bottom + 400) continue;
+      const available = CatalogLogic.workSources(item).filter(ref => ref.source === 'sankaku');
+      const offset = available.length ? ((this.attempts.get(item.key) || 0) * 2) % available.length : 0;
+      const refs = [...available.slice(offset), ...available.slice(0, offset)].slice(0, 2);
+      if (!refs.length || item.thumbnail && imageLoader.cached(item.thumbnail)) continue;
+      const until = this.failedUntil.get(item.key) || 0;
+      if (until > Date.now()) { retryAt = Math.min(retryAt, until); continue; }
       const controller = new AbortController(), id = tab.id;
-      this.active.set(item.key, controller);
-      void sankakuMediaRecovery.post(item.id, controller.signal).then(detail => {
-        if (controller.signal.aborted || !detail?.thumbnail) return false;
-        Object.assign(item, CatalogLogic.mergeDetailPages(item, detail));
-        rememberItem(item); refreshSavedDetail(detail);
-        recent = recent.map(entry => entry.key === item.key ? item : entry);
-        if (currentTab()?.id === id) render();
-        return true;
-      }).catch(() => false).then(loaded => {
+      this.active.set(item.key, controller);this.attempts.set(item.key, (this.attempts.get(item.key) || 0) + 1);
+      void (async () => {
+        for (const ref of refs) {
+          const detail = await sankakuMediaRecovery.post(ref.id, controller.signal);
+          if (controller.signal.aborted) return false;
+          if (!detail?.thumbnail || CatalogLogic.signedMediaExpired(detail.thumbnail)) continue;
+          Object.assign(item, CatalogLogic.hydrateWorkMedia(item, detail));
+          sankakuMediaRecovery.apply?.(detail);rememberItem(item);
+          if (currentTab()?.id === id) render();
+          return true;
+        }
+        return false;
+      })().catch(() => false).then(loaded => {
         if (!loaded && !controller.signal.aborted) this.failedUntil.set(item.key, Date.now() + 60000);
+        if (loaded) { this.failedUntil.delete(item.key); this.attempts.delete(item.key); }
         if (this.active.get(item.key) === controller) this.active.delete(item.key);
         if (this.failedUntil.size > 256) for (const [key, until] of this.failedUntil)
           if (until < Date.now()) this.failedUntil.delete(key);
         if (currentTab()?.id === id && !controller.signal.aborted) this.scan();
       });
+    }
+    if (retryAt < Infinity) {
+      const id = tab.id;
+      this.retryTimer = setTimeout(() => { this.retryTimer = null;if (currentTab()?.id === id) this.scan(); }, Math.max(1, retryAt - Date.now()));
     }
   }
 };
@@ -5906,12 +5945,15 @@ main.addEventListener('change', event => {
   if (event.target.id === 'profile-transfer-file') {
     const file = event.target.files?.[0];
     if (file) void profileTransferController().choose(file).then(ready => {
-      if (ready) main.querySelector('#profile-transfer-confirm')?.focus({ preventScroll: true });
+      if (ready) main.querySelector('#profile-transfer-consent')?.focus({ preventScroll: true });
     });
     return;
   }
   if (event.target.name === 'profileApplySettings') {
     profileTransferController().applySettings(event.target.checked); return;
+  }
+  if (event.target.name === 'profileTransferConsent') {
+    profileTransferController().setConsent(event.target.checked); return;
   }
   if (currentTab()?.kind !== 'settings' || contentPreferencesSaving) return;
   const name = event.target.name;
@@ -6063,6 +6105,7 @@ main.addEventListener('click', event => {
     if (artwork) openQuickPreview(artwork, 'fullscreen');
   }
   else if (action === 'settings-section' && tab?.kind === 'settings') {
+    profileTransferController.instance?.resetConsent();
     tab.settingsSection = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer'].includes(control.dataset.section)
       ? control.dataset.section : 'content';
     saveSession(); render();

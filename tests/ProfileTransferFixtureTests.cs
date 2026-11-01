@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using ArtCatalog;
 
@@ -108,6 +110,7 @@ internal static class ProfileTransferFixtureTests
             var storedBridge=JsonNode.Parse(File.ReadAllText(Path.Combine(bridgeRoot,"saved-works-v1.json")))!;
             Expect(storedBridge["likes"]![0]!["groupMembers"]!.AsArray().OfType<JsonObject>().Any(member=>member["futureMetadata"]?.GetValue<string>()=="keep"),"Metadata from a bridged local member must survive");
             Expect(!Import(bridgeStore,bridge)["changed"]!.GetValue<bool>(),"Reimporting a transitive alias bridge must be a no-op");
+            LargeExportFixtures(Path.Combine(root,"large-export"));
             PublicationBoundaryFixture(Path.Combine(root,"publication-boundary"));
             Console.WriteLine("Profile transfer validation, independent collections, roles, aliases, opt-in settings, idempotence, verified backups and rollback: PASS");
         }
@@ -118,6 +121,41 @@ internal static class ProfileTransferFixtureTests
     private static bool Same(Dictionary<string, byte[]> before, Dictionary<string, byte[]> after) => before.Count == after.Count && before.All(entry => after.TryGetValue(entry.Key, out var bytes) && bytes.SequenceEqual(entry.Value));
     private static void ExpectFailure(Action action)
     { try { action(); } catch (Exception error) when (error is TargetInvocationException or InvalidDataException or IOException) { return; } throw new Exception("Expected rejection"); }
+
+    private static void LargeExportFixtures(string root)
+    {
+        const int limit = 20 * 1024 * 1024;
+        var sample = Work("danbooru", "100000");
+        sample["tags"] = new JsonArray(Enumerable.Range(0, 500).Select(i => (JsonNode)JsonValue.Create("neutral_tag_" + i.ToString("D3"))!).ToArray());
+        var template = Parse(new JsonObject { ["format"] = "dart-profile", ["version"] = 1, ["likes"] = new JsonArray(sample) }.ToJsonString())["likes"]![0]!.AsObject();
+        var count = (limit - 1024 * 1024) / (Encoding.UTF8.GetByteCount(template.ToJsonString()) + 1);
+        var works = new JsonArray();
+        for (var i = 0; i < count; i++)
+        {
+            var item = template.DeepClone().AsObject(); item["id"] = (100000 + i).ToString(); item["key"] = "danbooru:" + (100000 + i); works.Add(item);
+        }
+        var large = Parse(new JsonObject { ["format"] = "dart-profile", ["version"] = 1, ["likes"] = works }.ToJsonString());
+        var pretty = JsonSerializer.SerializeToUtf8Bytes(large, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
+        Expect(pretty.Length > limit, "The regression profile must exceed the wire limit only when indented");
+        var portableOptions = (JsonSerializerOptions)Codec.GetField("Json", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var download = JsonSerializer.SerializeToUtf8Bytes(large, portableOptions);
+        Expect(download.Length <= limit && Parse(Encoding.UTF8.GetString(download))["likes"]!.AsArray().Count == count,
+            "Portable export must use compact bytes and retain every work when indentation alone would exceed 20 MB");
+
+        // Local provider/cache fields can be large, but never belong in a portable document.
+        // The import boundary must still reject these same oversized untrusted bytes.
+        Directory.CreateDirectory(root);
+        var local = Work("danbooru", "42"); local["internalProviderCache"] = new string('x', limit);
+        var oversizedInput = new JsonObject { ["format"] = "dart-profile", ["version"] = 1, ["likes"] = new JsonArray(local.DeepClone()) }.ToJsonString();
+        try { Parse(oversizedInput); throw new Exception("The untrusted 20 MB import cap must remain enforced"); }
+        catch (TargetInvocationException error) when (error.InnerException is InvalidDataException invalid && invalid.Message == "Profile file exceeds 20 MB.") { }
+        var path = Path.Combine(root, "saved-works-v1.json");
+        File.WriteAllText(path, new JsonObject { ["schemaVersion"] = 1, ["likes"] = new JsonArray(local), ["bookmarks"] = new JsonArray(Work("rule34", "43")) }.ToJsonString());
+        var before = File.ReadAllBytes(path); var exported = Export(Open(root));
+        Expect(exported["likes"]!.AsArray().Count == 1 && exported["bookmarks"]!.AsArray().Count == 1 && !exported["likes"]![0]!.AsObject().ContainsKey("internalProviderCache"),
+            "Trusted export must validate and strip internal metadata before applying the portable byte limit");
+        Expect(File.ReadAllBytes(path).SequenceEqual(before), "Export must not rewrite or truncate the existing library");
+    }
 
     private static void PublicationBoundaryFixture(string root)
     {

@@ -4343,5 +4343,30 @@
     "Video paused",
     "Видео на паузе",
     "Video pausiert"
+  ],
+  [
+    "Confirm profile transfer",
+    "Подтверждение переноса профиля",
+    "Profilübertragung bestätigen"
+  ],
+  [
+    "I confirm importing this file into my profile",
+    "Я подтверждаю перенос этого файла в мой профиль",
+    "Ich bestätige den Import dieser Datei in mein Profil"
+  ],
+  [
+    "Confirm transfer",
+    "Перенести",
+    "Übertragen"
+  ],
+  [
+    "Selected profile file",
+    "Выбранный файл профиля",
+    "Ausgewählte Profildatei"
+  ],
+  [
+    "DART profile",
+    "Профиль DART",
+    "DART-Profil"
   ]
 ]

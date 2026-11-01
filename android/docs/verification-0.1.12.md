@@ -4,7 +4,7 @@ Scope: compact-phone image/video reliability, feed viewport behavior, Following 
 
 ## Automated verification
 
-The complete Android JVM suite passes: 194 tests, zero failures/errors. Release compilation and lint in the canonical source pass with zero lint errors and 27 warnings. Warnings include existing persistence/API/style findings and touch/accessibility analysis of native custom views; they are not reported as a clean lint warning count.
+The complete Android JVM suite passes: 196 tests, zero failures/errors. Release compilation and lint in the canonical source pass with zero lint errors and 27 warnings. Warnings include existing persistence/API/style findings and touch/accessibility analysis of native custom views; they are not reported as a clean lint warning count.
 
 New regression checks cover actual loopback HTTP body holds, foreground image admission while two visible workers are blocked, cancellation before execution, cold preview/full sequencing, per-visit presentation keys, signed URL renewal, failed poster fallback, viewport anchor selection, decoded video frame state, stale playback generations, variant selection and zoom geometry.
 
@@ -38,6 +38,12 @@ The initial 24 New identities survive earlier empty provider replies. Opening wo
 The final native fixture also delivers a same-MD5 Sankaku mirror after the actual artwork has been opened: open at 1725 ms, mirror response at 2195 ms, merged alias visible at 2808 ms. Across 234 later samples the merged card occurs once, neither the raw mirror alias nor its merged primary regains New, and the current artwork and ready bitmap remain stable. The source performs one Following page-zero request; additional neutral author-work requests are identified separately from pagination/retry traffic.
 
 Actual detail-to-fullscreen tapping starts the native MP4 without a second tap. A real photo-to-video swipe also starts playback automatically. Detail pages show their poster until that fullscreen action. Backgrounding during a held video response and returning retains an opaque poster and eventually resumes real playback. Physical-device autoplay/codec behavior remains outside the tested environment.
+
+## Profile-transfer compatibility and confirmation
+
+Android tag validation now follows the desktop metadata contract, including ordinary slash/colon/backslash punctuation while retaining control-character, blank, length, URL, secret and structural restrictions. The real private export was validated by the Android codec in memory; saved identities survive normalization/merge/export and a repeated merge is a no-op. Personal data is not included in fixtures or release assets.
+
+Native neutral import shows the literal filename and collection counts in a scrollable preview. The consent checkbox starts unchecked and the transfer button disabled. Tapping the disabled action and cancelling preserve the exact pre-test profile bytes. Consent enables the action; changing imported-settings scope revokes it. Only explicit confirmation merges the neutral document. After restart and export, its participant tag `qa_artist/variant`, saved collections and selected preferences remain intact. All tests use the isolated debug profile and disabled emulator connectivity.
 
 The shared release package remains `com.artcatalog.mobile`, versionName `0.1.12`, versionCode `13`, minSdk `26`, targetSdk `35`. The existing signing identity is used for an in-place update. Saved collections and Android Keystore handling are retained. Following adds optional per-provider/rating checkpoints and timestamps for new subscriptions; existing records are retained without a destructive migration.
 

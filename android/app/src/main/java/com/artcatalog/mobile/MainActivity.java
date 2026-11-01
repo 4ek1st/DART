@@ -1258,15 +1258,27 @@ public final class MainActivity extends Activity {
     }
     private String transferCounts(JSONObject counts){return tr("Лайки:")+" "+counts.optInt("likes")+"\n"+tr("Закладки:")+" "+counts.optInt("bookmarks")+"\n"+tr("Подписки:")+" "+counts.optInt("follows")+"\n"+tr("Просмотренное:")+" "+counts.optInt("viewedIdentities")+"\n"+tr("История:")+" "+counts.optInt("history")+"\n"+tr("Избранные теги:")+" "+counts.optInt("favoriteTags");}
     private void showImportPreview(JSONObject document){
+        showImportPreview(document,"");
+    }
+    private void showImportPreview(JSONObject document,String filename){
         if(destroyed)return;LinearLayout body=column();body.setPadding(dp(22),dp(12),dp(22),dp(12));
+        hint(body,"Selected profile file");body.addView(literalText(filename.isBlank()?tr("DART profile"):filename,14,TEXT));
         try{hint(body,transferCounts(ProfileTransfer.counts(document)));}catch(JSONException error){toast("Не удалось прочитать профиль");return;}
         hint(body,"Записи добавятся к вашему профилю. Повторный импорт не создаёт копии. Лайки и закладки остаются отдельными. Ключи API не переносятся.");
         CheckBox settings=check(body,"Перенести также настройки фильтров и отбора",false);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(tr("Импорт профиля DART")).setView(body).setNegativeButton(tr("Отмена"),null).setPositiveButton(tr("Объединить"),null).create();
-        dialog.setOnShowListener(v->dialog.getButton(-1).setOnClickListener(button->{boolean apply=settings.isChecked();dialog.getButton(-1).setEnabled(false);dialog.getButton(-2).setEnabled(false);dialog.setCancelable(false);
+        CheckBox consent=check(body,"I confirm importing this file into my profile",false);
+        ScrollView scroll=new ScrollView(this);scroll.addView(body);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(tr("Confirm profile transfer")).setView(scroll).setNegativeButton(tr("Отмена"),null).setPositiveButton(tr("Confirm transfer"),null).create();
+        dialog.setOnShowListener(v->{dialog.getButton(-1).setEnabled(false);consent.setOnCheckedChangeListener((box,checked)->dialog.getButton(-1).setEnabled(checked));settings.setOnCheckedChangeListener((box,checked)->consent.setChecked(false));dialog.getButton(-1).setOnClickListener(button->{
+            if(!consent.isChecked()||!dialog.getButton(-1).isEnabled())return;boolean apply=settings.isChecked();dialog.getButton(-1).setEnabled(false);dialog.getButton(-2).setEnabled(false);settings.setEnabled(false);consent.setEnabled(false);dialog.setCancelable(false);
             io.execute(()->{try{ProfileTransfer.Merge result=store.importProfile(document,apply);main.post(()->{if(destroyed)return;dialog.dismiss();invalidateScreens();selectNav(4);new AlertDialog.Builder(this).setTitle(tr("Профили объединены")).setMessage(tr(transferCounts(result.added)+"\n\n"+tr(result.changed?"Существующие записи сохранены.":"Все записи уже есть в профиле. Изменений нет."))).setPositiveButton(tr("Готово"),null).show();});}
                 catch(Exception error){main.post(()->{if(destroyed)return;dialog.dismiss();new AlertDialog.Builder(this).setTitle(tr("Импорт не выполнен")).setMessage(tr("Существующий профиль сохранён. "+(error.getMessage()==null?"Попробуйте ещё раз.":error.getMessage()))).setPositiveButton(tr("Закрыть"),null).show();});}});
-        }));dialog.show();
+        });});dialog.show();
+    }
+    private String profileDocumentName(Uri uri){
+        try(android.database.Cursor cursor=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){
+            if(cursor!=null&&cursor.moveToFirst()){String name=cursor.getString(0);if(name!=null)return name.length()>200?name.substring(0,200):name;}
+        }catch(RuntimeException ignored){}return "";
     }
     private void updateCardHearts(View view){if(view instanceof Card)((Card)view).updateSaved();if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)updateCardHearts(((ViewGroup)view).getChildAt(i));}
     private void share(Post p){Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");send.putExtra(Intent.EXTRA_TEXT,p.sourceUrl);startActivity(Intent.createChooser(send,"Поделиться иллюстрацией"));}
@@ -1278,7 +1290,7 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;if(store==null){pendingDocument=data.getData();pendingDocumentRequest=request;return;}processDocument(request,data.getData());}
     private void processDocument(int request,Uri uri){String url=pendingDownload;io.execute(()->{try{
         if(request==1){String json=ProfileTransfer.export(store.export()).toString();byte[] exportBytes=json.getBytes(StandardCharsets.UTF_8);if(exportBytes.length>ProfileTransfer.MAX_BYTES)throw new IOException("Profile file exceeds 20 MB.");try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException();out.write(exportBytes);}main.post(()->toast("Профиль экспортирован"));}
-        else if(request==2){String json;try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException();byte[] b=new byte[8192];int n,total=0;while((n=in.read(b))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("Файл слишком большой");out.write(b,0,n);}json=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(out.toByteArray())).toString();}JSONObject document=ProfileTransfer.parse(json);main.post(()->showImportPreview(document));}
+        else if(request==2){String json;try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException();byte[] b=new byte[8192];int n,total=0;while((n=in.read(b))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("Файл слишком большой");out.write(b,0,n);}json=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(out.toByteArray())).toString();}JSONObject document=ProfileTransfer.parse(json);String filename=profileDocumentName(uri);main.post(()->showImportPreview(document,filename));}
         else if(request==3&&CatalogLogic.isMediaUrl(url)){java.net.HttpURLConnection connection=CatalogClient.open(url);connection.setRequestProperty("Accept-Encoding","identity");try{if(connection.getResponseCode()!=200)throw new IOException("Оригинал недоступен");try(InputStream in=connection.getInputStream();OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException();byte[] b=new byte[32768];int n;long total=0;while((n=in.read(b))!=-1){total+=n;if(total>512L*1024*1024)throw new IOException("Файл слишком большой");out.write(b,0,n);}}main.post(()->toast("Оригинал сохранён"));}finally{connection.disconnect();}}
     }catch(Exception e){main.post(()->{if(!destroyed)new AlertDialog.Builder(this).setTitle(tr("Действие не выполнено")).setMessage(tr(e instanceof IllegalArgumentException||e instanceof IOException?e.getMessage():"Не удалось выполнить действие. Профиль сохранён; проверьте файл и попробуйте ещё раз.")).setPositiveButton(tr("Закрыть"),null).show();});}});}
     private String sourceName(String source){return switch(source){case "gelbooru"->"Gelbooru";case "rule34"->"Rule34";case "sankaku"->"Sankaku";default->"Danbooru";};}

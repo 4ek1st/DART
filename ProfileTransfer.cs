@@ -9,7 +9,8 @@ namespace ArtCatalog;
 internal static class ProfileTransfer
 {
     internal const int MaxBytes = 20 * 1024 * 1024;
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    // Indentation can push an otherwise valid portable profile past the shared byte limit.
+    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = false };
     private static readonly Regex WorkKey = new("^(danbooru|gelbooru|rule34|sankaku):[a-zA-Z0-9]{1,100}$", RegexOptions.CultureInvariant);
     private static readonly string[] Collections = ["likes", "bookmarks", "history"];
     private static readonly string[] Ratings = ["general", "explicit", "all"];
@@ -19,6 +20,15 @@ internal static class ProfileTransfer
         if (Encoding.UTF8.GetByteCount(raw) > MaxBytes) throw new InvalidDataException("Profile file exceeds 20 MB.");
         var parsed = JsonNode.Parse(raw, documentOptions: new JsonDocumentOptions { MaxDepth = 32 })
             ?? throw new InvalidDataException("Choose a DART profile JSON file.");
+        return Normalize(parsed);
+    }
+
+    // Local snapshots contain provider/cache metadata that is stripped below. Apply the
+    // portable byte limit to the cleaned document; untrusted input still enters via Parse.
+    internal static JsonObject NormalizeTrustedSnapshot(JsonObject snapshot) => Normalize(snapshot);
+
+    private static JsonObject Normalize(JsonNode parsed)
+    {
         var legacyArray = parsed as JsonArray;
         var source = parsed as JsonObject ?? (legacyArray is not null ? new JsonObject { ["bookmarks"] = legacyArray.DeepClone() } :
             throw new InvalidDataException("Choose a DART profile JSON file."));

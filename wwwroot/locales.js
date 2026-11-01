@@ -14,6 +14,9 @@ Reading file…|Читаем файл…|Datei wird gelesen…
 Use the same JSON file on either device. Maximum file size: 20 MB. A verified local backup is kept before changes are saved.|Один JSON-файл подходит для обоих устройств. Максимальный размер — 20 МБ. Перед сохранением изменений создаётся проверенная локальная резервная копия.|Verwende dieselbe JSON-Datei auf beiden Geräten. Maximale Dateigröße: 20 MB. Vor dem Speichern wird eine geprüfte lokale Sicherung angelegt.
 Recent lists keep their usual size. Viewed identities are merged separately so previously viewed works remain recognized.|Недавние работы сохраняют обычный лимит списка. Отметки просмотренного объединяются отдельно, поэтому просмотренные работы продолжают распознаваться.|Die zuletzt geöffneten Werke behalten ihr übliches Listenlimit. Gesehene Werke werden zusätzlich separat zusammengeführt und bleiben erkannt.
 Ready to import|Готово к импорту|Bereit zum Import
+Confirm profile transfer|Подтверждение переноса профиля|Profilübertragung bestätigen
+I confirm importing this file into my profile|Я подтверждаю перенос этого файла в мой профиль|Ich bestätige den Import dieser Datei in mein Profil
+Confirm transfer|Перенести|Übertragen
 Viewed identities|Отметки просмотренного|Gesehene Werkidentitäten
 Recommendation preferences|Предпочтения рекомендаций|Empfehlungsvorlieben
 Also apply imported content settings|Также применить настройки контента из файла|Inhaltseinstellungen aus der Datei übernehmen

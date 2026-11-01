@@ -87,6 +87,7 @@ internal static class SankakuFixtureTests
     public static async Task Run()
     {
         await ShortSearchPages();
+        await SankakuMediaFixtureTests.Run();
         using var mapped = JsonDocument.Parse("""
             {"id":"Alpha123","rating":"q","status":"active","author":{"id":9,"name":"uploader"},
              "file_url":"https://v.sankakucomplex.com/test.mp4?e=200&m=sig",

@@ -11,6 +11,8 @@ Confirmed source faults to reproduce: cold progressive binding never fetches its
 - [x] Preserve viewport position through legitimate grouping changes and avoid unnecessary full-list rebinds.
 - [x] Verify ordinary compact-phone cold open, scroll, paging, back, rapid previous/next, photo/video transitions and cancellation; measure scoped frame/loading evidence before and after.
 - [x] Apply the user's added Following requirements: independent shallow-page request coverage, genuine New/date order across authors, stable exposed and traversed prefixes, unseen-tail updates, and fullscreen-only video autoplay.
-- [ ] Run the full Android unit/lint/build checks, verify the existing signing certificate, sync only reviewed Android files into the shared source and publish a separate non-latest Android release.
+- [x] Validate the added transfer consent flow and desktop-compatible metadata using neutral native UI tests and an isolated private-file codec check.
+
+Release workflow: run the complete checks, verify the existing signing certificate and canonical source, then publish the separate Android APK without changing the Windows latest channel. Package smoke evidence and release digests are recorded separately from source.
 
 Use neutral fixtures only. Keep user profiles, credentials, installed PC software, physical-phone data and existing signing identity intact. No new dependencies, cache deletion on the user's device, archives or source/model/provider changes outside these Android fixes.

@@ -27,9 +27,9 @@ internal sealed partial class LocalStore
                 ["preferences"] = ReadTransferObject(contentPreferencesFile),
                 ["recommendationExposureGroups"] = client["recommendationExposureGroups"]?.DeepClone() ?? new JsonArray()
             };
-            // Parsing our own snapshot applies exactly the same allowlist and
-            // portable-URL policy used for imports. Account/session fields never cross.
-            var clean = ProfileTransfer.Parse(document.ToJsonString());
+            // Use the import allowlist and portable-URL policy, then check only the
+            // cleaned output size. Large internal metadata never crosses devices.
+            var clean = ProfileTransfer.NormalizeTrustedSnapshot(document);
             clean["createdAt"] = DateTimeOffset.UtcNow.ToString("O"); clean["platform"] = "windows";
             if (JsonSerializer.SerializeToUtf8Bytes(clean, ProfileTransfer.Json).Length > ProfileTransfer.MaxBytes)
                 throw new InvalidDataException("Profile file exceeds 20 MB.");

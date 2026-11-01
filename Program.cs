@@ -109,14 +109,21 @@ internal static class Program
         {
             var source = context.Request.Query["source"].ToString();
             var id = context.Request.Query["id"].ToString();
+            var mediaOnly = context.Request.Query["mediaOnly"].ToString();
             if (!CatalogState.IsSupported(source) || id.Length is < 1 or > 100)
+                return Results.BadRequest(new { error = "Неверный идентификатор." });
+            if (mediaOnly is not ("" or "true" or "false") ||
+                mediaOnly == "true" && source == "sankaku" && !SankakuApi.ValidId(id))
                 return Results.BadRequest(new { error = "Неверный идентификатор." });
             try
             {
-                var item = await catalog.GetDetailAsync(source, id, context.RequestAborted);
+                var item = mediaOnly == "true"
+                    ? await catalog.GetMediaDetailAsync(source, id, context.RequestAborted)
+                    : await catalog.GetDetailAsync(source, id, context.RequestAborted);
                 if (item is not null)
                 {
-                    try { store.RefreshSavedMetadata(item); }
+                    try { if (mediaOnly == "true" && source == "sankaku") store.RefreshSavedMedia(item);
+                        else store.RefreshSavedMetadata(item); }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                                                    System.Text.Json.JsonException)
                     {

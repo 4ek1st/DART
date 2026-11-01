@@ -438,6 +438,20 @@
     return { ...item, thumbnail, images, imageRecords, groupMembers };
   }
 
+  // Portable profiles intentionally omit signed URLs. Refill only media for a known
+  // catalog member, preserving the collection's identity, credits and descriptive tags.
+  function hydrateWorkMedia(item, detail) {
+    if (detail?.source !== 'sankaku' || !workSources(item).some(ref => ref.key === detail.key) ||
+        !detail.thumbnail && !(detail.images || []).length) return item;
+    const renewed = renewWorkMedia(item, detail);
+    const media = refreshSankakuMedia(renewed, detail,
+      [...new Set([...(renewed.images || []), ...(detail.images || [])])]);
+    const thumbnail = (!item.thumbnail || item.key === detail.key || signedMediaExpired(item.thumbnail))
+      ? detail.thumbnail || renewed.thumbnail : renewed.thumbnail;
+    const groupMembers = (item.groupMembers || []).map(member => hydrateWorkMedia(member, detail));
+    return { ...item, ...media, thumbnail, groupMembers, groupCount: Math.max(1, media.images.length) };
+  }
+
   const validVisualHash = hash => /^[a-f0-9]{16}$/i.test(hash || '');
   const visualTags = tags => [...new Set((tags || []).map(normalizeFilterTag))].filter(Boolean).sort();
   const knownUploader = value => value && !/^(anonymous|unknown|none|0)$/i.test(value);
@@ -2171,7 +2185,7 @@
     artworkTags, artworkTagKind, artworkTagText,
     normalizeExcludedTags, hiddenAuthorKey, isAuthorHidden, isWorkHidden, filterWorks,
     sourceProvenance, workSources, mergeWorkMetadata, mergeDetailPages, artworkMedia, videoMimeType, previewMedia,
-    mediaCacheKey, signedMediaExpired, renewWorkMedia, needsVisualFingerprint, perceptualImageHash,
+    mediaCacheKey, signedMediaExpired, renewWorkMedia, hydrateWorkMedia, needsVisualFingerprint, perceptualImageHash,
     supportedSources, filterCatalogItems, catalogSort, cleanClientState, navigationSection,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,

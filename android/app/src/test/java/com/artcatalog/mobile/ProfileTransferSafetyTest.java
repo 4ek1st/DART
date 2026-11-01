@@ -11,6 +11,23 @@ public class ProfileTransferSafetyTest {
     private JSONObject post(String source,int id) throws Exception {return new JSONObject().put("source",source).put("id",String.valueOf(id)).put("tags",new JSONArray()).put("images",new JSONArray());}
     private void reject(JSONObject profile){try{ProfileTransfer.parse(profile.toString());fail("Malformed full document was accepted");}catch(IllegalArgumentException expected){}}
 
+    @Test public void desktopPortableTagPunctuationSurvivesWithoutDroppingAttributionOrPreferences() throws Exception {
+        JSONObject profile=portable();String tag="neutral/creator:variant\\alt";
+        profile.getJSONArray("likes").put(post("danbooru",1).put("participants",new JSONArray().put(new JSONObject().put("tag",tag).put("name","Neutral creator").put("role","artist"))));
+        profile.getJSONArray("favoriteTags").put(tag);profile.getJSONObject("preferences").put("excludedTags",new JSONArray().put(tag));
+        profile.getJSONObject("recommendationTags").put("neutral/series:tag","priority");
+        JSONObject result=ProfileTransfer.parse(profile.toString());
+        assertEquals(tag,result.getJSONArray("likes").getJSONObject(0).getJSONArray("participants").getJSONObject(0).getString("tag"));
+        assertEquals(tag,result.getJSONArray("favoriteTags").getString(0));assertEquals(tag,result.getJSONObject("preferences").getJSONArray("excludedTags").getString(0));
+        assertEquals("priority",result.getJSONObject("recommendationTags").getString("neutral/series tag"));
+    }
+    @Test public void portableTagsKeepDesktopLengthControlAndUnicodeWhitespaceLimits() throws Exception {
+        JSONObject accepted=portable();accepted.getJSONArray("favoriteTags").put("a".repeat(100));assertEquals(1,ProfileTransfer.parse(accepted.toString()).getJSONArray("favoriteTags").length());
+        for(String invalid:List.of("a".repeat(101),"", " ","\u00a0\u2007\u202f","neutral\u0000tag","neutral\u0085tag")){
+            JSONObject profile=portable();profile.getJSONArray("favoriteTags").put(invalid);reject(profile);
+        }
+    }
+
     @Test public void bridgeConsolidatesAllExistingAliasesAndKeepsLocalMetadata() throws Exception {
         JSONObject current=local();current.getJSONArray("likes").put(post("danbooru",1).put("title","Local title").put("tags",new JSONArray().put("landscape"))).put(post("gelbooru",2).put("title","Other copy").put("tags",new JSONArray().put("sky")));
         JSONObject incoming=portable();incoming.getJSONArray("likes").put(post("rule34",3).put("title","Remote title").put("memberKeys",new JSONArray().put("danbooru:1").put("gelbooru:2").put("rule34:3")));

@@ -10,7 +10,13 @@ internal sealed partial class CatalogService
         Sankaku.LoginAsync(login, password, cancellationToken);
     public Task LogoutSankakuAsync(CancellationToken cancellationToken) => Sankaku.LogoutAsync(cancellationToken);
 
-    private async Task<CatalogItem?> GetSankakuDetailAsync(string id, CancellationToken cancellationToken)
+    public Task<CatalogItem?> GetMediaDetailAsync(string source, string id, CancellationToken cancellationToken) =>
+        source == "sankaku" && SankakuApi.ValidId(id)
+            ? GetSankakuDetailAsync(id, cancellationToken, mediaOnly: true)
+            : GetDetailAsync(source, id, cancellationToken);
+
+    private async Task<CatalogItem?> GetSankakuDetailAsync(string id, CancellationToken cancellationToken,
+        bool mediaOnly = false)
     {
         using var json = await Sankaku.PostAsync(id, cancellationToken);
         var item = MapSankaku(json.RootElement);
@@ -22,6 +28,8 @@ internal sealed partial class CatalogService
         }
         if (item.RequiresAuthentication) item.AccessMessage = new SankakuAccessException(
             store.GetSankakuSession().AccessToken.Length == 0).Message;
+        // Saved-card URL renewal needs the post's media, not supplemental tag categories.
+        if (mediaOnly) return item;
         // The post response may have all tag names but only five categorized tags.
         // Fetch categories to identify every character and credited participant.
         var tags = new List<JsonElement>();

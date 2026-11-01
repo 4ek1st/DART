@@ -3,7 +3,7 @@
   const maxBytes = 20 * 1024 * 1024;
   function create({ fetch: send = root.fetch.bind(root), beforeTransfer = async () => true,
       afterImport = async () => {}, changed = () => {}, download = () => {} } = {}) {
-    const state = { busy: '', pending: null, error: '', result: null, applySettings: false };
+    const state = { busy: '', pending: null, error: '', result: null, applySettings: false, consent: false };
     let generation = 0;
     const emit = () => changed(state);
     const failure = message => { state.error = message; };
@@ -19,7 +19,7 @@
       async choose(file) {
         if (!file || state.busy) return false;
         const current = ++generation;
-        state.pending = null; state.result = null; state.error = ''; state.busy = 'preview'; emit();
+        state.pending = null; state.result = null; state.error = ''; state.consent = false; state.busy = 'preview'; emit();
         try {
           if (file.size > maxBytes) throw new Error('Profile file exceeds 20 MB.');
           const raw = await file.text();
@@ -31,15 +31,23 @@
         } catch (error) { if (current === generation) failure(error.message || 'Could not read the profile file.'); return false; }
         finally { if (current === generation) { state.busy = ''; emit(); } }
       },
-      cancel() { if (state.busy === 'import') return; generation++; state.pending = null; state.error = ''; state.busy = ''; emit(); },
-      applySettings(value) { state.applySettings = value === true; },
+      cancel() { if (state.busy && state.busy !== 'preview') return false; generation++; state.pending = null; state.error = ''; state.consent = false; state.busy = ''; emit(); return true; },
+      applySettings(value) {
+        if (state.busy) return false;
+        const next = value === true;
+        if (next !== state.applySettings) { state.applySettings = next; state.consent = false; emit(); }
+        return true;
+      },
+      setConsent(value) { if (state.busy || !state.pending) return false; state.consent = value === true; emit(); return true; },
+      resetConsent() { if (state.busy === 'import') return false; if (state.consent) { state.consent = false; emit(); } return true; },
       async import() {
-        if (!state.pending || state.busy) return false;
+        if (!state.pending || state.busy || !state.consent) return false;
+        const pending = state.pending, applySettings = state.applySettings;
         state.busy = 'import'; state.error = ''; state.result = null; emit();
         try {
           if (await beforeTransfer() === false) throw new Error('Could not save current changes. Please try again.');
-          const result = await json(`/api/profile-transfer/import?applySettings=${state.applySettings}`, state.pending.raw);
-          state.result = result; state.pending = null;
+          const result = await json(`/api/profile-transfer/import?applySettings=${applySettings}`, pending.raw);
+          state.result = result; state.pending = null; state.consent = false;
           try { await afterImport(result); }
           catch { failure('Profile merged. Some views could not refresh; reopen the affected tab.'); }
           return true;
