@@ -49,7 +49,7 @@ public final class CatalogLogic {
         if(!p.image.isBlank())p.media.add(p.original.isBlank()?p.image:p.original);
         p.width=o.optInt("image_width",o.optInt("width"));
         p.height=o.optInt("image_height",o.optInt("height"));
-        p.score=o.optInt("score");p.published=o.optString("created_at");
+        p.score=o.optInt("score");if(o.has("score")&&!o.isNull("score"))p.popularityCount=p.score;p.published=o.optString("created_at");
         p.sourceUrl=switch(source){
             case "gelbooru" -> "https://gelbooru.com/index.php?page=post&s=view&id="+p.id;
             case "rule34" -> "https://rule34.xxx/index.php?page=post&s=view&id="+p.id;
@@ -80,16 +80,20 @@ public final class CatalogLogic {
         if(p.preview.isBlank()&&!p.isVideo())p.preview=p.image;
         if(isMediaUrl(p.original))p.media.add(p.original);else if(isMediaUrl(p.image))p.media.add(p.image);
         if(!p.media.isEmpty())try{p.imageRecords.put(new JSONObject().put("url",p.media.get(0)).put("hash",p.hash).put("source","sankaku").put("id",p.id));}catch(JSONException ignored){}
-        p.width=o.optInt("width");p.height=o.optInt("height");p.score=o.optInt("total_score",o.optInt("fav_count"));
+        p.width=o.optInt("width");p.height=o.optInt("height");p.score=o.optInt("total_score",o.optInt("fav_count"));if(o.has("total_score")||o.has("fav_count"))p.popularityCount=p.score;
         JSONObject created=o.optJSONObject("created_at");if(created!=null&&created.optLong("s",0)>0)p.published=java.time.Instant.ofEpochSecond(created.optLong("s")).toString();else p.published=value(o,"created_at");
         p.sourceUrl="https://sankaku.app/posts/"+p.id;return p;
     }
     static boolean validId(String source,String id){return source.equals("sankaku")?id.matches("[a-zA-Z0-9]{1,64}"):Set.of("danbooru","gelbooru","rule34").contains(source)&&id.matches("[0-9]+");}
     static void refreshSignedMedia(Post current,Post fresh){
-        Map<String,String> replacements=new HashMap<>();for(String url:List.of(fresh.original,fresh.image,fresh.preview,fresh.smallPreview))if(isMediaUrl(url))replacements.put(mediaPath(url),url);
-        List<String> refreshed=new ArrayList<>();for(String url:current.media)refreshed.add(replacements.getOrDefault(mediaPath(url),url));current.media=refreshed;
-        for(int i=0;i<current.imageRecords.length();i++){JSONObject record=current.imageRecords.optJSONObject(i);if(record!=null)try{String url=record.optString("url");record.put("url",replacements.getOrDefault(mediaPath(url),url));}catch(JSONException ignored){}}
-        if(current.key().equals(fresh.key())){current.preview=fresh.preview;current.smallPreview=fresh.smallPreview;current.image=fresh.image;current.original=fresh.original;}
+        Map<String,String> replacements=new HashMap<>(),originalHashes=new HashMap<>();for(String url:List.of(fresh.original,fresh.image,fresh.preview,fresh.smallPreview))if(isMediaUrl(url))replacements.put(MediaIdentity.cacheKey(url),url);
+        JSONArray freshRecords=MediaIdentity.records(fresh);for(int i=0;i<freshRecords.length();i++){JSONObject record=freshRecords.optJSONObject(i);if(record!=null&&isMediaUrl(record.optString("url"))){String url=record.optString("url"),hash=record.optString("hash",MediaIdentity.hash(url));if(!hash.isBlank())originalHashes.putIfAbsent(hash.toLowerCase(Locale.ROOT),url);}}
+        JSONArray currentRecords=MediaIdentity.records(current),refreshed=new JSONArray();for(int i=0;i<currentRecords.length();i++){JSONObject record=currentRecords.optJSONObject(i);if(record==null||!isMediaUrl(record.optString("url")))continue;
+            try{JSONObject copy=new JSONObject(record.toString());String url=record.optString("url"),hash=record.optString("hash");if(hash.isBlank())hash=MediaIdentity.hash(url);String renewed=replacements.get(MediaIdentity.cacheKey(url));if(renewed==null&&!hash.isBlank())renewed=originalHashes.get(hash.toLowerCase(Locale.ROOT));copy.put("url",renewed==null?url:renewed);refreshed.put(copy);}catch(JSONException ignored){}
+        }
+        if(refreshed.length()==0&&current.key().equals(fresh.key()))refreshed=freshRecords;
+        current.imageRecords=MediaIdentity.unique(List.of(refreshed));List<String> urls=new ArrayList<>();for(int i=0;i<current.imageRecords.length();i++){JSONObject record=current.imageRecords.optJSONObject(i);if(record!=null&&isMediaUrl(record.optString("url")))urls.add(record.optString("url"));}current.media=urls;current.groupCount=Math.max(1,urls.size());
+        if(current.key().equals(fresh.key())){if(isMediaUrl(fresh.preview))current.preview=fresh.preview;if(isMediaUrl(fresh.smallPreview))current.smallPreview=fresh.smallPreview;if(isMediaUrl(fresh.image))current.image=fresh.image;if(isMediaUrl(fresh.original))current.original=fresh.original;}
     }
     private static String mediaPath(String url){try{URI u=URI.create(url);return u.getHost()+u.getPath();}catch(Exception e){return url;}}
     public static boolean hasMore(int received,int size){return received>=size;}
@@ -106,6 +110,19 @@ public final class CatalogLogic {
     }
     private static String identity(Post p){return p.hash.isBlank()?p.key():"md5:"+p.hash;}
     public static List<Post> merge(List<Post> a,List<Post> b){return WorkGrouping.group(a,b);}
+    static boolean needsVisualFingerprint(Post post){return WorkGrouping.needsVisualFingerprint(post);}
+    static String mediaCacheKey(String url){return MediaIdentity.cacheKey(url);}
+    private static final double[][] PERCEPTUAL_COSINE=perceptualCosine();
+    private static double[][] perceptualCosine(){double[][] values=new double[8][32];for(int u=0;u<8;u++)for(int x=0;x<32;x++)values[u][x]=Math.cos((2*x+1)*u*Math.PI/64);return values;}
+    /** Pure 32x32 ARGB DCT fingerprint. Run with other grouping work, never on the UI thread. */
+    static String perceptualImageHash(int[] pixels){if(pixels==null||pixels.length!=1024)return "";double[] rows=new double[32*8],coefficients=new double[64];
+        for(int y=0;y<32;y++)for(int x=0;x<32;x++){int color=pixels[y*32+x];double gray=((color>>>16)&255)*.299+((color>>>8)&255)*.587+(color&255)*.114;for(int u=0;u<8;u++)rows[y*8+u]+=gray*PERCEPTUAL_COSINE[u][x];}
+        for(int v=0;v<8;v++)for(int u=0;u<8;u++){double value=0;for(int y=0;y<32;y++)value+=rows[y*8+u]*PERCEPTUAL_COSINE[v][y];coefficients[v*8+u]=value;}
+        double[] sorted=Arrays.copyOfRange(coefficients,1,64);Arrays.sort(sorted);double median=sorted[31];StringBuilder hash=new StringBuilder(16);
+        for(int i=0;i<64;i+=4){int nibble=0;for(int bit=0;bit<4;bit++)nibble=nibble*2+(coefficients[i+bit]>median?1:0);hash.append(Integer.toHexString(nibble));}return hash.toString();}
+    static List<Post> rankCuratedWorks(List<Post> items,Map<String,Boolean> curation,List<Post> liked,Map<String,String> tagPreferences,long now){return Curation.rank(items,curation,liked,tagPreferences,now);}
+    static List<Post> orderFollowing(List<Post> items,Set<String> unreadKeys){List<Post> result=new ArrayList<>(items);result.sort(Comparator.<Post>comparingInt(p->{if(unreadKeys.contains(p.key()))return 1;for(String key:p.memberKeys)if(unreadKeys.contains(key))return 1;return 0;}).reversed()
+        .thenComparing(Comparator.comparingLong((Post p)->{long date=-1;for(Post member:p.groupMembers.isEmpty()?List.of(p):p.groupMembers)date=Math.max(date,Curation.published(member.published));return date;}).reversed()));return result;}
     private static List<String> union(List<String> a,List<String> b){LinkedHashSet<String> values=new LinkedHashSet<>(a);values.addAll(b);return new ArrayList<>(values);}
     public static String normalizeTag(String tag){
         boolean ascii=true;for(int i=0;i<tag.length();i++)if(tag.charAt(i)>127){ascii=false;break;}
@@ -115,8 +132,8 @@ public final class CatalogLogic {
         for(int i=start;i<normal.length();i++){char c=normal.charAt(i);if(c=='_'||c=='-'||c==' '||c>='\t'&&c<='\r')space=true;else{if(space&&result.length()>0)result.append(' ');result.append(c);space=false;}}
         return result.toString().trim();
     }
-    public static List<String> excludedTags(String raw){LinkedHashSet<String> result=new LinkedHashSet<>();for(String tag:raw.split(",")){String clean=normalizeTag(tag);if(!clean.isBlank()&&clean.length()<=100&&result.size()<100)result.add(clean);}return new ArrayList<>(result);}
-    private static final Set<String> GENERATED=Set.of("ai generated","ai art","ai artwork","ai image","ai illustration","stable diffusion","nai diffusion","novelai","midjourney","dall e","dall e 2","dall e 3","comfyui","automatic1111","thisanimedoesnotexist","generated with ai","made with ai");
+    public static List<String> excludedTags(String raw){LinkedHashSet<String> result=new LinkedHashSet<>();for(String tag:raw.split(",")){String clean=normalizeTag(tag);if(!clean.isBlank()&&clean.length()<=100&&result.size()<1000)result.add(clean);}return new ArrayList<>(result);}
+    private static final Set<String> GENERATED=Set.of("ai generated","ai created","ai art","ai artwork","ai image","ai illustration","stable diffusion","nai diffusion","novelai","midjourney","dall e","dall e 2","dall e 3","comfyui","automatic1111","thisanimedoesnotexist","generated with ai","made with ai");
     private static final Set<String> ASSISTED=Set.of("ai assisted","ai aided","ai enhanced");
     private static boolean marker(String tag,Set<String> markers){for(String m:markers)if(tag.equals(m)||tag.startsWith(m+" "))return true;return false;}
     private static final Set<String> FURRY=Set.of(

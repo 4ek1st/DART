@@ -33,7 +33,9 @@ try {
     $outputDir = Join-Path $PSScriptRoot 'outputs'
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     $alignedApk = Join-Path $outputDir 'ArtCatalog-Mobile-aligned.apk'
-    $signedApk = Join-Path $outputDir 'ArtCatalog-Mobile-0.1.10.apk'
+    $versionMatch = [regex]::Match((Get-Content -LiteralPath 'app\build.gradle' -Raw), "versionName\s+'([0-9]+\.[0-9]+\.[0-9]+)'")
+    if (-not $versionMatch.Success) { throw 'Cannot read the Android version.' }
+    $signedApk = Join-Path $outputDir ('ArtCatalog-Mobile-' + $versionMatch.Groups[1].Value + '.apk')
     & "$androidTools\zipalign.exe" -f -p 4 'app\build\outputs\apk\release\app-release-unsigned.apk' $alignedApk
     if ($LASTEXITCODE -ne 0) { throw 'APK alignment failed.' }
     & "$androidTools\apksigner.bat" sign --ks $keyFile --ks-key-alias artcatalog --ks-pass env:ARTCATALOG_SIGN_PASSWORD --key-pass env:ARTCATALOG_SIGN_PASSWORD --out $signedApk $alignedApk

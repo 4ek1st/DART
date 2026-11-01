@@ -6,7 +6,7 @@ import org.json.*;
 
 /** Deterministic QA data. This source set is excluded from release APKs. */
 final class FixtureClient extends CatalogClient {
-    final ArrayList<Post> fixtures=new ArrayList<>();private int navigationRetryFailures;
+    final ArrayList<Post> fixtures=new ArrayList<>();final List<String> pageCalls=Collections.synchronizedList(new ArrayList<>());private int navigationRetryFailures;
     FixtureClient(Store store,ImageLoader images) throws Exception {
         super(store);
         String[] titles={"Тихое утро","За горизонтом","Лунная долина","Тёплый вечер","Небо над морем","Зелёные холмы","Дальний берег","Звёздный свет"};
@@ -27,10 +27,11 @@ final class FixtureClient extends CatalogClient {
         fixtures.sort(Comparator.comparingInt(p->Integer.parseInt(p.id)));
     }
     @Override Page search(String query,Map<String,Integer> pages,String rating,String sort){
+        pageCalls.add(query+":"+new LinkedHashMap<>(pages));
         if(query.equals("qa_slow_navigation"))try{Thread.sleep(650);}catch(InterruptedException e){Thread.currentThread().interrupt();}
         Page page=new Page();int offset=pages.values().stream().mapToInt(Integer::intValue).min().orElse(0)*16;
         if(query.equals("qa_navigation_retry")&&navigationRetryFailures++==0){page.errors.put("danbooru","QA transient failure");return page;}
-        List<Post> matches=new ArrayList<>();if(query.equals("qa_hidden_pages")||query.equals("qa_hidden_first")){boolean first=query.equals("qa_hidden_first");for(int i=0;i<(first?32:48);i++){Post p=Post.fromJson(fixtures.get(i).toJson());if(first?i<16:i>=16&&i<32)p.tags.add("qa_hidden");matches.add(p);}}else for(Post p:fixtures)if(CatalogLogic.matchesRating(p.rating,rating)&&(query.isBlank()||query.contains("order:")||query.equals("qa_slow_navigation")||query.equals("qa_navigation_retry")||p.tags.contains(query)))matches.add(p);
+        List<Post> matches=new ArrayList<>();if(query.equals("qa_hidden_pages")||query.equals("qa_hidden_first")){boolean first=query.equals("qa_hidden_first");for(int i=0;i<(first?32:48);i++){Post p=Post.fromJson(fixtures.get(i).toJson());p.media=List.of(p.image);p.imageRecords=new JSONArray();p.artistTag="artcatalog_paging_artist_"+i;p.artistTags=List.of(p.artistTag);try{p.participants=new JSONArray().put(new JSONObject().put("tag",p.artistTag).put("role","artist"));}catch(JSONException impossible){throw new IllegalStateException(impossible);}if(first?i<16:i>=16&&i<32)p.tags.add("qa_hidden");matches.add(p);}}else for(Post p:fixtures)if(CatalogLogic.matchesRating(p.rating,rating)&&(query.isBlank()||query.contains("order:")||query.equals("qa_slow_navigation")||query.equals("qa_navigation_retry")||p.tags.contains(query)))matches.add(p);
         for(int i=offset;i<Math.min(offset+16,matches.size());i++)page.posts.add(matches.get(i));
         if(offset+16<matches.size())page.more.addAll(pages.keySet());return page;
     }

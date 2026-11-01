@@ -1,0 +1,15 @@
+{
+  "format": "dart-profile",
+  "version": 1,
+  "createdAt": "2026-11-01T12:00:00Z",
+  "platform": "windows",
+  "likes": [{"key":"danbooru:100","source":"danbooru","id":"100","title":"Mountain study","creatorTag":"sample_artist","creatorName":"Sample Artist","memberKeys":["danbooru:100","sankaku:example100"],"images":["https://cdn.donmai.us/original/mountain.jpg"],"imageRecords":[{"url":"https://cdn.donmai.us/original/mountain.jpg","hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","owner":"danbooru:100"}],"tags":["landscape","mountain"],"characterTags":[],"copyrightTags":[],"popularityCount":42,"width":1600,"height":1000,"rating":"g"}],
+  "bookmarks": [{"key":"rule34:200","source":"rule34","id":"200","title":"Cloud study","creatorTag":"sample_artist","images":[],"tags":["cloud","sky"],"rating":"g"}],
+  "history": [{"key":"gelbooru:300","source":"gelbooru","id":"300","title":"Sea study","images":[],"tags":["sea"],"rating":"g"}],
+  "viewedIdentities": ["key:gelbooru:300","hash:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+  "follows": [{"role":"artist","source":"artist","artistId":"sample_artist","name":"Sample Artist","gelbooruTag":"sample_artist","followedAt":"2026-10-30T12:00:00Z","seenAt":{"all":"2026-10-30T12:00:00Z"},"seenKeys":{"all":["danbooru:100"]}},{"role":"uploader","source":"rule34","artistId":"123","name":"Sample uploader","gelbooruTag":"","followedAt":"2026-10-30T12:00:00Z","seenAt":{},"seenKeys":{}}],
+  "favoriteTags": ["landscape"],
+  "recommendationTags": {"landscape":"priority","sample_disabled":"disabled"},
+  "preferences": {"aiMode":"all","hideFurry":false,"hideViewedAndSaved":true,"hideFollowedArtists":true,"excludedTags":["sample_excluded"],"attributionPriority":"creator","hiddenAuthors":[{"source":"artist","artistId":"sample_hidden","name":"Sample Hidden Artist"}],"curation":{"enabled":false,"popularity":true,"personal":true,"freshness":true,"resolution":true}},
+  "recommendationExposureGroups": [["danbooru:100","sankaku:example100"]]
+}

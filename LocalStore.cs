@@ -141,7 +141,7 @@ public sealed class FollowedArtist
     public Dictionary<string, List<string>> SeenKeys { get; set; } = [];
 }
 
-internal sealed class LocalStore : ISankakuSessionStore
+internal sealed partial class LocalStore : ISankakuSessionStore
 {
     public string CacheDirectory => Path.Combine(directory, "cache");
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)

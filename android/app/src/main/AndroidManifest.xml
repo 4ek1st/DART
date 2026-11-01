@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <application android:label="ArtCatalog" android:icon="@drawable/ic_launcher"
+    <application android:label="DART" android:icon="@drawable/ic_launcher"
         android:theme="@style/AppTheme" android:allowBackup="false" android:supportsRtl="true"
         android:usesCleartextTraffic="false">
         <profileable android:shell="true" />

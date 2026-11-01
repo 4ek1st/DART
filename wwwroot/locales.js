@@ -3,6 +3,36 @@
 (function(root) {
   const rows = `
 Home|Главная|Startseite
+Profile transfer|Перенос профиля|Profilübertragung
+Windows and Android|Windows и Android|Windows und Android
+Move your likes, bookmarks, followed artists and viewed works between DART on Windows and Android. Import adds data and keeps your existing collections.|Переносите лайки, закладки, подписки и просмотренное между DART на Windows и Android. Импорт добавляет данные и сохраняет существующие коллекции.|Übertrage Likes, Lesezeichen, gefolgte Künstler und angesehene Werke zwischen DART auf Windows und Android. Der Import ergänzt Daten und behält vorhandene Sammlungen.
+API keys, account sessions and device settings stay on this device. Keep the exported file private; it contains your artwork history and preferences.|Ключи API, сеансы входа и настройки устройства остаются на этом устройстве. Храните файл экспорта приватно: в нём есть история работ и предпочтения.|API-Schlüssel, Anmeldungen und Geräteeinstellungen bleiben auf diesem Gerät. Bewahre die Exportdatei privat auf: Sie enthält deinen Verlauf und deine Vorlieben.
+Export profile|Экспорт профиля|Profil exportieren
+Choose profile file|Выбрать файл профиля|Profildatei auswählen
+Exporting…|Экспортируем…|Wird exportiert…
+Reading file…|Читаем файл…|Datei wird gelesen…
+Use the same JSON file on either device. Maximum file size: 20 MB. A verified local backup is kept before changes are saved.|Один JSON-файл подходит для обоих устройств. Максимальный размер — 20 МБ. Перед сохранением изменений создаётся проверенная локальная резервная копия.|Verwende dieselbe JSON-Datei auf beiden Geräten. Maximale Dateigröße: 20 MB. Vor dem Speichern wird eine geprüfte lokale Sicherung angelegt.
+Recent lists keep their usual size. Viewed identities are merged separately so previously viewed works remain recognized.|Недавние работы сохраняют обычный лимит списка. Отметки просмотренного объединяются отдельно, поэтому просмотренные работы продолжают распознаваться.|Die zuletzt geöffneten Werke behalten ihr übliches Listenlimit. Gesehene Werke werden zusätzlich separat zusammengeführt und bleiben erkannt.
+Ready to import|Готово к импорту|Bereit zum Import
+Viewed identities|Отметки просмотренного|Gesehene Werkidentitäten
+Recommendation preferences|Предпочтения рекомендаций|Empfehlungsvorlieben
+Also apply imported content settings|Также применить настройки контента из файла|Inhaltseinstellungen aus der Datei übernehmen
+Includes filters and curation. Existing recommendation tag choices are kept unless this option is enabled.|Включает фильтры и отбор. Текущие настройки тегов рекомендаций сохраняются, пока этот пункт выключен.|Enthält Filter und Auswahl. Vorhandene Tag-Vorlieben für Empfehlungen bleiben erhalten, solange diese Option aus ist.
+Merge profile|Объединить профиль|Profil zusammenführen
+Importing…|Импортируем…|Wird importiert…
+Profile merged|Профиль объединён|Profil zusammengeführt
+Added to this device:|Добавлено на это устройство:|Auf diesem Gerät hinzugefügt:
+Existing items were kept. Matching copies were not added twice.|Существующие записи сохранены. Совпадающие копии повторно не добавлялись.|Vorhandene Einträge wurden behalten. Übereinstimmende Kopien wurden nicht doppelt hinzugefügt.
+Everything in this file was already present. No changes were needed.|Все данные из файла уже были в профиле. Изменения не потребовались.|Alle Daten dieser Datei waren bereits vorhanden. Änderungen waren nicht nötig.
+Profile file exceeds 20 MB.|Файл профиля превышает 20 МБ.|Die Profildatei ist größer als 20 MB.
+Could not save the profile. Existing data has been preserved.|Не удалось сохранить профиль. Существующие данные сохранены.|Das Profil konnte nicht gespeichert werden. Vorhandene Daten wurden behalten.
+The file is not a supported DART profile, or contains invalid values.|Файл не является поддерживаемым профилем DART или содержит некорректные данные.|Die Datei ist kein unterstütztes DART-Profil oder enthält ungültige Werte.
+Could not read the profile file.|Не удалось прочитать файл профиля.|Die Profildatei konnte nicht gelesen werden.
+Could not save current changes. Please try again.|Не удалось сохранить текущие изменения. Повторите попытку.|Aktuelle Änderungen konnten nicht gespeichert werden. Bitte versuche es erneut.
+Profile merged. Some views could not refresh; reopen the affected tab.|Профиль объединён. Некоторые экраны не обновились; откройте нужную вкладку заново.|Profil zusammengeführt. Einige Ansichten wurden nicht aktualisiert; öffne den betroffenen Tab erneut.
+Could not import the profile. Existing data has been preserved.|Не удалось импортировать профиль. Существующие данные сохранены.|Das Profil konnte nicht importiert werden. Vorhandene Daten wurden behalten.
+Could not export the profile. Existing data has been preserved.|Не удалось экспортировать профиль. Существующие данные сохранены.|Das Profil konnte nicht exportiert werden. Vorhandene Daten wurden behalten.
+Could not export the profile.|Не удалось экспортировать профиль.|Das Profil konnte nicht exportiert werden.
 Copy|Копировать|Kopieren
 Artwork tags|Теги работы|Werk-Tags
 Copy all artwork tags|Копировать все теги работы|Alle Werk-Tags kopieren

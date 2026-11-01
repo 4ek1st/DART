@@ -586,7 +586,7 @@ function restoreSession() {
       feed: 'illustrations',
       item: saved.item?.key ? rememberItem(saved.item) : saved.item,
       profileRef: saved.profileRef,
-      settingsSection: ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(saved.settingsSection)
+      settingsSection: ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer'].includes(saved.settingsSection)
         ? saved.settingsSection : 'content',
       items: [], errors: {}, page: 0,
       loading: false, started: false,
@@ -3569,6 +3569,7 @@ function render() {
   autoFeed.mount();
   if (typeof scheduleRule34Recovery === 'function') scheduleRule34Recovery(tab);
   if (typeof groupRepairs !== 'undefined') groupRepairs.scan();
+  if (typeof transferredMediaHydration !== 'undefined') transferredMediaHydration.scan();
 }
 
 function workMemberKeys(node) {
@@ -4665,8 +4666,67 @@ function renderCurationSettings() {
     <p class="settings-hint">New works stay first in Following. New and Popular choose the source ordering; curation refines the available results.</p></div>`;
 }
 
+function profileTransferController() {
+  return profileTransferController.instance ||= DartProfileTransfer.create({
+    beforeTransfer: async () => {
+      if (savedWorkPending.size || contentPreferencesSaving) return false;
+      await recommendationPreferenceSaveQueue;
+      return flushClientState();
+    },
+    changed: () => {
+      if (currentTab()?.kind === 'settings' && currentTab().settingsSection === 'transfer') render();
+    },
+    afterImport: async () => {
+      // An older in-flight library read must not publish its pre-import snapshot.
+      for (const state of Object.values(refreshSavedWorks.states || {})) state.revision++;
+      const refreshed = await Promise.all([refreshSavedWorks('likes', true), refreshSavedWorks('bookmarks', true),
+        refreshFollows(), loadViewedTokens(), loadFavoriteTags(), loadRecommendationTagPreferences(), loadContentPreferences()]);
+      const state = await request('/api/client-state');
+      if (Array.isArray(state.recent)) {
+        recent = CatalogLogic.filterCatalogItems(state.recent).slice(0, 40);
+        localStorage.setItem('artcatalog-recent', JSON.stringify(recent));
+      }
+      recommendationExposureGroups = DartRecommendationExposure.cleanGroups(state.recommendationExposureGroups);
+      recommendationExposure = cleanRecommendationExposure(DartRecommendationExposure.keys(recommendationExposureGroups));
+      localStorage.setItem('dart-recommendation-exposure-groups', JSON.stringify(recommendationExposureGroups));
+      localStorage.setItem('dart-recommendation-exposure', JSON.stringify(recommendationExposure));
+      if (refreshed.some(result => result === false)) throw new Error('Refresh failed');
+    },
+    download: (blob, name) => {
+      const url = URL.createObjectURL(blob), link = document.createElement('a');
+      link.href = url; link.download = name; link.hidden = true; document.body.append(link);
+      try { link.click(); } finally { link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+    }
+  });
+}
+
+function profileTransferCounts(counts) {
+  return `<dl class="profile-transfer-counts">${[
+    ['likes', 'Liked'], ['bookmarks', 'Bookmarks'], ['follows', 'Following'], ['viewedIdentities', 'Viewed identities'],
+    ['history', 'Recently opened'], ['favoriteTags', 'Favorite tags'], ['recommendationTags', 'Recommendation preferences']
+  ].map(([key, label]) => `<div><dt>${label}</dt><dd>${Number(counts?.[key]) || 0}</dd></div>`).join('')}</dl>`;
+}
+
+function renderProfileTransferSettings() {
+  const state = profileTransferController().state;
+  return `<div class="settings-card"><h2 class="settings-heading">${svg('copy')}<span>Profile transfer</span></h2>
+    <p>Move your likes, bookmarks, followed artists and viewed works between DART on Windows and Android. Import adds data and keeps your existing collections.</p>
+    <p class="settings-hint">API keys, account sessions and device settings stay on this device. Keep the exported file private; it contains your artwork history and preferences.</p>
+    <div class="profile-transfer-actions"><button type="button" class="primary-button" data-action="profile-export" ${state.busy ? 'disabled' : ''}>${state.busy === 'export' ? 'Exporting…' : 'Export profile'}</button>
+      <button type="button" class="secondary-button" data-action="profile-select" ${state.busy ? 'disabled' : ''}>${state.busy === 'preview' ? 'Reading file…' : 'Choose profile file'}</button>
+      <input id="profile-transfer-file" type="file" accept="application/json,.json" aria-label="Choose profile file" hidden></div>
+    <p class="settings-hint">Use the same JSON file on either device. Maximum file size: 20 MB. A verified local backup is kept before changes are saved.</p>
+    <p class="settings-hint">Recent lists keep their usual size. Viewed identities are merged separately so previously viewed works remain recognized.</p>
+    ${state.pending ? `<section class="profile-transfer-preview" aria-labelledby="profile-transfer-preview-title"><h3 id="profile-transfer-preview-title">Ready to import</h3><p data-no-i18n>${escapeHtml(state.pending.name)}</p>${profileTransferCounts(state.pending.counts)}
+      <label class="settings-toggle"><input type="checkbox" name="profileApplySettings" ${state.applySettings ? 'checked' : ''} ${state.busy ? 'disabled' : ''}><span><strong>Also apply imported content settings</strong><small>Includes filters and curation. Existing recommendation tag choices are kept unless this option is enabled.</small></span></label>
+      <div class="profile-transfer-actions"><button id="profile-transfer-confirm" type="button" class="primary-button" data-action="profile-import" ${state.busy ? 'disabled' : ''}>${state.busy === 'import' ? 'Importing…' : 'Merge profile'}</button><button type="button" class="secondary-button" data-action="profile-cancel" ${state.busy === 'import' ? 'disabled' : ''}>Cancel</button></div></section>` : ''}
+    ${state.result ? `<section class="profile-transfer-result" role="status"><h3>Profile merged</h3><p>Added to this device:</p>${profileTransferCounts(state.result.added)}<p>${state.result.changed ? 'Existing items were kept. Matching copies were not added twice.' : 'Everything in this file was already present. No changes were needed.'}</p></section>` : ''}
+    ${state.error ? `<p class="profile-transfer-error" role="alert">${escapeHtml(state.error)}</p>` : ''}
+  </div>`;
+}
+
 function renderSettings() {
-  const section = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(currentTab()?.settingsSection)
+  const section = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer'].includes(currentTab()?.settingsSection)
     ? currentTab().settingsSection : 'content';
   const themePreference = globalThis.DartTheme?.preference || 'system';
   const hideGenerated = contentPreferences.aiMode !== 'all';
@@ -4681,6 +4741,7 @@ function renderSettings() {
     ['tabs', 'panels', 'Вкладки', 'Просмотр и закрепление'],
     ['appearance', 'palette', 'Оформление', 'Цвет и тема'],
     ['privacy', 'shield', 'Privacy', 'Screen capture'],
+    ['transfer', 'copy', 'Profile transfer', 'Windows and Android'],
     ['updates', 'download', 'Обновления', 'Версия и установка'],
     ['language', 'language', 'Язык', 'English · Русский · Deutsch']
   ];
@@ -4691,6 +4752,7 @@ function renderSettings() {
       </nav>
       <div class="settings-view" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${section}">
         ${section === 'curation' ? renderCurationSettings() : ''}
+        ${section === 'transfer' ? renderProfileTransferSettings() : ''}
         ${section === 'privacy' ? `<div class="settings-card"><h2 class="settings-heading">${svg('shield')}<span>Screen capture protection</span></h2><p>Hide the DART window from supported screenshots and screen sharing apps while it stays visible on your display.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideFromScreenCapture" ${privacyStatus.requested ? 'checked' : ''} ${privacyLoading || privacySaving || !privacyStatus.available && !privacyStatus.requested ? 'disabled' : ''}><span><strong>Hide DART from screen capture</strong><small>Applies to the entire DART window. The choice is saved for future launches.</small></span></label>
           <p class="privacy-status ${privacyStatus.error ? 'privacy-status-error' : privacyStatus.active ? 'privacy-status-active' : ''}" role="status">${privacyLoading ? 'Checking protection status…' : privacyStatus.error ? privacyErrors[privacyStatus.error] || 'Capture protection is unavailable.' : privacyStatus.active ? 'Protection is active.' : privacyStatus.available ? 'Protection is off.' : 'Open the DART desktop window to change this setting.'}</p>
@@ -4826,6 +4888,45 @@ const sankakuMediaRecovery = {
       if (renewed) return renewed;
     }
     return '';
+  }
+};
+
+// Portable profiles omit short-lived signed URLs. Rehydrate only visible
+// missing Sankaku thumbnails, through the existing bounded detail recovery.
+const transferredMediaHydration = {
+  active: new Map(), failedUntil: new Map(), tabId: null,
+  scan() {
+    const tab = currentTab();
+    if (this.tabId !== tab?.id) {
+      for (const controller of this.active.values()) controller.abort();
+      this.active.clear(); this.tabId = tab?.id;
+    }
+    if (!tab || !['likes', 'bookmarks', 'recent'].includes(tab.kind)) return;
+    const bounds = main.getBoundingClientRect();
+    for (const card of main.querySelectorAll('article.card[data-work-key]')) {
+      if (this.active.size >= 2) break;
+      const item = itemIndex.get(card.dataset.workKey);
+      if (!item || item.source !== 'sankaku' || item.thumbnail || this.active.has(item.key) ||
+          (this.failedUntil.get(item.key) || 0) > Date.now()) continue;
+      const rect = card.getBoundingClientRect();
+      if (rect.bottom < bounds.top - 200 || rect.top > bounds.bottom + 400) continue;
+      const controller = new AbortController(), id = tab.id;
+      this.active.set(item.key, controller);
+      void sankakuMediaRecovery.post(item.id, controller.signal).then(detail => {
+        if (controller.signal.aborted || !detail?.thumbnail) return false;
+        Object.assign(item, CatalogLogic.mergeDetailPages(item, detail));
+        rememberItem(item); refreshSavedDetail(detail);
+        recent = recent.map(entry => entry.key === item.key ? item : entry);
+        if (currentTab()?.id === id) render();
+        return true;
+      }).catch(() => false).then(loaded => {
+        if (!loaded && !controller.signal.aborted) this.failedUntil.set(item.key, Date.now() + 60000);
+        if (this.active.get(item.key) === controller) this.active.delete(item.key);
+        if (this.failedUntil.size > 256) for (const [key, until] of this.failedUntil)
+          if (until < Date.now()) this.failedUntil.delete(key);
+        if (currentTab()?.id === id && !controller.signal.aborted) this.scan();
+      });
+    }
   }
 };
 
@@ -5216,6 +5317,7 @@ main.addEventListener('scroll', () => {
     if (currentTab() !== tab) return;
     groupRepairs.scan();
     autoFeed.mount();
+    if (typeof transferredMediaHydration !== 'undefined') transferredMediaHydration.scan();
     if (expireRetainedFeedWorks(tab)) {
       const bounds = main.getBoundingClientRect();
       const anchor = [...main.querySelectorAll('.card[data-work-key]')]
@@ -5801,6 +5903,16 @@ main.addEventListener('input', event => {
 });
 
 main.addEventListener('change', event => {
+  if (event.target.id === 'profile-transfer-file') {
+    const file = event.target.files?.[0];
+    if (file) void profileTransferController().choose(file).then(ready => {
+      if (ready) main.querySelector('#profile-transfer-confirm')?.focus({ preventScroll: true });
+    });
+    return;
+  }
+  if (event.target.name === 'profileApplySettings') {
+    profileTransferController().applySettings(event.target.checked); return;
+  }
   if (currentTab()?.kind !== 'settings' || contentPreferencesSaving) return;
   const name = event.target.name;
   if (name === 'interfaceLanguage') {
@@ -5951,11 +6063,15 @@ main.addEventListener('click', event => {
     if (artwork) openQuickPreview(artwork, 'fullscreen');
   }
   else if (action === 'settings-section' && tab?.kind === 'settings') {
-    tab.settingsSection = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy'].includes(control.dataset.section)
+    tab.settingsSection = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer'].includes(control.dataset.section)
       ? control.dataset.section : 'content';
     saveSession(); render();
     if (tab.settingsSection === 'privacy') loadPrivacyStatus();
   }
+  else if (action === 'profile-export' && tab?.kind === 'settings') void profileTransferController().export();
+  else if (action === 'profile-select' && tab?.kind === 'settings') main.querySelector('#profile-transfer-file')?.click();
+  else if (action === 'profile-import' && tab?.kind === 'settings') void profileTransferController().import();
+  else if (action === 'profile-cancel' && tab?.kind === 'settings') profileTransferController().cancel();
   else if (action === 'theme-choice' && tab?.kind === 'settings') {
     if (globalThis.DartTheme?.setPreference(control.dataset.themeChoice)) {
       saveSession(); render();

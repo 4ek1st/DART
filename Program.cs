@@ -44,6 +44,7 @@ internal static class Program
         var app = builder.Build();
         app.UseDefaultFiles();
         UpdateEndpoints.Map(app);
+        ProfileTransferEndpoints.Map(app);
         app.UseStaticFiles(new StaticFileOptions
         {
             OnPrepareResponse = context =>

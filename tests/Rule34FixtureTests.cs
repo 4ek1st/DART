@@ -24,6 +24,7 @@ if (args.Length >= 2 && args[0] is "--frontend-extract" or "--frontend-hold-lock
 await RunFrontendExtractionFixture();
 CurationFixtureTests.Run();
 SavedWorksFixtureTests.Run();
+ProfileTransferFixtureTests.Run();
 ImageContentFixtureTests.Run();
 await GelbooruAliasFixtureTests.RunAsync();
 await VideoPreviewFixtureTests.RunAsync();

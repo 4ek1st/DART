@@ -7,7 +7,7 @@ Browse **Danbooru**, **Gelbooru**, **Rule34 (R34)**, and **Sankaku** on Windows 
 <a href="https://github.com/4ek1st/DART/releases/latest/download/DART.Windows.exe">
   <img src="docs/assets/download-windows.svg" alt="Download for Windows" width="244" height="48">
 </a>
-<a href="https://github.com/4ek1st/DART/releases/download/android-v0.1.10/DART.Android-0.1.10.apk">
+<a href="https://github.com/4ek1st/DART/releases/download/android-v0.1.11/DART.Android-0.1.11.apk">
   <img src="docs/assets/download-android.svg" alt="Download for Android" width="244" height="48">
 </a>
 
@@ -24,13 +24,15 @@ Browse **Danbooru**, **Gelbooru**, **Rule34 (R34)**, and **Sankaku** on Windows 
 - **Following** — see new work from the artists you follow.
 - **Your collection** — like works to shape recommendations, bookmark them for later, and keep your history and tabs.
 
-The Android build is **ArtCatalog Mobile 0.1.10**. It appears as **ArtCatalog**
-on the device and currently has a Russian interface. Android and Windows have
-separate version numbers.
+The Android build is **DART 0.1.11**, with English, Russian and German interfaces.
+Android and Windows have separate version numbers and share local recommendation,
+curation and grouping rules. Both work independently. Use **Settings → Profile transfer**
+to merge likes, bookmarks, follows and viewed works between devices without replacing
+either profile. Credentials and device settings stay on their own device.
 
 ## Get started
 
-1. Download the [Windows EXE](https://github.com/4ek1st/DART/releases/latest/download/DART.Windows.exe) or [Android APK](https://github.com/4ek1st/DART/releases/download/android-v0.1.10/DART.Android-0.1.10.apk).
+1. Download the [Windows EXE](https://github.com/4ek1st/DART/releases/latest/download/DART.Windows.exe) or [Android APK](https://github.com/4ek1st/DART/releases/download/android-v0.1.11/DART.Android-0.1.11.apk).
 2. Open the app settings and connect the sources you want to use.
 3. Explore, save your favorites, and follow artists.
 

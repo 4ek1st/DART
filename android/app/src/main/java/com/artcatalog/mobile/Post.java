@@ -6,18 +6,24 @@ import java.util.*;
 public final class Post {
     public String source="", id="", title="", artist="", artistTag="", preview="",
         image="", original="", sourceUrl="", hash="", rating="", published="",smallPreview="",
-        originalUrl="",uploaderId="",uploaderName="",groupKey="",pixivGroupKey="",visualHash="";
-    public int width, height, score;
+        originalUrl="",uploaderId="",uploaderName="",groupKey="",pixivGroupKey="",visualHash="",visualPHash="",relatedQuery="",accessMessage="";
+    public int width, height, score,groupingVersion,groupCount;
+    public Integer popularityCount;
+    public double visualAspectRatio;
+    public boolean requiresAuthentication;
+    public JSONArray participants=new JSONArray();
+    public List<Post> groupMembers=new ArrayList<>();
     public long groupMinTime=-1,groupMaxTime=-1;
     public List<String> tags=new ArrayList<>();
     public List<String> characterTags=new ArrayList<>(),copyrightTags=new ArrayList<>(),artistTags=new ArrayList<>(),memberKeys=new ArrayList<>(),media=new ArrayList<>();
     public List<String> identityKeys=new ArrayList<>(),uploaderKeys=new ArrayList<>();public JSONArray visualSamples=new JSONArray(),imageRecords=new JSONArray();
     public String key(){return source+":"+id;}
     public boolean isVideo(){return image.toLowerCase(Locale.ROOT).matches(".*\\.(mp4|webm|m4v)(\\?.*)?$");}
-    public JSONObject toJson() {
+    public JSONObject toJson() {return toJson(true);}
+    private JSONObject toJson(boolean includeMembers) {
         JSONObject o=new JSONObject();
         try {
-            o.put("source",source).put("id",id).put("title",title).put("artist",artist).put("creatorName",artist)
+            o.put("key",key()).put("source",source).put("id",id).put("title",title).put("artist",artist).put("creatorName",artist)
                 .put("creatorTag",artistTag).put("thumbnail",preview).put("image",image)
                 .put("original",original).put("sourceUrl",sourceUrl).put("contentHash",hash)
                 .put("rating",rating).put("published",published).put("width",width)
@@ -26,10 +32,18 @@ public final class Post {
                 .put("memberKeys",new JSONArray(memberKeys)).put("images",new JSONArray(media))
                 .put("smallPreview",smallPreview).put("originalUrl",originalUrl).put("uploaderId",uploaderId).put("uploaderName",uploaderName);
             o.put("groupKey",groupKey).put("pixivGroupKey",pixivGroupKey).put("identityKeys",new JSONArray(identityKeys)).put("uploaderKeys",new JSONArray(uploaderKeys)).put("visualHash",visualHash).put("visualSamples",visualSamples).put("imageRecords",imageRecords).put("groupMinTime",groupMinTime).put("groupMaxTime",groupMaxTime);
+            JSONArray members=new JSONArray();if(includeMembers)for(Post member:groupMembers)members.put(member.toJson(false));
+            JSONArray people=new JSONArray(participants.toString());Set<String> peopleTags=new HashSet<>();for(int i=0;i<people.length();i++){JSONObject person=people.optJSONObject(i);if(person!=null)peopleTags.add(person.optString("tag"));}
+            List<String> knownArtists=new ArrayList<>(artistTags);if(!artistTag.isBlank())knownArtists.add(artistTag);for(String tag:knownArtists)if(!tag.isBlank()&&peopleTags.add(tag))people.put(new JSONObject().put("tag",tag).put("name",tag.equals(artistTag)?artist:tag.replace('_',' ')).put("role",participantRole(tag,"")));
+            o.put("groupMembers",members).put("groupingVersion",groupingVersion).put("groupCount",Math.max(1,media.size()))
+                .put("participants",people).put("relatedQuery",relatedQuery).put("visualPHash",visualPHash)
+                .put("visualAspectRatio",visualAspectRatio).put("popularityCount",popularityCount==null?JSONObject.NULL:popularityCount)
+                .put("requiresAuthentication",requiresAuthentication).put("accessMessage",accessMessage);
         } catch(JSONException e){throw new IllegalStateException(e);}
         return o;
     }
-    public static Post fromJson(JSONObject o){
+    public static Post fromJson(JSONObject o){return fromJson(o,true);}
+    private static Post fromJson(JSONObject o,boolean includeMembers){
         Post p=new Post();
         p.source=o.optString("source"); p.id=o.optString("id"); p.title=o.optString("title");
         p.artistTag=o.optString("creatorTag",o.optString("artistTag"));p.artist=o.optString("creatorName",p.artistTag.isBlank()?"Автор не указан":p.artistTag.replace('_',' '));
@@ -38,11 +52,18 @@ public final class Post {
         p.image=o.optString("image",images!=null?images.optString(0):"");
         p.original=o.optString("original",p.image);
         p.smallPreview=o.optString("smallPreview",p.preview);p.originalUrl=o.optString("originalUrl");p.uploaderId=o.optString("uploaderId");p.uploaderName=o.optString("uploaderName");
-        p.groupKey=o.optString("groupKey");p.pixivGroupKey=o.optString("pixivGroupKey");p.identityKeys=strings(o.optJSONArray("identityKeys"));p.uploaderKeys=strings(o.optJSONArray("uploaderKeys"));p.visualHash=o.optString("visualHash");JSONArray samples=o.optJSONArray("visualSamples"),records=o.optJSONArray("imageRecords");if(samples!=null)p.visualSamples=samples;if(records!=null)p.imageRecords=records;
+        p.groupKey=o.optString("groupKey");p.pixivGroupKey=o.optString("pixivGroupKey");p.identityKeys=strings(o.optJSONArray("identityKeys"),2000);p.uploaderKeys=strings(o.optJSONArray("uploaderKeys"));p.visualHash=o.optString("visualHash");JSONArray samples=o.optJSONArray("visualSamples"),records=o.optJSONArray("imageRecords");if(samples!=null)p.visualSamples=samples;if(records!=null)p.imageRecords=records;
         p.sourceUrl=o.optString("sourceUrl");p.hash=o.optString("contentHash",o.optString("hash"));
         p.rating=o.optString("rating");p.published=o.optString("published");
         p.groupMinTime=o.optLong("groupMinTime",-1);p.groupMaxTime=o.optLong("groupMaxTime",-1);
         p.width=o.optInt("width");p.height=o.optInt("height");p.score=o.optInt("score");
+        if(o.has("popularityCount")){if(!o.isNull("popularityCount"))p.popularityCount=Integer.valueOf(o.optInt("popularityCount"));}else if(o.has("score"))p.popularityCount=Integer.valueOf(p.score);
+        p.groupingVersion=o.optInt("groupingVersion");p.groupCount=o.optInt("groupCount");p.relatedQuery=o.optString("relatedQuery");
+        p.visualPHash=o.optString("visualPHash");p.visualAspectRatio=o.optDouble("visualAspectRatio",0);
+        if(!Double.isFinite(p.visualAspectRatio))p.visualAspectRatio=0;
+        p.requiresAuthentication=o.optBoolean("requiresAuthentication");p.accessMessage=o.optString("accessMessage");
+        JSONArray people=o.optJSONArray("participants");if(people!=null)for(int i=0;i<Math.min(100,people.length());i++){JSONObject person=people.optJSONObject(i);if(person!=null&&person.optString("tag").length()<=100)p.participants.put(person);}
+        JSONArray members=o.optJSONArray("groupMembers");if(includeMembers&&members!=null)for(int i=0;i<Math.min(100,members.length());i++){JSONObject member=members.optJSONObject(i);if(member!=null)p.groupMembers.add(fromJson(member,false));}
         JSONArray tags=o.optJSONArray("tags");
         if(tags!=null)for(int i=0;i<Math.min(tags.length(),1000);i++)p.tags.add(tags.optString(i));
         for(String tag:strings(o.optJSONArray("allTags")))if(!p.tags.contains(tag))p.tags.add(tag);
@@ -52,5 +73,8 @@ public final class Post {
         if(p.media.isEmpty()&&!p.image.isBlank())p.media.add(p.image);
         return p;
     }
-    private static List<String> strings(JSONArray a){List<String> out=new ArrayList<>();if(a!=null)for(int i=0;i<Math.min(a.length(),1000);i++){String s=a.optString(i);if(!s.isBlank())out.add(s);}return out;}
+    static String participantRole(String tag,String role){String text=tag.toLowerCase(Locale.ROOT).replace('_',' '),qualifier="";int at=text.lastIndexOf('(');if(at>=0&&text.endsWith(")"))qualifier=text.substring(at+1,text.length()-1);
+        return switch(qualifier){case "voice actor","voice actress"->"voice_actor";case "sound editor","sound designer","sound effects","sfx"->"sound";case "composer","musician","singer","vocalist"->"music";case "writer","scriptwriter"->"writer";case "colorist","colourist"->"colorist";case "editor","video editor"->"editor";case "translator"->"translator";case "animator"->"animator";default->Set.of("artist","animator","voice_actor","sound","music","writer","colorist","editor","translator").contains(role)?role:"artist";};}
+    private static List<String> strings(JSONArray a){return strings(a,1000);}
+    private static List<String> strings(JSONArray a,int limit){List<String> out=new ArrayList<>();if(a!=null)for(int i=0;i<Math.min(a.length(),limit);i++){String s=a.optString(i);if(!s.isBlank())out.add(s);}return out;}
 }

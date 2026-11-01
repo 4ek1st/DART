@@ -466,3 +466,11 @@ h3 { font-size: 15px; }
 @media (prefers-reduced-motion: reduce) { .artwork-like-feedback { animation: none !important; opacity: 1; transform: translate(-50%, -50%); } }
 .language-picker { display: flex; flex-direction: column; gap: 12px; max-width: 360px; margin: 24px 0; }
 .language-picker select { width: 100%; padding: 12px 16px; font: inherit; color: var(--text, #eee); background: #303030; border: 1px solid #555; border-radius: 8px; }
+.profile-transfer-actions { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:18px 0; }
+.profile-transfer-counts { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px 24px; margin:18px 0; }
+.profile-transfer-counts div { display:flex; gap:12px; justify-content:space-between; min-width:0; }
+.profile-transfer-counts dt { color:var(--muted,#a6b3c1); }
+.profile-transfer-counts dd { margin:0; font-variant-numeric:tabular-nums; }
+.profile-transfer-preview,.profile-transfer-result { border-top:1px solid var(--border,#383838); margin-top:22px; padding-top:16px; }
+.profile-transfer-preview p[data-no-i18n] { overflow-wrap:anywhere; }
+.profile-transfer-error { color:#f38b8f; overflow-wrap:anywhere; }

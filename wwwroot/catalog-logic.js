@@ -1129,7 +1129,7 @@
 
   function normalizeExcludedTags(tags) {
     return [...new Set((Array.isArray(tags) ? tags : []).map(normalizeFilterTag)
-      .filter(tag => tag && tag.length <= 100))].slice(0, 100);
+      .filter(tag => tag && tag.length <= 100))].slice(0, 1000);
   }
 
   function hiddenAuthorKey(author) {

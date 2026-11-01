@@ -1,0 +1,6107 @@
+{
+  "desktopSha256": "cf08dc57e80bb8d598709d0a6ebdca32068dcb9961992b6507d814bb703d2cc0",
+  "cases": [
+    {
+      "name": "manual priority without likes",
+      "liked": [],
+      "candidates": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "forest"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "bob",
+          "creatorName": "bob",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "city"
+          ],
+          "images": []
+        }
+      ],
+      "preferences": {
+        "forest": "priority"
+      },
+      "context": {},
+      "seed": 0,
+      "rating": "all",
+      "queries": {
+        "priority": [
+          "forest"
+        ],
+        "names": [],
+        "copyright": [],
+        "other": [],
+        "combinations": []
+      },
+      "expected": [
+        "danbooru:1"
+      ]
+    },
+    {
+      "name": "evidence, character and artist diversity",
+      "liked": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "artist_0",
+          "creatorName": "artist_0",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "incidental"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "artist_1",
+          "creatorName": "artist_1",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:3",
+          "source": "danbooru",
+          "id": "3",
+          "creatorTag": "artist_2",
+          "creatorName": "artist_2",
+          "title": "Work 3",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:4",
+          "source": "danbooru",
+          "id": "4",
+          "creatorTag": "artist_3",
+          "creatorName": "artist_3",
+          "title": "Work 4",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:5",
+          "source": "danbooru",
+          "id": "5",
+          "creatorTag": "artist_4",
+          "creatorName": "artist_4",
+          "title": "Work 5",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:6",
+          "source": "danbooru",
+          "id": "6",
+          "creatorTag": "artist_5",
+          "creatorName": "artist_5",
+          "title": "Work 6",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:7",
+          "source": "danbooru",
+          "id": "7",
+          "creatorTag": "artist_6",
+          "creatorName": "artist_6",
+          "title": "Work 7",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:8",
+          "source": "danbooru",
+          "id": "8",
+          "creatorTag": "artist_7",
+          "creatorName": "artist_7",
+          "title": "Work 8",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:9",
+          "source": "danbooru",
+          "id": "9",
+          "creatorTag": "artist_8",
+          "creatorName": "artist_8",
+          "title": "Work 9",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:10",
+          "source": "danbooru",
+          "id": "10",
+          "creatorTag": "artist_9",
+          "creatorName": "artist_9",
+          "title": "Work 10",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:11",
+          "source": "danbooru",
+          "id": "11",
+          "creatorTag": "artist_10",
+          "creatorName": "artist_10",
+          "title": "Work 11",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:12",
+          "source": "danbooru",
+          "id": "12",
+          "creatorTag": "artist_11",
+          "creatorName": "artist_11",
+          "title": "Work 12",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:13",
+          "source": "danbooru",
+          "id": "13",
+          "creatorTag": "artist_12",
+          "creatorName": "artist_12",
+          "title": "Work 13",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:14",
+          "source": "danbooru",
+          "id": "14",
+          "creatorTag": "artist_13",
+          "creatorName": "artist_13",
+          "title": "Work 14",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:15",
+          "source": "danbooru",
+          "id": "15",
+          "creatorTag": "artist_14",
+          "creatorName": "artist_14",
+          "title": "Work 15",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:16",
+          "source": "danbooru",
+          "id": "16",
+          "creatorTag": "artist_15",
+          "creatorName": "artist_15",
+          "title": "Work 16",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:17",
+          "source": "danbooru",
+          "id": "17",
+          "creatorTag": "artist_16",
+          "creatorName": "artist_16",
+          "title": "Work 17",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:18",
+          "source": "danbooru",
+          "id": "18",
+          "creatorTag": "artist_17",
+          "creatorName": "artist_17",
+          "title": "Work 18",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:19",
+          "source": "danbooru",
+          "id": "19",
+          "creatorTag": "artist_18",
+          "creatorName": "artist_18",
+          "title": "Work 19",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:20",
+          "source": "danbooru",
+          "id": "20",
+          "creatorTag": "artist_19",
+          "creatorName": "artist_19",
+          "title": "Work 20",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        }
+      ],
+      "candidates": [
+        {
+          "key": "danbooru:100",
+          "source": "danbooru",
+          "id": "100",
+          "creatorTag": "fresh_a",
+          "creatorName": "fresh_a",
+          "title": "Work 100",
+          "rating": "g",
+          "tags": [
+            "incidental"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:101",
+          "source": "danbooru",
+          "id": "101",
+          "creatorTag": "fresh_b",
+          "creatorName": "fresh_b",
+          "title": "Work 101",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:102",
+          "source": "danbooru",
+          "id": "102",
+          "creatorTag": "fresh_b",
+          "creatorName": "fresh_b",
+          "title": "Work 102",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:103",
+          "source": "danbooru",
+          "id": "103",
+          "creatorTag": "fresh_c",
+          "creatorName": "fresh_c",
+          "title": "Work 103",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:104",
+          "source": "danbooru",
+          "id": "104",
+          "creatorTag": "fresh_d",
+          "creatorName": "fresh_d",
+          "title": "Work 104",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "alice_(sample)"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ]
+        },
+        {
+          "key": "danbooru:105",
+          "source": "danbooru",
+          "id": "105",
+          "creatorTag": "fresh_e",
+          "creatorName": "fresh_e",
+          "title": "Work 105",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "sample_series"
+          ],
+          "images": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:106",
+          "source": "danbooru",
+          "id": "106",
+          "creatorTag": "fresh_f",
+          "creatorName": "fresh_f",
+          "title": "Work 106",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "city"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:107",
+          "source": "danbooru",
+          "id": "107",
+          "creatorTag": "fresh_a",
+          "creatorName": "fresh_a",
+          "title": "Work 107",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "blue_eyes",
+            "long_hair"
+          ],
+          "images": []
+        }
+      ],
+      "preferences": {},
+      "context": {},
+      "seed": 0,
+      "rating": "all",
+      "queries": {
+        "priority": [],
+        "names": [
+          "alice_(sample)"
+        ],
+        "copyright": [
+          "sample_series"
+        ],
+        "other": [
+          "landscape",
+          "sunlight",
+          "mountain",
+          "forest"
+        ],
+        "combinations": []
+      },
+      "expected": [
+        "danbooru:102",
+        "danbooru:103",
+        "danbooru:107",
+        "danbooru:105",
+        "danbooru:104",
+        "danbooru:101",
+        "danbooru:106"
+      ]
+    },
+    {
+      "name": "seed and recent catalog aliases",
+      "liked": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "artist_0",
+          "creatorName": "artist_0",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "incidental"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "artist_1",
+          "creatorName": "artist_1",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:3",
+          "source": "danbooru",
+          "id": "3",
+          "creatorTag": "artist_2",
+          "creatorName": "artist_2",
+          "title": "Work 3",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:4",
+          "source": "danbooru",
+          "id": "4",
+          "creatorTag": "artist_3",
+          "creatorName": "artist_3",
+          "title": "Work 4",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:5",
+          "source": "danbooru",
+          "id": "5",
+          "creatorTag": "artist_4",
+          "creatorName": "artist_4",
+          "title": "Work 5",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:6",
+          "source": "danbooru",
+          "id": "6",
+          "creatorTag": "artist_5",
+          "creatorName": "artist_5",
+          "title": "Work 6",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:7",
+          "source": "danbooru",
+          "id": "7",
+          "creatorTag": "artist_6",
+          "creatorName": "artist_6",
+          "title": "Work 7",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:8",
+          "source": "danbooru",
+          "id": "8",
+          "creatorTag": "artist_7",
+          "creatorName": "artist_7",
+          "title": "Work 8",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:9",
+          "source": "danbooru",
+          "id": "9",
+          "creatorTag": "artist_8",
+          "creatorName": "artist_8",
+          "title": "Work 9",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:10",
+          "source": "danbooru",
+          "id": "10",
+          "creatorTag": "artist_9",
+          "creatorName": "artist_9",
+          "title": "Work 10",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:11",
+          "source": "danbooru",
+          "id": "11",
+          "creatorTag": "artist_10",
+          "creatorName": "artist_10",
+          "title": "Work 11",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:12",
+          "source": "danbooru",
+          "id": "12",
+          "creatorTag": "artist_11",
+          "creatorName": "artist_11",
+          "title": "Work 12",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:13",
+          "source": "danbooru",
+          "id": "13",
+          "creatorTag": "artist_12",
+          "creatorName": "artist_12",
+          "title": "Work 13",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:14",
+          "source": "danbooru",
+          "id": "14",
+          "creatorTag": "artist_13",
+          "creatorName": "artist_13",
+          "title": "Work 14",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:15",
+          "source": "danbooru",
+          "id": "15",
+          "creatorTag": "artist_14",
+          "creatorName": "artist_14",
+          "title": "Work 15",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:16",
+          "source": "danbooru",
+          "id": "16",
+          "creatorTag": "artist_15",
+          "creatorName": "artist_15",
+          "title": "Work 16",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:17",
+          "source": "danbooru",
+          "id": "17",
+          "creatorTag": "artist_16",
+          "creatorName": "artist_16",
+          "title": "Work 17",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:18",
+          "source": "danbooru",
+          "id": "18",
+          "creatorTag": "artist_17",
+          "creatorName": "artist_17",
+          "title": "Work 18",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:19",
+          "source": "danbooru",
+          "id": "19",
+          "creatorTag": "artist_18",
+          "creatorName": "artist_18",
+          "title": "Work 19",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:20",
+          "source": "danbooru",
+          "id": "20",
+          "creatorTag": "artist_19",
+          "creatorName": "artist_19",
+          "title": "Work 20",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        }
+      ],
+      "candidates": [
+        {
+          "key": "danbooru:100",
+          "source": "danbooru",
+          "id": "100",
+          "creatorTag": "fresh_a",
+          "creatorName": "fresh_a",
+          "title": "Work 100",
+          "rating": "g",
+          "tags": [
+            "incidental"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:101",
+          "source": "danbooru",
+          "id": "101",
+          "creatorTag": "fresh_b",
+          "creatorName": "fresh_b",
+          "title": "Work 101",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:102",
+          "source": "danbooru",
+          "id": "102",
+          "creatorTag": "fresh_b",
+          "creatorName": "fresh_b",
+          "title": "Work 102",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:103",
+          "source": "danbooru",
+          "id": "103",
+          "creatorTag": "fresh_c",
+          "creatorName": "fresh_c",
+          "title": "Work 103",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:104",
+          "source": "danbooru",
+          "id": "104",
+          "creatorTag": "fresh_d",
+          "creatorName": "fresh_d",
+          "title": "Work 104",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "alice_(sample)"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ]
+        },
+        {
+          "key": "danbooru:105",
+          "source": "danbooru",
+          "id": "105",
+          "creatorTag": "fresh_e",
+          "creatorName": "fresh_e",
+          "title": "Work 105",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "sample_series"
+          ],
+          "images": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:106",
+          "source": "danbooru",
+          "id": "106",
+          "creatorTag": "fresh_f",
+          "creatorName": "fresh_f",
+          "title": "Work 106",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "city"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:107",
+          "source": "danbooru",
+          "id": "107",
+          "creatorTag": "fresh_a",
+          "creatorName": "fresh_a",
+          "title": "Work 107",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "blue_eyes",
+            "long_hair"
+          ],
+          "images": []
+        }
+      ],
+      "preferences": {},
+      "context": {
+        "recentKeys": [
+          "danbooru:102",
+          "danbooru:103"
+        ],
+        "existingWorks": [
+          {
+            "key": "danbooru:101",
+            "source": "danbooru",
+            "id": "101",
+            "creatorTag": "fresh_b",
+            "creatorName": "fresh_b",
+            "title": "Work 101",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain"
+            ],
+            "images": []
+          }
+        ]
+      },
+      "seed": 17,
+      "rating": "all",
+      "queries": {
+        "priority": [],
+        "names": [
+          "alice_(sample)"
+        ],
+        "copyright": [
+          "sample_series"
+        ],
+        "other": [
+          "landscape",
+          "sunlight",
+          "mountain",
+          "forest"
+        ],
+        "combinations": []
+      },
+      "expected": [
+        "danbooru:107",
+        "danbooru:106",
+        "danbooru:105",
+        "danbooru:104",
+        "danbooru:103",
+        "danbooru:102"
+      ]
+    },
+    {
+      "name": "priority and disabled normalized punctuation",
+      "liked": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "artist_0",
+          "creatorName": "artist_0",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "incidental"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "artist_1",
+          "creatorName": "artist_1",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:3",
+          "source": "danbooru",
+          "id": "3",
+          "creatorTag": "artist_2",
+          "creatorName": "artist_2",
+          "title": "Work 3",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:4",
+          "source": "danbooru",
+          "id": "4",
+          "creatorTag": "artist_3",
+          "creatorName": "artist_3",
+          "title": "Work 4",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:5",
+          "source": "danbooru",
+          "id": "5",
+          "creatorTag": "artist_4",
+          "creatorName": "artist_4",
+          "title": "Work 5",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:6",
+          "source": "danbooru",
+          "id": "6",
+          "creatorTag": "artist_5",
+          "creatorName": "artist_5",
+          "title": "Work 6",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:7",
+          "source": "danbooru",
+          "id": "7",
+          "creatorTag": "artist_6",
+          "creatorName": "artist_6",
+          "title": "Work 7",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:8",
+          "source": "danbooru",
+          "id": "8",
+          "creatorTag": "artist_7",
+          "creatorName": "artist_7",
+          "title": "Work 8",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:9",
+          "source": "danbooru",
+          "id": "9",
+          "creatorTag": "artist_8",
+          "creatorName": "artist_8",
+          "title": "Work 9",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:10",
+          "source": "danbooru",
+          "id": "10",
+          "creatorTag": "artist_9",
+          "creatorName": "artist_9",
+          "title": "Work 10",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:11",
+          "source": "danbooru",
+          "id": "11",
+          "creatorTag": "artist_10",
+          "creatorName": "artist_10",
+          "title": "Work 11",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:12",
+          "source": "danbooru",
+          "id": "12",
+          "creatorTag": "artist_11",
+          "creatorName": "artist_11",
+          "title": "Work 12",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:13",
+          "source": "danbooru",
+          "id": "13",
+          "creatorTag": "artist_12",
+          "creatorName": "artist_12",
+          "title": "Work 13",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:14",
+          "source": "danbooru",
+          "id": "14",
+          "creatorTag": "artist_13",
+          "creatorName": "artist_13",
+          "title": "Work 14",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:15",
+          "source": "danbooru",
+          "id": "15",
+          "creatorTag": "artist_14",
+          "creatorName": "artist_14",
+          "title": "Work 15",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:16",
+          "source": "danbooru",
+          "id": "16",
+          "creatorTag": "artist_15",
+          "creatorName": "artist_15",
+          "title": "Work 16",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:17",
+          "source": "danbooru",
+          "id": "17",
+          "creatorTag": "artist_16",
+          "creatorName": "artist_16",
+          "title": "Work 17",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:18",
+          "source": "danbooru",
+          "id": "18",
+          "creatorTag": "artist_17",
+          "creatorName": "artist_17",
+          "title": "Work 18",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:19",
+          "source": "danbooru",
+          "id": "19",
+          "creatorTag": "artist_18",
+          "creatorName": "artist_18",
+          "title": "Work 19",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:20",
+          "source": "danbooru",
+          "id": "20",
+          "creatorTag": "artist_19",
+          "creatorName": "artist_19",
+          "title": "Work 20",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        }
+      ],
+      "candidates": [
+        {
+          "key": "danbooru:100",
+          "source": "danbooru",
+          "id": "100",
+          "creatorTag": "fresh_a",
+          "creatorName": "fresh_a",
+          "title": "Work 100",
+          "rating": "g",
+          "tags": [
+            "incidental"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:101",
+          "source": "danbooru",
+          "id": "101",
+          "creatorTag": "fresh_b",
+          "creatorName": "fresh_b",
+          "title": "Work 101",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:102",
+          "source": "danbooru",
+          "id": "102",
+          "creatorTag": "fresh_b",
+          "creatorName": "fresh_b",
+          "title": "Work 102",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:103",
+          "source": "danbooru",
+          "id": "103",
+          "creatorTag": "fresh_c",
+          "creatorName": "fresh_c",
+          "title": "Work 103",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:104",
+          "source": "danbooru",
+          "id": "104",
+          "creatorTag": "fresh_d",
+          "creatorName": "fresh_d",
+          "title": "Work 104",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "alice_(sample)"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ]
+        },
+        {
+          "key": "danbooru:105",
+          "source": "danbooru",
+          "id": "105",
+          "creatorTag": "fresh_e",
+          "creatorName": "fresh_e",
+          "title": "Work 105",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "sample_series"
+          ],
+          "images": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:106",
+          "source": "danbooru",
+          "id": "106",
+          "creatorTag": "fresh_f",
+          "creatorName": "fresh_f",
+          "title": "Work 106",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "city"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:107",
+          "source": "danbooru",
+          "id": "107",
+          "creatorTag": "fresh_a",
+          "creatorName": "fresh_a",
+          "title": "Work 107",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "blue_eyes",
+            "long_hair"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:110",
+          "source": "danbooru",
+          "id": "110",
+          "creatorTag": "new",
+          "creatorName": "new",
+          "title": "Work 110",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "alternate:costume"
+          ],
+          "images": []
+        }
+      ],
+      "preferences": {
+        "alternate costume": "priority",
+        "forest": "disabled"
+      },
+      "context": {},
+      "seed": 0,
+      "rating": "all",
+      "queries": {
+        "priority": [
+          "alternate_costume"
+        ],
+        "names": [
+          "alice_(sample)"
+        ],
+        "copyright": [
+          "sample_series"
+        ],
+        "other": [
+          "landscape",
+          "sunlight",
+          "mountain"
+        ],
+        "combinations": []
+      },
+      "expected": [
+        "danbooru:110",
+        "danbooru:101",
+        "danbooru:107",
+        "danbooru:105",
+        "danbooru:104",
+        "danbooru:106"
+      ]
+    },
+    {
+      "name": "local prevalence calibration",
+      "liked": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "artist_0",
+          "creatorName": "artist_0",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "incidental"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "artist_1",
+          "creatorName": "artist_1",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:3",
+          "source": "danbooru",
+          "id": "3",
+          "creatorTag": "artist_2",
+          "creatorName": "artist_2",
+          "title": "Work 3",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:4",
+          "source": "danbooru",
+          "id": "4",
+          "creatorTag": "artist_3",
+          "creatorName": "artist_3",
+          "title": "Work 4",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:5",
+          "source": "danbooru",
+          "id": "5",
+          "creatorTag": "artist_4",
+          "creatorName": "artist_4",
+          "title": "Work 5",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:6",
+          "source": "danbooru",
+          "id": "6",
+          "creatorTag": "artist_5",
+          "creatorName": "artist_5",
+          "title": "Work 6",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:7",
+          "source": "danbooru",
+          "id": "7",
+          "creatorTag": "artist_6",
+          "creatorName": "artist_6",
+          "title": "Work 7",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:8",
+          "source": "danbooru",
+          "id": "8",
+          "creatorTag": "artist_7",
+          "creatorName": "artist_7",
+          "title": "Work 8",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:9",
+          "source": "danbooru",
+          "id": "9",
+          "creatorTag": "artist_8",
+          "creatorName": "artist_8",
+          "title": "Work 9",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:10",
+          "source": "danbooru",
+          "id": "10",
+          "creatorTag": "artist_9",
+          "creatorName": "artist_9",
+          "title": "Work 10",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:11",
+          "source": "danbooru",
+          "id": "11",
+          "creatorTag": "artist_10",
+          "creatorName": "artist_10",
+          "title": "Work 11",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:12",
+          "source": "danbooru",
+          "id": "12",
+          "creatorTag": "artist_11",
+          "creatorName": "artist_11",
+          "title": "Work 12",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:13",
+          "source": "danbooru",
+          "id": "13",
+          "creatorTag": "artist_12",
+          "creatorName": "artist_12",
+          "title": "Work 13",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:14",
+          "source": "danbooru",
+          "id": "14",
+          "creatorTag": "artist_13",
+          "creatorName": "artist_13",
+          "title": "Work 14",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:15",
+          "source": "danbooru",
+          "id": "15",
+          "creatorTag": "artist_14",
+          "creatorName": "artist_14",
+          "title": "Work 15",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:16",
+          "source": "danbooru",
+          "id": "16",
+          "creatorTag": "artist_15",
+          "creatorName": "artist_15",
+          "title": "Work 16",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:17",
+          "source": "danbooru",
+          "id": "17",
+          "creatorTag": "artist_16",
+          "creatorName": "artist_16",
+          "title": "Work 17",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:18",
+          "source": "danbooru",
+          "id": "18",
+          "creatorTag": "artist_17",
+          "creatorName": "artist_17",
+          "title": "Work 18",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:19",
+          "source": "danbooru",
+          "id": "19",
+          "creatorTag": "artist_18",
+          "creatorName": "artist_18",
+          "title": "Work 19",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:20",
+          "source": "danbooru",
+          "id": "20",
+          "creatorTag": "artist_19",
+          "creatorName": "artist_19",
+          "title": "Work 20",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        }
+      ],
+      "candidates": [
+        {
+          "key": "danbooru:100",
+          "source": "danbooru",
+          "id": "100",
+          "creatorTag": "fresh_a",
+          "creatorName": "fresh_a",
+          "title": "Work 100",
+          "rating": "g",
+          "tags": [
+            "incidental"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:101",
+          "source": "danbooru",
+          "id": "101",
+          "creatorTag": "fresh_b",
+          "creatorName": "fresh_b",
+          "title": "Work 101",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:102",
+          "source": "danbooru",
+          "id": "102",
+          "creatorTag": "fresh_b",
+          "creatorName": "fresh_b",
+          "title": "Work 102",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:103",
+          "source": "danbooru",
+          "id": "103",
+          "creatorTag": "fresh_c",
+          "creatorName": "fresh_c",
+          "title": "Work 103",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:104",
+          "source": "danbooru",
+          "id": "104",
+          "creatorTag": "fresh_d",
+          "creatorName": "fresh_d",
+          "title": "Work 104",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "alice_(sample)"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ]
+        },
+        {
+          "key": "danbooru:105",
+          "source": "danbooru",
+          "id": "105",
+          "creatorTag": "fresh_e",
+          "creatorName": "fresh_e",
+          "title": "Work 105",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "sample_series"
+          ],
+          "images": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:106",
+          "source": "danbooru",
+          "id": "106",
+          "creatorTag": "fresh_f",
+          "creatorName": "fresh_f",
+          "title": "Work 106",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "city"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:107",
+          "source": "danbooru",
+          "id": "107",
+          "creatorTag": "fresh_a",
+          "creatorName": "fresh_a",
+          "title": "Work 107",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "blue_eyes",
+            "long_hair"
+          ],
+          "images": []
+        }
+      ],
+      "preferences": {},
+      "context": {
+        "background": [
+          {
+            "key": "danbooru:1000",
+            "source": "danbooru",
+            "id": "1000",
+            "creatorTag": "ordinary_0",
+            "creatorName": "ordinary_0",
+            "title": "Work 1000",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1001",
+            "source": "danbooru",
+            "id": "1001",
+            "creatorTag": "ordinary_1",
+            "creatorName": "ordinary_1",
+            "title": "Work 1001",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1002",
+            "source": "danbooru",
+            "id": "1002",
+            "creatorTag": "ordinary_2",
+            "creatorName": "ordinary_2",
+            "title": "Work 1002",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1003",
+            "source": "danbooru",
+            "id": "1003",
+            "creatorTag": "ordinary_3",
+            "creatorName": "ordinary_3",
+            "title": "Work 1003",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1004",
+            "source": "danbooru",
+            "id": "1004",
+            "creatorTag": "ordinary_4",
+            "creatorName": "ordinary_4",
+            "title": "Work 1004",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1005",
+            "source": "danbooru",
+            "id": "1005",
+            "creatorTag": "ordinary_5",
+            "creatorName": "ordinary_5",
+            "title": "Work 1005",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1006",
+            "source": "danbooru",
+            "id": "1006",
+            "creatorTag": "ordinary_6",
+            "creatorName": "ordinary_6",
+            "title": "Work 1006",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1007",
+            "source": "danbooru",
+            "id": "1007",
+            "creatorTag": "ordinary_7",
+            "creatorName": "ordinary_7",
+            "title": "Work 1007",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1008",
+            "source": "danbooru",
+            "id": "1008",
+            "creatorTag": "ordinary_8",
+            "creatorName": "ordinary_8",
+            "title": "Work 1008",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1009",
+            "source": "danbooru",
+            "id": "1009",
+            "creatorTag": "ordinary_9",
+            "creatorName": "ordinary_9",
+            "title": "Work 1009",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1010",
+            "source": "danbooru",
+            "id": "1010",
+            "creatorTag": "ordinary_10",
+            "creatorName": "ordinary_10",
+            "title": "Work 1010",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1011",
+            "source": "danbooru",
+            "id": "1011",
+            "creatorTag": "ordinary_11",
+            "creatorName": "ordinary_11",
+            "title": "Work 1011",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1012",
+            "source": "danbooru",
+            "id": "1012",
+            "creatorTag": "ordinary_12",
+            "creatorName": "ordinary_12",
+            "title": "Work 1012",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1013",
+            "source": "danbooru",
+            "id": "1013",
+            "creatorTag": "ordinary_13",
+            "creatorName": "ordinary_13",
+            "title": "Work 1013",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1014",
+            "source": "danbooru",
+            "id": "1014",
+            "creatorTag": "ordinary_14",
+            "creatorName": "ordinary_14",
+            "title": "Work 1014",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1015",
+            "source": "danbooru",
+            "id": "1015",
+            "creatorTag": "ordinary_15",
+            "creatorName": "ordinary_15",
+            "title": "Work 1015",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1016",
+            "source": "danbooru",
+            "id": "1016",
+            "creatorTag": "ordinary_16",
+            "creatorName": "ordinary_16",
+            "title": "Work 1016",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1017",
+            "source": "danbooru",
+            "id": "1017",
+            "creatorTag": "ordinary_17",
+            "creatorName": "ordinary_17",
+            "title": "Work 1017",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1018",
+            "source": "danbooru",
+            "id": "1018",
+            "creatorTag": "ordinary_18",
+            "creatorName": "ordinary_18",
+            "title": "Work 1018",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1019",
+            "source": "danbooru",
+            "id": "1019",
+            "creatorTag": "ordinary_19",
+            "creatorName": "ordinary_19",
+            "title": "Work 1019",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1020",
+            "source": "danbooru",
+            "id": "1020",
+            "creatorTag": "ordinary_20",
+            "creatorName": "ordinary_20",
+            "title": "Work 1020",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1021",
+            "source": "danbooru",
+            "id": "1021",
+            "creatorTag": "ordinary_21",
+            "creatorName": "ordinary_21",
+            "title": "Work 1021",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1022",
+            "source": "danbooru",
+            "id": "1022",
+            "creatorTag": "ordinary_22",
+            "creatorName": "ordinary_22",
+            "title": "Work 1022",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1023",
+            "source": "danbooru",
+            "id": "1023",
+            "creatorTag": "ordinary_23",
+            "creatorName": "ordinary_23",
+            "title": "Work 1023",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1024",
+            "source": "danbooru",
+            "id": "1024",
+            "creatorTag": "ordinary_24",
+            "creatorName": "ordinary_24",
+            "title": "Work 1024",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1025",
+            "source": "danbooru",
+            "id": "1025",
+            "creatorTag": "ordinary_25",
+            "creatorName": "ordinary_25",
+            "title": "Work 1025",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1026",
+            "source": "danbooru",
+            "id": "1026",
+            "creatorTag": "ordinary_26",
+            "creatorName": "ordinary_26",
+            "title": "Work 1026",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1027",
+            "source": "danbooru",
+            "id": "1027",
+            "creatorTag": "ordinary_27",
+            "creatorName": "ordinary_27",
+            "title": "Work 1027",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1028",
+            "source": "danbooru",
+            "id": "1028",
+            "creatorTag": "ordinary_28",
+            "creatorName": "ordinary_28",
+            "title": "Work 1028",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1029",
+            "source": "danbooru",
+            "id": "1029",
+            "creatorTag": "ordinary_29",
+            "creatorName": "ordinary_29",
+            "title": "Work 1029",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1030",
+            "source": "danbooru",
+            "id": "1030",
+            "creatorTag": "ordinary_30",
+            "creatorName": "ordinary_30",
+            "title": "Work 1030",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1031",
+            "source": "danbooru",
+            "id": "1031",
+            "creatorTag": "ordinary_31",
+            "creatorName": "ordinary_31",
+            "title": "Work 1031",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1032",
+            "source": "danbooru",
+            "id": "1032",
+            "creatorTag": "ordinary_32",
+            "creatorName": "ordinary_32",
+            "title": "Work 1032",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1033",
+            "source": "danbooru",
+            "id": "1033",
+            "creatorTag": "ordinary_33",
+            "creatorName": "ordinary_33",
+            "title": "Work 1033",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1034",
+            "source": "danbooru",
+            "id": "1034",
+            "creatorTag": "ordinary_34",
+            "creatorName": "ordinary_34",
+            "title": "Work 1034",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "city"
+            ],
+            "images": []
+          },
+          {
+            "key": "danbooru:1035",
+            "source": "danbooru",
+            "id": "1035",
+            "creatorTag": "ordinary_35",
+            "creatorName": "ordinary_35",
+            "title": "Work 1035",
+            "rating": "g",
+            "tags": [
+              "landscape",
+              "mountain",
+              "forest"
+            ],
+            "images": []
+          }
+        ]
+      },
+      "seed": 29,
+      "rating": "all",
+      "queries": {
+        "priority": [],
+        "names": [
+          "alice_(sample)"
+        ],
+        "copyright": [
+          "sample_series"
+        ],
+        "other": [
+          "sunlight",
+          "landscape",
+          "mountain",
+          "forest"
+        ],
+        "combinations": []
+      },
+      "expected": [
+        "danbooru:103",
+        "danbooru:102",
+        "danbooru:107",
+        "danbooru:104",
+        "danbooru:105",
+        "danbooru:106",
+        "danbooru:101"
+      ]
+    },
+    {
+      "name": "independent tag combinations",
+      "liked": [
+        {
+          "key": "danbooru:200",
+          "source": "danbooru",
+          "id": "200",
+          "creatorTag": "pair_artist_0",
+          "creatorName": "pair_artist_0",
+          "title": "Work 200",
+          "rating": "g",
+          "tags": [
+            "sunset",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:201",
+          "source": "danbooru",
+          "id": "201",
+          "creatorTag": "pair_artist_1",
+          "creatorName": "pair_artist_1",
+          "title": "Work 201",
+          "rating": "g",
+          "tags": [
+            "sunset",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:202",
+          "source": "danbooru",
+          "id": "202",
+          "creatorTag": "pair_artist_2",
+          "creatorName": "pair_artist_2",
+          "title": "Work 202",
+          "rating": "g",
+          "tags": [
+            "sunset",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:203",
+          "source": "danbooru",
+          "id": "203",
+          "creatorTag": "pair_artist_3",
+          "creatorName": "pair_artist_3",
+          "title": "Work 203",
+          "rating": "g",
+          "tags": [
+            "sunset",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:204",
+          "source": "danbooru",
+          "id": "204",
+          "creatorTag": "pair_artist_4",
+          "creatorName": "pair_artist_4",
+          "title": "Work 204",
+          "rating": "g",
+          "tags": [
+            "sunset",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:205",
+          "source": "danbooru",
+          "id": "205",
+          "creatorTag": "pair_artist_5",
+          "creatorName": "pair_artist_5",
+          "title": "Work 205",
+          "rating": "g",
+          "tags": [
+            "sunset",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:206",
+          "source": "danbooru",
+          "id": "206",
+          "creatorTag": "pair_artist_6",
+          "creatorName": "pair_artist_6",
+          "title": "Work 206",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "waterfall"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:207",
+          "source": "danbooru",
+          "id": "207",
+          "creatorTag": "pair_artist_7",
+          "creatorName": "pair_artist_7",
+          "title": "Work 207",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "waterfall"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:208",
+          "source": "danbooru",
+          "id": "208",
+          "creatorTag": "pair_artist_8",
+          "creatorName": "pair_artist_8",
+          "title": "Work 208",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "waterfall"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:209",
+          "source": "danbooru",
+          "id": "209",
+          "creatorTag": "pair_artist_9",
+          "creatorName": "pair_artist_9",
+          "title": "Work 209",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "waterfall"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:210",
+          "source": "danbooru",
+          "id": "210",
+          "creatorTag": "pair_artist_10",
+          "creatorName": "pair_artist_10",
+          "title": "Work 210",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "waterfall"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:211",
+          "source": "danbooru",
+          "id": "211",
+          "creatorTag": "pair_artist_11",
+          "creatorName": "pair_artist_11",
+          "title": "Work 211",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "waterfall"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:212",
+          "source": "danbooru",
+          "id": "212",
+          "creatorTag": "pair_artist_12",
+          "creatorName": "pair_artist_12",
+          "title": "Work 212",
+          "rating": "g",
+          "tags": [
+            "city",
+            "rain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:213",
+          "source": "danbooru",
+          "id": "213",
+          "creatorTag": "pair_artist_13",
+          "creatorName": "pair_artist_13",
+          "title": "Work 213",
+          "rating": "g",
+          "tags": [
+            "city",
+            "rain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:214",
+          "source": "danbooru",
+          "id": "214",
+          "creatorTag": "pair_artist_14",
+          "creatorName": "pair_artist_14",
+          "title": "Work 214",
+          "rating": "g",
+          "tags": [
+            "city",
+            "rain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:215",
+          "source": "danbooru",
+          "id": "215",
+          "creatorTag": "pair_artist_15",
+          "creatorName": "pair_artist_15",
+          "title": "Work 215",
+          "rating": "g",
+          "tags": [
+            "city",
+            "rain"
+          ],
+          "images": []
+        }
+      ],
+      "candidates": [
+        {
+          "key": "danbooru:300",
+          "source": "danbooru",
+          "id": "300",
+          "creatorTag": "a",
+          "creatorName": "a",
+          "title": "Work 300",
+          "rating": "g",
+          "tags": [
+            "sunset",
+            "mountain"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:301",
+          "source": "danbooru",
+          "id": "301",
+          "creatorTag": "b",
+          "creatorName": "b",
+          "title": "Work 301",
+          "rating": "g",
+          "tags": [
+            "sunset"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:302",
+          "source": "danbooru",
+          "id": "302",
+          "creatorTag": "c",
+          "creatorName": "c",
+          "title": "Work 302",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "waterfall"
+          ],
+          "images": []
+        },
+        {
+          "key": "danbooru:303",
+          "source": "danbooru",
+          "id": "303",
+          "creatorTag": "d",
+          "creatorName": "d",
+          "title": "Work 303",
+          "rating": "g",
+          "tags": [
+            "rain",
+            "city"
+          ],
+          "images": []
+        }
+      ],
+      "preferences": {},
+      "context": {},
+      "seed": 0,
+      "rating": "all",
+      "queries": {
+        "priority": [],
+        "names": [],
+        "copyright": [],
+        "other": [
+          "sunset",
+          "mountain",
+          "forest",
+          "waterfall",
+          "city",
+          "rain"
+        ],
+        "combinations": [
+          "forest waterfall",
+          "mountain sunset",
+          "city rain"
+        ]
+      },
+      "expected": [
+        "danbooru:300",
+        "danbooru:302",
+        "danbooru:303",
+        "danbooru:301"
+      ]
+    }
+  ],
+  "groupingCases": [
+    {
+      "name": "parent cannot bridge different publications",
+      "items": [
+        {
+          "key": "danbooru:501",
+          "source": "danbooru",
+          "id": "501",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "originalUrl": "https://www.pixiv.net/artworks/123456",
+          "groupKey": "danbooru:parent:501"
+        },
+        {
+          "key": "danbooru:502",
+          "source": "danbooru",
+          "id": "502",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "groupKey": "danbooru:parent:501"
+        },
+        {
+          "key": "danbooru:503",
+          "source": "danbooru",
+          "id": "503",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "originalUrl": "https://www.pixiv.net/artworks/123457",
+          "groupKey": "danbooru:parent:501"
+        }
+      ],
+      "expected": [
+        {
+          "keys": [
+            "danbooru:501",
+            "danbooru:502"
+          ],
+          "images": []
+        },
+        {
+          "keys": [
+            "danbooru:503"
+          ],
+          "images": []
+        }
+      ]
+    },
+    {
+      "name": "parent response omits has children",
+      "items": [
+        {
+          "key": "danbooru:500",
+          "source": "danbooru",
+          "id": "500",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z"
+        },
+        {
+          "key": "danbooru:504",
+          "source": "danbooru",
+          "id": "504",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "groupKey": "danbooru:parent:500"
+        }
+      ],
+      "expected": [
+        {
+          "keys": [
+            "danbooru:500",
+            "danbooru:504"
+          ],
+          "images": []
+        }
+      ]
+    },
+    {
+      "name": "typed characters constrain batch",
+      "items": [
+        {
+          "key": "danbooru:500",
+          "source": "danbooru",
+          "id": "500",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "characterTags": [
+            "alice_character"
+          ]
+        },
+        {
+          "key": "danbooru:505",
+          "source": "danbooru",
+          "id": "505",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "characterTags": [
+            "bob_character"
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keys": [
+            "danbooru:500"
+          ],
+          "images": []
+        },
+        {
+          "keys": [
+            "danbooru:505"
+          ],
+          "images": []
+        }
+      ]
+    },
+    {
+      "name": "same artist dual visual copies across sources",
+      "items": [
+        {
+          "key": "danbooru:500",
+          "source": "danbooru",
+          "id": "500",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "visualHash": "0123456789abcdef",
+          "visualPHash": "fedcba9876543210",
+          "visualAspectRatio": 1.2
+        },
+        {
+          "key": "sankaku:sampleOpaque",
+          "source": "sankaku",
+          "id": "sampleOpaque",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "visualHash": "0123456789abcdef",
+          "visualPHash": "fedcba9876543210",
+          "visualAspectRatio": 1.2
+        }
+      ],
+      "expected": [
+        {
+          "keys": [
+            "danbooru:500",
+            "sankaku:sampleOpaque"
+          ],
+          "images": []
+        }
+      ]
+    },
+    {
+      "name": "uploader does not establish creator",
+      "items": [
+        {
+          "key": "rule34:501",
+          "source": "rule34",
+          "id": "501",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "visualHash": "0000000000000000"
+        },
+        {
+          "key": "rule34:502",
+          "source": "rule34",
+          "id": "502",
+          "creatorTag": "bob",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z",
+          "visualHash": "0000000000000000"
+        }
+      ],
+      "expected": [
+        {
+          "keys": [
+            "rule34:501"
+          ],
+          "images": []
+        },
+        {
+          "keys": [
+            "rule34:502"
+          ],
+          "images": []
+        }
+      ]
+    },
+    {
+      "name": "signed CDN renewal is one image",
+      "items": [
+        {
+          "key": "sankaku:sampleA",
+          "source": "sankaku",
+          "id": "sampleA",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [
+            "https://s.sankakucomplex.com/o/01/23/0123456789abcdef0123456789abcdef.jpg?e=1&m=old"
+          ],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z"
+        },
+        {
+          "key": "sankaku:sampleB",
+          "source": "sankaku",
+          "id": "sampleB",
+          "creatorTag": "alice",
+          "creatorName": "alice",
+          "title": "Work 500",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "forest",
+            "waterfall",
+            "grass",
+            "cloud",
+            "sky",
+            "sunlight",
+            "lake",
+            "rocks",
+            "river",
+            "tree"
+          ],
+          "images": [
+            "https://v.sankakucomplex.com/data/01/23/0123456789abcdef0123456789abcdef.jpg?expires=9&token=new"
+          ],
+          "uploaderId": "uploader",
+          "published": "2026-11-01T00:00:00Z"
+        }
+      ],
+      "expected": [
+        {
+          "keys": [
+            "sankaku:sampleA",
+            "sankaku:sampleB"
+          ],
+          "images": [
+            "https://s.sankakucomplex.com/o/01/23/0123456789abcdef0123456789abcdef.jpg?e=1&m=old"
+          ]
+        }
+      ]
+    }
+  ],
+  "curationCases": [
+    {
+      "items": [
+        {
+          "key": "danbooru:600",
+          "source": "danbooru",
+          "id": "600",
+          "creatorTag": "curation_artist_0",
+          "creatorName": "curation_artist_0",
+          "title": "Work 600",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 0,
+          "width": 350,
+          "height": 300,
+          "published": "2026-11-01T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:601",
+          "source": "danbooru",
+          "id": "601",
+          "creatorTag": "curation_artist_1",
+          "creatorName": "curation_artist_1",
+          "title": "Work 601",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 10,
+          "width": 480,
+          "height": 390,
+          "published": "2026-10-23T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:602",
+          "source": "danbooru",
+          "id": "602",
+          "creatorTag": "curation_artist_2",
+          "creatorName": "curation_artist_2",
+          "title": "Work 602",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 20,
+          "width": 610,
+          "height": 480,
+          "published": "2026-10-14T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:603",
+          "source": "danbooru",
+          "id": "603",
+          "creatorTag": "curation_artist_3",
+          "creatorName": "curation_artist_3",
+          "title": "Work 603",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 30,
+          "width": 740,
+          "height": 570,
+          "published": "2026-10-05T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:604",
+          "source": "danbooru",
+          "id": "604",
+          "creatorTag": "curation_artist_4",
+          "creatorName": "curation_artist_4",
+          "title": "Work 604",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 40,
+          "width": 870,
+          "height": 660,
+          "published": "2026-09-26T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:605",
+          "source": "danbooru",
+          "id": "605",
+          "creatorTag": "curation_artist_5",
+          "creatorName": "curation_artist_5",
+          "title": "Work 605",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 50,
+          "width": 1000,
+          "height": 750,
+          "published": "2026-09-17T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:606",
+          "source": "gelbooru",
+          "id": "606",
+          "creatorTag": "curation_artist_6",
+          "creatorName": "curation_artist_6",
+          "title": "Work 606",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 0,
+          "width": 1130,
+          "height": 840,
+          "published": "2026-09-08T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:607",
+          "source": "gelbooru",
+          "id": "607",
+          "creatorTag": "curation_artist_7",
+          "creatorName": "curation_artist_7",
+          "title": "Work 607",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 10,
+          "width": 1260,
+          "height": 930,
+          "published": "2026-08-30T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:608",
+          "source": "gelbooru",
+          "id": "608",
+          "creatorTag": "curation_artist_8",
+          "creatorName": "curation_artist_8",
+          "title": "Work 608",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 20,
+          "width": 1390,
+          "height": 1020,
+          "published": "2026-08-21T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:609",
+          "source": "gelbooru",
+          "id": "609",
+          "creatorTag": "curation_artist_9",
+          "creatorName": "curation_artist_9",
+          "title": "Work 609",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 30,
+          "width": 1520,
+          "height": 1110,
+          "published": "2026-08-12T00:00:00.000Z"
+        },
+        {
+          "key": "sankaku:610",
+          "source": "sankaku",
+          "id": "610",
+          "creatorTag": "curation_artist_10",
+          "creatorName": "curation_artist_10",
+          "title": "Work 610",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 40,
+          "width": 1650,
+          "height": 1200,
+          "published": "2026-08-03T00:00:00.000Z"
+        },
+        {
+          "key": "sankaku:611",
+          "source": "sankaku",
+          "id": "611",
+          "creatorTag": "curation_artist_11",
+          "creatorName": "curation_artist_11",
+          "title": "Work 611",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 50,
+          "width": 1780,
+          "height": 1290,
+          "published": "2026-07-25T00:00:00.000Z"
+        }
+      ],
+      "liked": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "artist_0",
+          "creatorName": "artist_0",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "incidental"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "artist_1",
+          "creatorName": "artist_1",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:3",
+          "source": "danbooru",
+          "id": "3",
+          "creatorTag": "artist_2",
+          "creatorName": "artist_2",
+          "title": "Work 3",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:4",
+          "source": "danbooru",
+          "id": "4",
+          "creatorTag": "artist_3",
+          "creatorName": "artist_3",
+          "title": "Work 4",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:5",
+          "source": "danbooru",
+          "id": "5",
+          "creatorTag": "artist_4",
+          "creatorName": "artist_4",
+          "title": "Work 5",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:6",
+          "source": "danbooru",
+          "id": "6",
+          "creatorTag": "artist_5",
+          "creatorName": "artist_5",
+          "title": "Work 6",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:7",
+          "source": "danbooru",
+          "id": "7",
+          "creatorTag": "artist_6",
+          "creatorName": "artist_6",
+          "title": "Work 7",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:8",
+          "source": "danbooru",
+          "id": "8",
+          "creatorTag": "artist_7",
+          "creatorName": "artist_7",
+          "title": "Work 8",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:9",
+          "source": "danbooru",
+          "id": "9",
+          "creatorTag": "artist_8",
+          "creatorName": "artist_8",
+          "title": "Work 9",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:10",
+          "source": "danbooru",
+          "id": "10",
+          "creatorTag": "artist_9",
+          "creatorName": "artist_9",
+          "title": "Work 10",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:11",
+          "source": "danbooru",
+          "id": "11",
+          "creatorTag": "artist_10",
+          "creatorName": "artist_10",
+          "title": "Work 11",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:12",
+          "source": "danbooru",
+          "id": "12",
+          "creatorTag": "artist_11",
+          "creatorName": "artist_11",
+          "title": "Work 12",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:13",
+          "source": "danbooru",
+          "id": "13",
+          "creatorTag": "artist_12",
+          "creatorName": "artist_12",
+          "title": "Work 13",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:14",
+          "source": "danbooru",
+          "id": "14",
+          "creatorTag": "artist_13",
+          "creatorName": "artist_13",
+          "title": "Work 14",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:15",
+          "source": "danbooru",
+          "id": "15",
+          "creatorTag": "artist_14",
+          "creatorName": "artist_14",
+          "title": "Work 15",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:16",
+          "source": "danbooru",
+          "id": "16",
+          "creatorTag": "artist_15",
+          "creatorName": "artist_15",
+          "title": "Work 16",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:17",
+          "source": "danbooru",
+          "id": "17",
+          "creatorTag": "artist_16",
+          "creatorName": "artist_16",
+          "title": "Work 17",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:18",
+          "source": "danbooru",
+          "id": "18",
+          "creatorTag": "artist_17",
+          "creatorName": "artist_17",
+          "title": "Work 18",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:19",
+          "source": "danbooru",
+          "id": "19",
+          "creatorTag": "artist_18",
+          "creatorName": "artist_18",
+          "title": "Work 19",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:20",
+          "source": "danbooru",
+          "id": "20",
+          "creatorTag": "artist_19",
+          "creatorName": "artist_19",
+          "title": "Work 20",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        }
+      ],
+      "preferences": {
+        "enabled": true
+      },
+      "tagPreferences": {
+        "forest": "priority"
+      },
+      "now": 1793491200000,
+      "boosts": {
+        "danbooru:600": 0.9908516483516483,
+        "danbooru:601": 0.99779652073076,
+        "danbooru:602": 1.0497306215003597,
+        "danbooru:603": 1.0952746249236567,
+        "danbooru:604": 1.1581204648454904,
+        "danbooru:605": 1.2125153755508606,
+        "gelbooru:606": 0.9823149316544408,
+        "gelbooru:607": 1.0637619404598606,
+        "gelbooru:608": 1.1177193633198128,
+        "gelbooru:609": 1.1306242773238864,
+        "sankaku:610": 1.0709059521341469,
+        "sankaku:611": 1.1244446313122078
+      },
+      "expected": [
+        "danbooru:605",
+        "danbooru:604",
+        "gelbooru:609",
+        "sankaku:611",
+        "gelbooru:608",
+        "danbooru:603",
+        "sankaku:610",
+        "gelbooru:607",
+        "danbooru:602",
+        "danbooru:601",
+        "danbooru:600",
+        "gelbooru:606"
+      ]
+    },
+    {
+      "items": [
+        {
+          "key": "danbooru:600",
+          "source": "danbooru",
+          "id": "600",
+          "creatorTag": "curation_artist_0",
+          "creatorName": "curation_artist_0",
+          "title": "Work 600",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 0,
+          "width": 350,
+          "height": 300,
+          "published": "2026-11-01T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:601",
+          "source": "danbooru",
+          "id": "601",
+          "creatorTag": "curation_artist_1",
+          "creatorName": "curation_artist_1",
+          "title": "Work 601",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 10,
+          "width": 480,
+          "height": 390,
+          "published": "2026-10-23T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:602",
+          "source": "danbooru",
+          "id": "602",
+          "creatorTag": "curation_artist_2",
+          "creatorName": "curation_artist_2",
+          "title": "Work 602",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 20,
+          "width": 610,
+          "height": 480,
+          "published": "2026-10-14T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:603",
+          "source": "danbooru",
+          "id": "603",
+          "creatorTag": "curation_artist_3",
+          "creatorName": "curation_artist_3",
+          "title": "Work 603",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 30,
+          "width": 740,
+          "height": 570,
+          "published": "2026-10-05T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:604",
+          "source": "danbooru",
+          "id": "604",
+          "creatorTag": "curation_artist_4",
+          "creatorName": "curation_artist_4",
+          "title": "Work 604",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 40,
+          "width": 870,
+          "height": 660,
+          "published": "2026-09-26T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:605",
+          "source": "danbooru",
+          "id": "605",
+          "creatorTag": "curation_artist_5",
+          "creatorName": "curation_artist_5",
+          "title": "Work 605",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 50,
+          "width": 1000,
+          "height": 750,
+          "published": "2026-09-17T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:606",
+          "source": "gelbooru",
+          "id": "606",
+          "creatorTag": "curation_artist_6",
+          "creatorName": "curation_artist_6",
+          "title": "Work 606",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 0,
+          "width": 1130,
+          "height": 840,
+          "published": "2026-09-08T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:607",
+          "source": "gelbooru",
+          "id": "607",
+          "creatorTag": "curation_artist_7",
+          "creatorName": "curation_artist_7",
+          "title": "Work 607",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 10,
+          "width": 1260,
+          "height": 930,
+          "published": "2026-08-30T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:608",
+          "source": "gelbooru",
+          "id": "608",
+          "creatorTag": "curation_artist_8",
+          "creatorName": "curation_artist_8",
+          "title": "Work 608",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 20,
+          "width": 1390,
+          "height": 1020,
+          "published": "2026-08-21T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:609",
+          "source": "gelbooru",
+          "id": "609",
+          "creatorTag": "curation_artist_9",
+          "creatorName": "curation_artist_9",
+          "title": "Work 609",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 30,
+          "width": 1520,
+          "height": 1110,
+          "published": "2026-08-12T00:00:00.000Z"
+        },
+        {
+          "key": "sankaku:610",
+          "source": "sankaku",
+          "id": "610",
+          "creatorTag": "curation_artist_10",
+          "creatorName": "curation_artist_10",
+          "title": "Work 610",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 40,
+          "width": 1650,
+          "height": 1200,
+          "published": "2026-08-03T00:00:00.000Z"
+        },
+        {
+          "key": "sankaku:611",
+          "source": "sankaku",
+          "id": "611",
+          "creatorTag": "curation_artist_11",
+          "creatorName": "curation_artist_11",
+          "title": "Work 611",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 50,
+          "width": 1780,
+          "height": 1290,
+          "published": "2026-07-25T00:00:00.000Z"
+        }
+      ],
+      "liked": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "artist_0",
+          "creatorName": "artist_0",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "incidental"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "artist_1",
+          "creatorName": "artist_1",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:3",
+          "source": "danbooru",
+          "id": "3",
+          "creatorTag": "artist_2",
+          "creatorName": "artist_2",
+          "title": "Work 3",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:4",
+          "source": "danbooru",
+          "id": "4",
+          "creatorTag": "artist_3",
+          "creatorName": "artist_3",
+          "title": "Work 4",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:5",
+          "source": "danbooru",
+          "id": "5",
+          "creatorTag": "artist_4",
+          "creatorName": "artist_4",
+          "title": "Work 5",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:6",
+          "source": "danbooru",
+          "id": "6",
+          "creatorTag": "artist_5",
+          "creatorName": "artist_5",
+          "title": "Work 6",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:7",
+          "source": "danbooru",
+          "id": "7",
+          "creatorTag": "artist_6",
+          "creatorName": "artist_6",
+          "title": "Work 7",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:8",
+          "source": "danbooru",
+          "id": "8",
+          "creatorTag": "artist_7",
+          "creatorName": "artist_7",
+          "title": "Work 8",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:9",
+          "source": "danbooru",
+          "id": "9",
+          "creatorTag": "artist_8",
+          "creatorName": "artist_8",
+          "title": "Work 9",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:10",
+          "source": "danbooru",
+          "id": "10",
+          "creatorTag": "artist_9",
+          "creatorName": "artist_9",
+          "title": "Work 10",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:11",
+          "source": "danbooru",
+          "id": "11",
+          "creatorTag": "artist_10",
+          "creatorName": "artist_10",
+          "title": "Work 11",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:12",
+          "source": "danbooru",
+          "id": "12",
+          "creatorTag": "artist_11",
+          "creatorName": "artist_11",
+          "title": "Work 12",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:13",
+          "source": "danbooru",
+          "id": "13",
+          "creatorTag": "artist_12",
+          "creatorName": "artist_12",
+          "title": "Work 13",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:14",
+          "source": "danbooru",
+          "id": "14",
+          "creatorTag": "artist_13",
+          "creatorName": "artist_13",
+          "title": "Work 14",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:15",
+          "source": "danbooru",
+          "id": "15",
+          "creatorTag": "artist_14",
+          "creatorName": "artist_14",
+          "title": "Work 15",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:16",
+          "source": "danbooru",
+          "id": "16",
+          "creatorTag": "artist_15",
+          "creatorName": "artist_15",
+          "title": "Work 16",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:17",
+          "source": "danbooru",
+          "id": "17",
+          "creatorTag": "artist_16",
+          "creatorName": "artist_16",
+          "title": "Work 17",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:18",
+          "source": "danbooru",
+          "id": "18",
+          "creatorTag": "artist_17",
+          "creatorName": "artist_17",
+          "title": "Work 18",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:19",
+          "source": "danbooru",
+          "id": "19",
+          "creatorTag": "artist_18",
+          "creatorName": "artist_18",
+          "title": "Work 19",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:20",
+          "source": "danbooru",
+          "id": "20",
+          "creatorTag": "artist_19",
+          "creatorName": "artist_19",
+          "title": "Work 20",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        }
+      ],
+      "preferences": {
+        "enabled": true,
+        "popularity": false,
+        "personal": false
+      },
+      "tagPreferences": {
+        "forest": "priority"
+      },
+      "now": 1793491200000,
+      "boosts": {
+        "danbooru:600": 1.225,
+        "danbooru:601": 0.9744221854194849,
+        "danbooru:602": 0.976107283222912,
+        "danbooru:603": 1.0587908742876473,
+        "danbooru:604": 0.9945496181828717,
+        "danbooru:605": 1.0044374157722014,
+        "gelbooru:606": 1.0251157062474037,
+        "gelbooru:607": 1.0228783464212485,
+        "gelbooru:608": 1.031307851192518,
+        "gelbooru:609": 1.0051944775265074,
+        "sankaku:610": 1.04669171866887,
+        "sankaku:611": 1.0537254111671683
+      },
+      "expected": [
+        "danbooru:600",
+        "danbooru:603",
+        "sankaku:611",
+        "sankaku:610",
+        "gelbooru:608",
+        "gelbooru:606",
+        "gelbooru:607",
+        "gelbooru:609",
+        "danbooru:605",
+        "danbooru:604",
+        "danbooru:602",
+        "danbooru:601"
+      ]
+    },
+    {
+      "items": [
+        {
+          "key": "danbooru:600",
+          "source": "danbooru",
+          "id": "600",
+          "creatorTag": "curation_artist_0",
+          "creatorName": "curation_artist_0",
+          "title": "Work 600",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 0,
+          "width": 350,
+          "height": 300,
+          "published": "2026-11-01T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:601",
+          "source": "danbooru",
+          "id": "601",
+          "creatorTag": "curation_artist_1",
+          "creatorName": "curation_artist_1",
+          "title": "Work 601",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 10,
+          "width": 480,
+          "height": 390,
+          "published": "2026-10-23T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:602",
+          "source": "danbooru",
+          "id": "602",
+          "creatorTag": "curation_artist_2",
+          "creatorName": "curation_artist_2",
+          "title": "Work 602",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 20,
+          "width": 610,
+          "height": 480,
+          "published": "2026-10-14T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:603",
+          "source": "danbooru",
+          "id": "603",
+          "creatorTag": "curation_artist_3",
+          "creatorName": "curation_artist_3",
+          "title": "Work 603",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 30,
+          "width": 740,
+          "height": 570,
+          "published": "2026-10-05T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:604",
+          "source": "danbooru",
+          "id": "604",
+          "creatorTag": "curation_artist_4",
+          "creatorName": "curation_artist_4",
+          "title": "Work 604",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 40,
+          "width": 870,
+          "height": 660,
+          "published": "2026-09-26T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:605",
+          "source": "danbooru",
+          "id": "605",
+          "creatorTag": "curation_artist_5",
+          "creatorName": "curation_artist_5",
+          "title": "Work 605",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 50,
+          "width": 1000,
+          "height": 750,
+          "published": "2026-09-17T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:606",
+          "source": "gelbooru",
+          "id": "606",
+          "creatorTag": "curation_artist_6",
+          "creatorName": "curation_artist_6",
+          "title": "Work 606",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 0,
+          "width": 1130,
+          "height": 840,
+          "published": "2026-09-08T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:607",
+          "source": "gelbooru",
+          "id": "607",
+          "creatorTag": "curation_artist_7",
+          "creatorName": "curation_artist_7",
+          "title": "Work 607",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 10,
+          "width": 1260,
+          "height": 930,
+          "published": "2026-08-30T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:608",
+          "source": "gelbooru",
+          "id": "608",
+          "creatorTag": "curation_artist_8",
+          "creatorName": "curation_artist_8",
+          "title": "Work 608",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 20,
+          "width": 1390,
+          "height": 1020,
+          "published": "2026-08-21T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:609",
+          "source": "gelbooru",
+          "id": "609",
+          "creatorTag": "curation_artist_9",
+          "creatorName": "curation_artist_9",
+          "title": "Work 609",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 30,
+          "width": 1520,
+          "height": 1110,
+          "published": "2026-08-12T00:00:00.000Z"
+        },
+        {
+          "key": "sankaku:610",
+          "source": "sankaku",
+          "id": "610",
+          "creatorTag": "curation_artist_10",
+          "creatorName": "curation_artist_10",
+          "title": "Work 610",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 40,
+          "width": 1650,
+          "height": 1200,
+          "published": "2026-08-03T00:00:00.000Z"
+        },
+        {
+          "key": "sankaku:611",
+          "source": "sankaku",
+          "id": "611",
+          "creatorTag": "curation_artist_11",
+          "creatorName": "curation_artist_11",
+          "title": "Work 611",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 50,
+          "width": 1780,
+          "height": 1290,
+          "published": "2026-07-25T00:00:00.000Z"
+        }
+      ],
+      "liked": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "artist_0",
+          "creatorName": "artist_0",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "incidental"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "artist_1",
+          "creatorName": "artist_1",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:3",
+          "source": "danbooru",
+          "id": "3",
+          "creatorTag": "artist_2",
+          "creatorName": "artist_2",
+          "title": "Work 3",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:4",
+          "source": "danbooru",
+          "id": "4",
+          "creatorTag": "artist_3",
+          "creatorName": "artist_3",
+          "title": "Work 4",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:5",
+          "source": "danbooru",
+          "id": "5",
+          "creatorTag": "artist_4",
+          "creatorName": "artist_4",
+          "title": "Work 5",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:6",
+          "source": "danbooru",
+          "id": "6",
+          "creatorTag": "artist_5",
+          "creatorName": "artist_5",
+          "title": "Work 6",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:7",
+          "source": "danbooru",
+          "id": "7",
+          "creatorTag": "artist_6",
+          "creatorName": "artist_6",
+          "title": "Work 7",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:8",
+          "source": "danbooru",
+          "id": "8",
+          "creatorTag": "artist_7",
+          "creatorName": "artist_7",
+          "title": "Work 8",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:9",
+          "source": "danbooru",
+          "id": "9",
+          "creatorTag": "artist_8",
+          "creatorName": "artist_8",
+          "title": "Work 9",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:10",
+          "source": "danbooru",
+          "id": "10",
+          "creatorTag": "artist_9",
+          "creatorName": "artist_9",
+          "title": "Work 10",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:11",
+          "source": "danbooru",
+          "id": "11",
+          "creatorTag": "artist_10",
+          "creatorName": "artist_10",
+          "title": "Work 11",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:12",
+          "source": "danbooru",
+          "id": "12",
+          "creatorTag": "artist_11",
+          "creatorName": "artist_11",
+          "title": "Work 12",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:13",
+          "source": "danbooru",
+          "id": "13",
+          "creatorTag": "artist_12",
+          "creatorName": "artist_12",
+          "title": "Work 13",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:14",
+          "source": "danbooru",
+          "id": "14",
+          "creatorTag": "artist_13",
+          "creatorName": "artist_13",
+          "title": "Work 14",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:15",
+          "source": "danbooru",
+          "id": "15",
+          "creatorTag": "artist_14",
+          "creatorName": "artist_14",
+          "title": "Work 15",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:16",
+          "source": "danbooru",
+          "id": "16",
+          "creatorTag": "artist_15",
+          "creatorName": "artist_15",
+          "title": "Work 16",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:17",
+          "source": "danbooru",
+          "id": "17",
+          "creatorTag": "artist_16",
+          "creatorName": "artist_16",
+          "title": "Work 17",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:18",
+          "source": "danbooru",
+          "id": "18",
+          "creatorTag": "artist_17",
+          "creatorName": "artist_17",
+          "title": "Work 18",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:19",
+          "source": "danbooru",
+          "id": "19",
+          "creatorTag": "artist_18",
+          "creatorName": "artist_18",
+          "title": "Work 19",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:20",
+          "source": "danbooru",
+          "id": "20",
+          "creatorTag": "artist_19",
+          "creatorName": "artist_19",
+          "title": "Work 20",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        }
+      ],
+      "preferences": {
+        "enabled": true,
+        "freshness": false,
+        "resolution": false
+      },
+      "tagPreferences": {
+        "forest": "priority"
+      },
+      "now": 1793491200000,
+      "boosts": {
+        "danbooru:600": 0.890502354788069,
+        "danbooru:601": 1.0078140930070207,
+        "danbooru:602": 1.0812834807621228,
+        "danbooru:603": 1.1109105180533752,
+        "danbooru:604": 1.2282222562723268,
+        "danbooru:605": 1.301691644027429,
+        "gelbooru:606": 0.9639717425431711,
+        "gelbooru:607": 1.0812834807621228,
+        "gelbooru:608": 1.1547528685172248,
+        "gelbooru:609": 1.1843799058084772,
+        "sankaku:610": 1.0812834807621228,
+        "sankaku:611": 1.1547528685172248
+      },
+      "expected": [
+        "danbooru:605",
+        "danbooru:604",
+        "gelbooru:609",
+        "gelbooru:608",
+        "sankaku:611",
+        "danbooru:603",
+        "danbooru:602",
+        "gelbooru:607",
+        "sankaku:610",
+        "danbooru:601",
+        "gelbooru:606",
+        "danbooru:600"
+      ]
+    },
+    {
+      "items": [
+        {
+          "key": "danbooru:600",
+          "source": "danbooru",
+          "id": "600",
+          "creatorTag": "curation_artist_0",
+          "creatorName": "curation_artist_0",
+          "title": "Work 600",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 0,
+          "width": 350,
+          "height": 300,
+          "published": "2026-11-01T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:601",
+          "source": "danbooru",
+          "id": "601",
+          "creatorTag": "curation_artist_1",
+          "creatorName": "curation_artist_1",
+          "title": "Work 601",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 10,
+          "width": 480,
+          "height": 390,
+          "published": "2026-10-23T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:602",
+          "source": "danbooru",
+          "id": "602",
+          "creatorTag": "curation_artist_2",
+          "creatorName": "curation_artist_2",
+          "title": "Work 602",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 20,
+          "width": 610,
+          "height": 480,
+          "published": "2026-10-14T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:603",
+          "source": "danbooru",
+          "id": "603",
+          "creatorTag": "curation_artist_3",
+          "creatorName": "curation_artist_3",
+          "title": "Work 603",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 30,
+          "width": 740,
+          "height": 570,
+          "published": "2026-10-05T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:604",
+          "source": "danbooru",
+          "id": "604",
+          "creatorTag": "curation_artist_4",
+          "creatorName": "curation_artist_4",
+          "title": "Work 604",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 40,
+          "width": 870,
+          "height": 660,
+          "published": "2026-09-26T00:00:00.000Z"
+        },
+        {
+          "key": "danbooru:605",
+          "source": "danbooru",
+          "id": "605",
+          "creatorTag": "curation_artist_5",
+          "creatorName": "curation_artist_5",
+          "title": "Work 605",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 50,
+          "width": 1000,
+          "height": 750,
+          "published": "2026-09-17T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:606",
+          "source": "gelbooru",
+          "id": "606",
+          "creatorTag": "curation_artist_6",
+          "creatorName": "curation_artist_6",
+          "title": "Work 606",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 0,
+          "width": 1130,
+          "height": 840,
+          "published": "2026-09-08T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:607",
+          "source": "gelbooru",
+          "id": "607",
+          "creatorTag": "curation_artist_7",
+          "creatorName": "curation_artist_7",
+          "title": "Work 607",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 10,
+          "width": 1260,
+          "height": 930,
+          "published": "2026-08-30T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:608",
+          "source": "gelbooru",
+          "id": "608",
+          "creatorTag": "curation_artist_8",
+          "creatorName": "curation_artist_8",
+          "title": "Work 608",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 20,
+          "width": 1390,
+          "height": 1020,
+          "published": "2026-08-21T00:00:00.000Z"
+        },
+        {
+          "key": "gelbooru:609",
+          "source": "gelbooru",
+          "id": "609",
+          "creatorTag": "curation_artist_9",
+          "creatorName": "curation_artist_9",
+          "title": "Work 609",
+          "rating": "g",
+          "tags": [
+            "forest",
+            "pixel_art"
+          ],
+          "images": [],
+          "popularityCount": 30,
+          "width": 1520,
+          "height": 1110,
+          "published": "2026-08-12T00:00:00.000Z"
+        },
+        {
+          "key": "sankaku:610",
+          "source": "sankaku",
+          "id": "610",
+          "creatorTag": "curation_artist_10",
+          "creatorName": "curation_artist_10",
+          "title": "Work 610",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 40,
+          "width": 1650,
+          "height": 1200,
+          "published": "2026-08-03T00:00:00.000Z"
+        },
+        {
+          "key": "sankaku:611",
+          "source": "sankaku",
+          "id": "611",
+          "creatorTag": "curation_artist_11",
+          "creatorName": "curation_artist_11",
+          "title": "Work 611",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain"
+          ],
+          "images": [],
+          "popularityCount": 50,
+          "width": 1780,
+          "height": 1290,
+          "published": "2026-07-25T00:00:00.000Z"
+        }
+      ],
+      "liked": [
+        {
+          "key": "danbooru:1",
+          "source": "danbooru",
+          "id": "1",
+          "creatorTag": "artist_0",
+          "creatorName": "artist_0",
+          "title": "Work 1",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "incidental"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:2",
+          "source": "danbooru",
+          "id": "2",
+          "creatorTag": "artist_1",
+          "creatorName": "artist_1",
+          "title": "Work 2",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:3",
+          "source": "danbooru",
+          "id": "3",
+          "creatorTag": "artist_2",
+          "creatorName": "artist_2",
+          "title": "Work 3",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:4",
+          "source": "danbooru",
+          "id": "4",
+          "creatorTag": "artist_3",
+          "creatorName": "artist_3",
+          "title": "Work 4",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:5",
+          "source": "danbooru",
+          "id": "5",
+          "creatorTag": "artist_4",
+          "creatorName": "artist_4",
+          "title": "Work 5",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:6",
+          "source": "danbooru",
+          "id": "6",
+          "creatorTag": "artist_5",
+          "creatorName": "artist_5",
+          "title": "Work 6",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:7",
+          "source": "danbooru",
+          "id": "7",
+          "creatorTag": "artist_6",
+          "creatorName": "artist_6",
+          "title": "Work 7",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:8",
+          "source": "danbooru",
+          "id": "8",
+          "creatorTag": "artist_7",
+          "creatorName": "artist_7",
+          "title": "Work 8",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [
+            "alice_(sample)"
+          ],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:9",
+          "source": "danbooru",
+          "id": "9",
+          "creatorTag": "artist_8",
+          "creatorName": "artist_8",
+          "title": "Work 9",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": [
+            "sample_series"
+          ]
+        },
+        {
+          "key": "danbooru:10",
+          "source": "danbooru",
+          "id": "10",
+          "creatorTag": "artist_9",
+          "creatorName": "artist_9",
+          "title": "Work 10",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:11",
+          "source": "danbooru",
+          "id": "11",
+          "creatorTag": "artist_10",
+          "creatorName": "artist_10",
+          "title": "Work 11",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:12",
+          "source": "danbooru",
+          "id": "12",
+          "creatorTag": "artist_11",
+          "creatorName": "artist_11",
+          "title": "Work 12",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:13",
+          "source": "danbooru",
+          "id": "13",
+          "creatorTag": "artist_12",
+          "creatorName": "artist_12",
+          "title": "Work 13",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:14",
+          "source": "danbooru",
+          "id": "14",
+          "creatorTag": "artist_13",
+          "creatorName": "artist_13",
+          "title": "Work 14",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:15",
+          "source": "danbooru",
+          "id": "15",
+          "creatorTag": "artist_14",
+          "creatorName": "artist_14",
+          "title": "Work 15",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:16",
+          "source": "danbooru",
+          "id": "16",
+          "creatorTag": "artist_15",
+          "creatorName": "artist_15",
+          "title": "Work 16",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:17",
+          "source": "danbooru",
+          "id": "17",
+          "creatorTag": "artist_16",
+          "creatorName": "artist_16",
+          "title": "Work 17",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:18",
+          "source": "danbooru",
+          "id": "18",
+          "creatorTag": "artist_17",
+          "creatorName": "artist_17",
+          "title": "Work 18",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:19",
+          "source": "danbooru",
+          "id": "19",
+          "creatorTag": "artist_18",
+          "creatorName": "artist_18",
+          "title": "Work 19",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "forest",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        },
+        {
+          "key": "danbooru:20",
+          "source": "danbooru",
+          "id": "20",
+          "creatorTag": "artist_19",
+          "creatorName": "artist_19",
+          "title": "Work 20",
+          "rating": "g",
+          "tags": [
+            "landscape",
+            "mountain",
+            "sunlight"
+          ],
+          "images": [],
+          "characterTags": [],
+          "copyrightTags": []
+        }
+      ],
+      "preferences": {
+        "enabled": true,
+        "popularity": false,
+        "personal": false,
+        "freshness": false,
+        "resolution": false
+      },
+      "tagPreferences": {
+        "forest": "priority"
+      },
+      "now": 1793491200000,
+      "boosts": {
+        "danbooru:600": 1,
+        "danbooru:601": 1,
+        "danbooru:602": 1,
+        "danbooru:603": 1,
+        "danbooru:604": 1,
+        "danbooru:605": 1,
+        "gelbooru:606": 1,
+        "gelbooru:607": 1,
+        "gelbooru:608": 1,
+        "gelbooru:609": 1,
+        "sankaku:610": 1,
+        "sankaku:611": 1
+      },
+      "expected": [
+        "danbooru:600",
+        "danbooru:601",
+        "danbooru:602",
+        "danbooru:603",
+        "danbooru:604",
+        "danbooru:605",
+        "gelbooru:606",
+        "gelbooru:607",
+        "gelbooru:608",
+        "gelbooru:609",
+        "sankaku:610",
+        "sankaku:611"
+      ]
+    }
+  ],
+  "perceptualHashes": [
+    {
+      "seed": 0,
+      "expected": "822c5ab56bd62d9a"
+    },
+    {
+      "seed": 1,
+      "expected": "88274a972dda7479"
+    },
+    {
+      "seed": 2,
+      "expected": "82316edb362dba54"
+    },
+    {
+      "seed": 3,
+      "expected": "809d23cad346bd6b"
+    },
+    {
+      "seed": 4,
+      "expected": "95973467887356d4"
+    },
+    {
+      "seed": 5,
+      "expected": "959535658d7803fa"
+    },
+    {
+      "seed": 6,
+      "expected": "95c01f30a7ad293f"
+    },
+    {
+      "seed": 7,
+      "expected": "d6ca8b1bf083b634"
+    }
+  ]
+}

@@ -44,6 +44,13 @@ internal sealed class SavedWorksStore
 
     public bool EnsureSaved(string collection, CatalogItem item) => Change(collection, item, ensureSaved: true).Saved;
 
+    // The profile exchange holds this lock across all profile files. Normal
+    // saved-work readers/writers wait until the additive transaction completes.
+    internal IDisposable AcquireProfileTransferLock() => AcquireLock();
+    internal JsonObject ProfileTransferSnapshot() => Read().DeepClone().AsObject();
+    internal void WriteProfileTransferSnapshot(JsonObject snapshot) => Write(snapshot);
+    internal void InvalidateProfileTransferSnapshot() => cachedState = null;
+
     public SavedWorkChange Change(string collection, CatalogItem item, bool ensureSaved)
     {
         using var fileLock = AcquireLock();

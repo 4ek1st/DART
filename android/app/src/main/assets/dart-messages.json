@@ -1,0 +1,4327 @@
+[
+  [
+    "Home",
+    "Главная",
+    "Startseite"
+  ],
+  [
+    "Profile transfer",
+    "Перенос профиля",
+    "Profilübertragung"
+  ],
+  [
+    "Windows and Android",
+    "Windows и Android",
+    "Windows und Android"
+  ],
+  [
+    "Move your likes, bookmarks, followed artists and viewed works between DART on Windows and Android. Import adds data and keeps your existing collections.",
+    "Переносите лайки, закладки, подписки и просмотренное между DART на Windows и Android. Импорт добавляет данные и сохраняет существующие коллекции.",
+    "Übertrage Likes, Lesezeichen, gefolgte Künstler und angesehene Werke zwischen DART auf Windows und Android. Der Import ergänzt Daten und behält vorhandene Sammlungen."
+  ],
+  [
+    "API keys, account sessions and device settings stay on this device. Keep the exported file private; it contains your artwork history and preferences.",
+    "Ключи API, сеансы входа и настройки устройства остаются на этом устройстве. Храните файл экспорта приватно: в нём есть история работ и предпочтения.",
+    "API-Schlüssel, Anmeldungen und Geräteeinstellungen bleiben auf diesem Gerät. Bewahre die Exportdatei privat auf: Sie enthält deinen Verlauf und deine Vorlieben."
+  ],
+  [
+    "Export profile",
+    "Экспорт профиля",
+    "Profil exportieren"
+  ],
+  [
+    "Choose profile file",
+    "Выбрать файл профиля",
+    "Profildatei auswählen"
+  ],
+  [
+    "Exporting…",
+    "Экспортируем…",
+    "Wird exportiert…"
+  ],
+  [
+    "Reading file…",
+    "Читаем файл…",
+    "Datei wird gelesen…"
+  ],
+  [
+    "Use the same JSON file on either device. Maximum file size: 20 MB. A verified local backup is kept before changes are saved.",
+    "Один JSON-файл подходит для обоих устройств. Максимальный размер — 20 МБ. Перед сохранением изменений создаётся проверенная локальная резервная копия.",
+    "Verwende dieselbe JSON-Datei auf beiden Geräten. Maximale Dateigröße: 20 MB. Vor dem Speichern wird eine geprüfte lokale Sicherung angelegt."
+  ],
+  [
+    "Recent lists keep their usual size. Viewed identities are merged separately so previously viewed works remain recognized.",
+    "Недавние работы сохраняют обычный лимит списка. Отметки просмотренного объединяются отдельно, поэтому просмотренные работы продолжают распознаваться.",
+    "Die zuletzt geöffneten Werke behalten ihr übliches Listenlimit. Gesehene Werke werden zusätzlich separat zusammengeführt und bleiben erkannt."
+  ],
+  [
+    "Ready to import",
+    "Готово к импорту",
+    "Bereit zum Import"
+  ],
+  [
+    "Viewed identities",
+    "Отметки просмотренного",
+    "Gesehene Werkidentitäten"
+  ],
+  [
+    "Recommendation preferences",
+    "Предпочтения рекомендаций",
+    "Empfehlungsvorlieben"
+  ],
+  [
+    "Also apply imported content settings",
+    "Также применить настройки контента из файла",
+    "Inhaltseinstellungen aus der Datei übernehmen"
+  ],
+  [
+    "Includes filters and curation. Existing recommendation tag choices are kept unless this option is enabled.",
+    "Включает фильтры и отбор. Текущие настройки тегов рекомендаций сохраняются, пока этот пункт выключен.",
+    "Enthält Filter und Auswahl. Vorhandene Tag-Vorlieben für Empfehlungen bleiben erhalten, solange diese Option aus ist."
+  ],
+  [
+    "Merge profile",
+    "Объединить профиль",
+    "Profil zusammenführen"
+  ],
+  [
+    "Importing…",
+    "Импортируем…",
+    "Wird importiert…"
+  ],
+  [
+    "Profile merged",
+    "Профиль объединён",
+    "Profil zusammengeführt"
+  ],
+  [
+    "Added to this device:",
+    "Добавлено на это устройство:",
+    "Auf diesem Gerät hinzugefügt:"
+  ],
+  [
+    "Existing items were kept. Matching copies were not added twice.",
+    "Существующие записи сохранены. Совпадающие копии повторно не добавлялись.",
+    "Vorhandene Einträge wurden behalten. Übereinstimmende Kopien wurden nicht doppelt hinzugefügt."
+  ],
+  [
+    "Everything in this file was already present. No changes were needed.",
+    "Все данные из файла уже были в профиле. Изменения не потребовались.",
+    "Alle Daten dieser Datei waren bereits vorhanden. Änderungen waren nicht nötig."
+  ],
+  [
+    "Profile file exceeds 20 MB.",
+    "Файл профиля превышает 20 МБ.",
+    "Die Profildatei ist größer als 20 MB."
+  ],
+  [
+    "Could not save the profile. Existing data has been preserved.",
+    "Не удалось сохранить профиль. Существующие данные сохранены.",
+    "Das Profil konnte nicht gespeichert werden. Vorhandene Daten wurden behalten."
+  ],
+  [
+    "The file is not a supported DART profile, or contains invalid values.",
+    "Файл не является поддерживаемым профилем DART или содержит некорректные данные.",
+    "Die Datei ist kein unterstütztes DART-Profil oder enthält ungültige Werte."
+  ],
+  [
+    "Could not read the profile file.",
+    "Не удалось прочитать файл профиля.",
+    "Die Profildatei konnte nicht gelesen werden."
+  ],
+  [
+    "Could not save current changes. Please try again.",
+    "Не удалось сохранить текущие изменения. Повторите попытку.",
+    "Aktuelle Änderungen konnten nicht gespeichert werden. Bitte versuche es erneut."
+  ],
+  [
+    "Profile merged. Some views could not refresh; reopen the affected tab.",
+    "Профиль объединён. Некоторые экраны не обновились; откройте нужную вкладку заново.",
+    "Profil zusammengeführt. Einige Ansichten wurden nicht aktualisiert; öffne den betroffenen Tab erneut."
+  ],
+  [
+    "Could not import the profile. Existing data has been preserved.",
+    "Не удалось импортировать профиль. Существующие данные сохранены.",
+    "Das Profil konnte nicht importiert werden. Vorhandene Daten wurden behalten."
+  ],
+  [
+    "Could not export the profile. Existing data has been preserved.",
+    "Не удалось экспортировать профиль. Существующие данные сохранены.",
+    "Das Profil konnte nicht exportiert werden. Vorhandene Daten wurden behalten."
+  ],
+  [
+    "Could not export the profile.",
+    "Не удалось экспортировать профиль.",
+    "Das Profil konnte nicht exportiert werden."
+  ],
+  [
+    "Copy",
+    "Копировать",
+    "Kopieren"
+  ],
+  [
+    "Artwork tags",
+    "Теги работы",
+    "Werk-Tags"
+  ],
+  [
+    "Copy all artwork tags",
+    "Копировать все теги работы",
+    "Alle Werk-Tags kopieren"
+  ],
+  [
+    "All artwork tags copied.",
+    "Все теги работы скопированы.",
+    "Alle Werk-Tags wurden kopiert."
+  ],
+  [
+    "No tags to copy.",
+    "Нет тегов для копирования.",
+    "Keine Tags zum Kopieren vorhanden."
+  ],
+  [
+    "Could not copy tags. Please try again.",
+    "Не удалось скопировать теги. Попробуйте ещё раз.",
+    "Tags konnten nicht kopiert werden. Versuche es erneut."
+  ],
+  [
+    "Could not save the session. Retrying automatically.",
+    "Не удалось сохранить состояние. Повторим автоматически.",
+    "Der Sitzungszustand konnte nicht gespeichert werden. Ein neuer Versuch erfolgt automatisch."
+  ],
+  [
+    "Could not save the session. Please try again.",
+    "Не удалось сохранить состояние. Повторите попытку.",
+    "Der Sitzungszustand konnte nicht gespeichert werden. Bitte versuche es erneut."
+  ],
+  [
+    "Multiple images · Count verified when opened",
+    "Несколько изображений · Число уточняется при открытии",
+    "Mehrere Bilder · Die Anzahl wird beim Öffnen geprüft"
+  ],
+  [
+    "Images:",
+    "Изображения:",
+    "Bilder:"
+  ],
+  [
+    "Could not load the next artwork. Try again later.",
+    "Не удалось загрузить следующую работу. Повторите позже.",
+    "Das nächste Werk konnte nicht geladen werden. Versuche es später erneut."
+  ],
+  [
+    "Settings",
+    "Настройки",
+    "Einstellungen"
+  ],
+  [
+    "Appearance",
+    "Оформление",
+    "Darstellung"
+  ],
+  [
+    "Color and theme",
+    "Цвет и тема",
+    "Farben und Design"
+  ],
+  [
+    "Appearance theme",
+    "Тема оформления",
+    "Darstellungsdesign"
+  ],
+  [
+    "System mode automatically uses the Windows light or dark setting. You can also choose a fixed theme.",
+    "Системный режим автоматически выбирает светлую или тёмную тему по настройке Windows. Можно выбрать постоянную тему вручную.",
+    "Der Systemmodus übernimmt automatisch die helle oder dunkle Einstellung von Windows. Sie können auch ein festes Design wählen."
+  ],
+  [
+    "System",
+    "Системная",
+    "System"
+  ],
+  [
+    "Follows Windows appearance",
+    "Следует цвету Windows",
+    "Übernimmt das Windows-Design"
+  ],
+  [
+    "Light",
+    "Светлая",
+    "Hell"
+  ],
+  [
+    "Light DART default",
+    "Светлый стандарт DART",
+    "Helles DART-Standarddesign"
+  ],
+  [
+    "Dark",
+    "Тёмная",
+    "Dunkel"
+  ],
+  [
+    "Dark DART default",
+    "Тёмный стандарт DART",
+    "Dunkles DART-Standarddesign"
+  ],
+  [
+    "List",
+    "Лист",
+    "List"
+  ],
+  [
+    "Graphite, cool blue and halftone dots",
+    "Графит, холодный голубой и полутоновые точки",
+    "Graphit, kühles Blau und Rasterpunkte"
+  ],
+  [
+    "The choice takes effect immediately and is saved on this computer.",
+    "Выбор применяется сразу и сохраняется на этом компьютере.",
+    "Die Auswahl wird sofort angewendet und auf diesem Computer gespeichert."
+  ],
+  [
+    "Language",
+    "Язык",
+    "Sprache"
+  ],
+  [
+    "Privacy",
+    "Конфиденциальность",
+    "Privatsphäre"
+  ],
+  [
+    "Screen capture",
+    "Захват экрана",
+    "Bildschirmaufnahme"
+  ],
+  [
+    "Screen capture protection",
+    "Защита от захвата экрана",
+    "Schutz vor Bildschirmaufnahme"
+  ],
+  [
+    "Hide the DART window from supported screenshots and screen sharing apps while it stays visible on your display.",
+    "Скрывать окно DART от поддерживаемых средств создания скриншотов и демонстрации экрана. На вашем мониторе оно останется видимым.",
+    "DART wird in unterstützten Screenshots und Bildschirmübertragungen ausgeblendet, bleibt auf Ihrem Monitor aber sichtbar."
+  ],
+  [
+    "Hide DART from screen capture",
+    "Скрывать DART при захвате экрана",
+    "DART bei Bildschirmaufnahmen ausblenden"
+  ],
+  [
+    "Applies to the entire DART window. The choice is saved for future launches.",
+    "Применяется ко всему окну DART. Выбор сохраняется для следующих запусков.",
+    "Gilt für das gesamte DART-Fenster. Die Einstellung bleibt für künftige Starts gespeichert."
+  ],
+  [
+    "Checking protection status…",
+    "Проверяем состояние защиты…",
+    "Schutzstatus wird geprüft…"
+  ],
+  [
+    "Protection is active.",
+    "Защита включена.",
+    "Schutz ist aktiv."
+  ],
+  [
+    "Protection is off.",
+    "Защита выключена.",
+    "Schutz ist ausgeschaltet."
+  ],
+  [
+    "Capture protection is unavailable.",
+    "Защита от захвата экрана недоступна.",
+    "Schutz vor Bildschirmaufnahmen ist nicht verfügbar."
+  ],
+  [
+    "Open the DART desktop window to change this setting.",
+    "Откройте окно настольной версии DART, чтобы изменить эту настройку.",
+    "Öffnen Sie das DART-Desktopfenster, um diese Einstellung zu ändern."
+  ],
+  [
+    "Windows 10 version 2004 or later is required. Some capture tools and external cameras can still record the display.",
+    "Требуется Windows 10 версии 2004 или новее. Некоторые средства захвата и внешние камеры всё равно могут записать экран.",
+    "Windows 10 Version 2004 oder neuer ist erforderlich. Manche Aufnahmetools und externe Kameras können den Bildschirm weiterhin erfassen."
+  ],
+  [
+    "Screen capture protection requires Windows 10 version 2004 or later.",
+    "Для защиты от захвата экрана нужна Windows 10 версии 2004 или новее.",
+    "Für den Schutz vor Bildschirmaufnahmen ist Windows 10 Version 2004 oder neuer erforderlich."
+  ],
+  [
+    "Windows desktop composition is unavailable.",
+    "Композиция рабочего стола Windows недоступна.",
+    "Die Windows-Desktopkomposition ist nicht verfügbar."
+  ],
+  [
+    "Windows could not change capture protection for this window.",
+    "Windows не удалось изменить защиту от захвата для этого окна.",
+    "Windows konnte den Aufnahmeschutz für dieses Fenster nicht ändern."
+  ],
+  [
+    "Windows did not confirm capture protection for this window.",
+    "Windows не подтвердила защиту от захвата для этого окна.",
+    "Windows hat den Aufnahmeschutz für dieses Fenster nicht bestätigt."
+  ],
+  [
+    "Could not save capture protection. Check the current status.",
+    "Не удалось сохранить защиту от захвата экрана. Проверьте её текущее состояние.",
+    "Der Aufnahmeschutz konnte nicht gespeichert werden. Prüfen Sie den aktuellen Status."
+  ],
+  [
+    "Could not read privacy settings",
+    "Не удалось прочитать настройки конфиденциальности",
+    "Die Privatsphäre-Einstellungen konnten nicht gelesen werden"
+  ],
+  [
+    "Could not change capture protection",
+    "Не удалось изменить защиту от захвата экрана",
+    "Der Aufnahmeschutz konnte nicht geändert werden"
+  ],
+  [
+    "Interface language",
+    "Язык интерфейса",
+    "Sprache der Benutzeroberfläche"
+  ],
+  [
+    "Choose the interface language. Artwork titles, artist names and search tags stay in their original language.",
+    "Выберите язык интерфейса. Названия работ, имена авторов и поисковые теги остаются на языке источника.",
+    "Wählen Sie die Sprache der Benutzeroberfläche. Werktitel, Künstlernamen und Such-Tags bleiben in der Originalsprache."
+  ],
+  [
+    "Your choice is saved in this profile and takes effect immediately.",
+    "Выбор сохраняется в этом профиле и применяется сразу.",
+    "Ihre Auswahl wird in diesem Profil gespeichert und sofort übernommen."
+  ],
+  [
+    "English is the default language.",
+    "Английский — язык по умолчанию.",
+    "Englisch ist die Standardsprache."
+  ],
+  [
+    "Illustrations",
+    "Иллюстрации",
+    "Illustrationen"
+  ],
+  [
+    "NSFW illustrations",
+    "NSFW иллюстрации",
+    "NSFW-Illustrationen"
+  ],
+  [
+    "NSFW illustrations",
+    "18+ иллюстрации",
+    "NSFW-Illustrationen"
+  ],
+  [
+    "Recommendations",
+    "Рекомендации",
+    "Empfehlungen"
+  ],
+  [
+    "Following",
+    "Подписки",
+    "Abonnements"
+  ],
+  [
+    "Bookmarks",
+    "Закладки",
+    "Lesezeichen"
+  ],
+  [
+    "Liked",
+    "Понравившиеся",
+    "Gefällt mir"
+  ],
+  [
+    "Like",
+    "Нравится",
+    "Gefällt mir markieren"
+  ],
+  [
+    "Unlike",
+    "Убрать лайк",
+    "Gefällt mir entfernen"
+  ],
+  [
+    "Remove bookmark",
+    "Убрать закладку",
+    "Lesezeichen entfernen"
+  ],
+  [
+    "Likes help tailor recommendations to your taste.",
+    "Лайки помогают подбирать рекомендации по вашему вкусу.",
+    "Gefällt-mir-Markierungen passen Empfehlungen an Ihren Geschmack an."
+  ],
+  [
+    "Use the heart to save a work here.",
+    "Поставьте лайк сердечком, чтобы сохранить работу здесь.",
+    "Markieren Sie ein Werk mit dem Herz, um es hier zu speichern."
+  ],
+  [
+    "Use the bookmark icon to return to a work later.",
+    "Нажмите значок закладки на работе, чтобы вернуться к ней позже.",
+    "Setzen Sie ein Lesezeichen, um später zu einem Werk zurückzukehren."
+  ],
+  [
+    "No works here yet.",
+    "Здесь пока нет работ.",
+    "Hier sind noch keine Werke."
+  ],
+  [
+    "Added to liked works",
+    "Добавлено в понравившиеся",
+    "Zu Gefällt mir hinzugefügt"
+  ],
+  [
+    "Like removed",
+    "Лайк удалён",
+    "Gefällt-mir-Markierung entfernt"
+  ],
+  [
+    "Failed to read liked works",
+    "Не удалось прочитать лайки",
+    "Gefällt-mir-Werke konnten nicht gelesen werden"
+  ],
+  [
+    "Failed to change like",
+    "Не удалось изменить лайк",
+    "Gefällt-mir-Markierung konnte nicht geändert werden"
+  ],
+  [
+    "Recently opened",
+    "Недавно открытое",
+    "Zuletzt geöffnet"
+  ],
+  [
+    "Sources and settings",
+    "Источники и настройки",
+    "Quellen und Einstellungen"
+  ],
+  [
+    "Content",
+    "Контент",
+    "Inhalte"
+  ],
+  [
+    "AI and excluded tags",
+    "AI и исключённые теги",
+    "KI und ausgeschlossene Tags"
+  ],
+  [
+    "AI, furry and excluded tags",
+    "AI, фурри и исключённые теги",
+    "KI, Furry und ausgeschlossene Tags"
+  ],
+  [
+    "Creators",
+    "Авторы",
+    "Urheber"
+  ],
+  [
+    "Hide",
+    "Скрыть",
+    "Ausblenden"
+  ],
+  [
+    "Unhide",
+    "Показать",
+    "Einblenden"
+  ],
+  [
+    "Favorite",
+    "В избранное",
+    "Zu Favoriten hinzufügen"
+  ],
+  [
+    "Unfavorite",
+    "Убрать из избранного",
+    "Aus Favoriten entfernen"
+  ],
+  [
+    "Hidden authors",
+    "Скрытые авторы",
+    "Ausgeblendete Urheber"
+  ],
+  [
+    "Right-click an author and choose Hide to hide their works in every section. You can unhide them here.",
+    "Нажмите на автора правой кнопкой и выберите «Скрыть», чтобы скрыть его работы во всех разделах. Вернуть их можно здесь.",
+    "Klicken Sie mit der rechten Maustaste auf einen Urheber und wählen Sie „Ausblenden“, um seine Werke in allen Bereichen auszublenden. Hier können Sie sie wieder einblenden."
+  ],
+  [
+    "No hidden authors.",
+    "Скрытых авторов нет.",
+    "Keine ausgeblendeten Urheber."
+  ],
+  [
+    "All catalogs",
+    "Все каталоги",
+    "Alle Kataloge"
+  ],
+  [
+    "Author hidden",
+    "Автор скрыт",
+    "Urheber ausgeblendet"
+  ],
+  [
+    "Author visible again",
+    "Работы автора снова видны",
+    "Werke des Urhebers wieder sichtbar"
+  ],
+  [
+    "Failed to change hidden authors",
+    "Не удалось изменить список скрытых авторов",
+    "Die Liste der ausgeblendeten Urheber konnte nicht geändert werden"
+  ],
+  [
+    "The hidden tag limit has been reached",
+    "Достигнут лимит скрытых тегов",
+    "Das Limit für ausgeblendete Tags wurde erreicht"
+  ],
+  [
+    "Creator, source and uploader",
+    "Автор, источник и загрузчик",
+    "Urheber, Quelle und Uploader"
+  ],
+  [
+    "Sources",
+    "Источники",
+    "Quellen"
+  ],
+  [
+    "Connections and keys",
+    "Подключения и ключи",
+    "Verbindungen und Schlüssel"
+  ],
+  [
+    "Tabs",
+    "Вкладки",
+    "Tabs"
+  ],
+  [
+    "Browsing and pinning",
+    "Просмотр и закрепление",
+    "Ansehen und Anheften"
+  ],
+  [
+    "Version and installation",
+    "Версия и установка",
+    "Version und Installation"
+  ],
+  [
+    "Updates",
+    "Обновления",
+    "Updates"
+  ],
+  [
+    "AI images",
+    "AI изображения",
+    "KI-Bilder"
+  ],
+  [
+    "Choose which works to show in search, recommendations, profiles, related works, liked works and bookmarks. Saved works are kept.",
+    "Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах, понравившихся и закладках. Сохранённые работы остаются на месте.",
+    "Wählen Sie, welche Werke in Suche, Empfehlungen, Profilen, ähnlichen Werken, Gefällt mir und Lesezeichen erscheinen. Gespeicherte Werke bleiben erhalten."
+  ],
+  [
+    "Hide AI-generated",
+    "Скрывать AI-generated",
+    "KI-generierte Werke ausblenden"
+  ],
+  [
+    "Works tagged as AI-generated or made with known generators.",
+    "Работы с метками AI генерации и известных генераторов.",
+    "Werke mit Tags für KI-Generierung oder bekannte Generatoren."
+  ],
+  [
+    "Also hide AI-assisted",
+    "Скрывать также AI-assisted",
+    "Auch KI-unterstützte Werke ausblenden"
+  ],
+  [
+    "When disabled, works created with AI assistance remain visible.",
+    "Если выключено, работы с участием AI остаются видимыми.",
+    "Wenn deaktiviert, bleiben KI-unterstützte Werke sichtbar."
+  ],
+  [
+    "Recognizes tags such as #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai and #ai-assisted. Works without these tags are not automatically classified as AI.",
+    "Учитываются метки вроде #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai и #ai-assisted. Работа без такой метки не определяется автоматически как AI.",
+    "Berücksichtigt Tags wie #ai_generated, #ai-created, #ai_art, #stable_diffusion, #novelai und #ai-assisted. Werke ohne diese Tags werden nicht automatisch als KI-Inhalte eingestuft."
+  ],
+  [
+    "Previously viewed",
+    "Уже просмотренное",
+    "Bereits angesehen"
+  ],
+  [
+    "Feed personalization",
+    "Персонализация ленты",
+    "Feed personalisieren"
+  ],
+  [
+    "Control which works appear in your feeds. Likes, bookmarks and history remain available in their own tabs.",
+    "Настройте, какие работы показывать в лентах. Понравившиеся, закладки и история остаются доступны в своих разделах.",
+    "Lege fest, welche Werke in deinen Feeds erscheinen. Gefällt-mir-Werke, Lesezeichen und Verlauf bleiben in ihren eigenen Bereichen verfügbar."
+  ],
+  [
+    "Show works by followed artists",
+    "Показывать работы авторов из подписок",
+    "Werke abonnierter Künstler anzeigen"
+  ],
+  [
+    "Turn off to hide their works from search, illustrations, recommendations and related works. Following and artist profiles are unaffected.",
+    "Выключите, чтобы скрывать их работы в поиске, иллюстрациях, рекомендациях и похожих работах. Подписки и профили авторов останутся доступны.",
+    "Deaktiviere diese Option, um ihre Werke in Suche, Illustrationen, Empfehlungen und ähnlichen Werken auszublenden. Abonnements und Künstlerprofile bleiben verfügbar."
+  ],
+  [
+    "Works on this page are hidden by your feed preferences.",
+    "Работы на этой странице скрыты настройками ленты.",
+    "Die Werke auf dieser Seite werden durch deine Feed-Einstellungen ausgeblendet."
+  ],
+  [
+    "Furry content",
+    "Фурри-контент",
+    "Furry-Inhalte"
+  ],
+  [
+    "Hide furry works across all catalogs and pages. Liked works and bookmarks are kept and become visible again when this filter is off.",
+    "Скрывать фурри-работы во всех каталогах и разделах. Лайки и закладки сохраняются и снова появятся после отключения фильтра.",
+    "Furry-Werke in allen Katalogen und Bereichen ausblenden. Gefällt-mir-Werke und Lesezeichen bleiben gespeichert und werden nach dem Ausschalten wieder sichtbar."
+  ],
+  [
+    "Hide furry content",
+    "Скрывать фурри-контент",
+    "Furry-Inhalte ausblenden"
+  ],
+  [
+    "Includes #furry, #anthro, #anthropomorphic and related furry tags in every grouped copy.",
+    "Учитываются #furry, #anthro, #anthropomorphic и связанные фурри-теги всех объединённых копий.",
+    "Berücksichtigt #furry, #anthro, #anthropomorphic und verwandte Furry-Tags aller zusammengefassten Kopien."
+  ],
+  [
+    "Animal ears or a tail alone do not count as furry. Works without explicit furry tags cannot be identified by this filter.",
+    "Одни лишь уши или хвост не считаются фурри. Без явных фурри-тегов этот фильтр не может распознать работу.",
+    "Tierohren oder ein Schwanz allein gelten nicht als Furry. Werke ohne eindeutige Furry-Tags kann dieser Filter nicht erkennen."
+  ],
+  [
+    "Excluded tags still apply independently when this switch is off.",
+    "Исключённые теги продолжают действовать отдельно, даже если этот переключатель выключен.",
+    "Ausgeschlossene Tags gelten unabhängig davon auch bei ausgeschaltetem Schalter."
+  ],
+  [
+    "Optionally hide familiar works from illustrations, recommendations and related works. Liked works, bookmarks and browsing history remain available in their own tabs.",
+    "По желанию убирайте знакомые работы из иллюстраций, рекомендаций и раздела «Похожие работы». Понравившиеся, закладки и история просмотра останутся доступны в своих вкладках.",
+    "Blenden Sie auf Wunsch bekannte Werke in Illustrationen, Empfehlungen und ähnlichen Werken aus. Gefällt-mir-Werke, Lesezeichen und Verlauf bleiben in ihren eigenen Tabs verfügbar."
+  ],
+  [
+    "Hide viewed and saved works",
+    "Скрывать просмотренные и сохранённые работы",
+    "Angesehene und gespeicherte Werke ausblenden"
+  ],
+  [
+    "Includes grouped copies of a work from different sources. Disabled by default.",
+    "Учитываются также объединённые копии одной работы из разных источников. Изначально выключено.",
+    "Berücksichtigt auch zusammengefasste Kopien aus verschiedenen Quellen. Standardmäßig deaktiviert."
+  ],
+  [
+    "Excluded tags",
+    "Исключённые теги",
+    "Ausgeschlossene Tags"
+  ],
+  [
+    "Works with these tags are hidden from the catalog. Matches are exact: #latex does not hide #latex_gloves.",
+    "Работы с указанными тегами не появятся в каталоге. Совпадение точное: #latex не скрывает #latex_gloves.",
+    "Werke mit diesen Tags werden ausgeblendet. Nur exakte Treffer zählen: #latex blendet #latex_gloves nicht aus."
+  ],
+  [
+    "Add excluded tags",
+    "Добавить исключённые теги",
+    "Ausgeschlossene Tags hinzufügen"
+  ],
+  [
+    "For example, 3d, ai_generated_background",
+    "Например, 3d, ai_generated_background",
+    "Zum Beispiel 3d, ai_generated_background"
+  ],
+  [
+    "The list is empty. You can enter several tags separated by commas.",
+    "Список пуст. Можно ввести несколько тегов через запятую.",
+    "Die Liste ist leer. Sie können mehrere durch Kommas getrennte Tags eingeben."
+  ],
+  [
+    "Checks every tag of grouped works from Danbooru, Gelbooru, Rule34 and Sankaku.",
+    "Фильтр проверяет все теги объединённой работы из Danbooru, Gelbooru, Rule34 и Sankaku.",
+    "Prüft alle Tags zusammengefasster Werke aus Danbooru, Gelbooru, Rule34 und Sankaku."
+  ],
+  [
+    "Filters and connections are stored on this computer.",
+    "Фильтры и подключения хранятся на этом компьютере.",
+    "Filter und Verbindungen werden auf diesem Computer gespeichert."
+  ],
+  [
+    "Who to show first",
+    "Кого показывать первым",
+    "Wen zuerst anzeigen"
+  ],
+  [
+    "Artist / Creator",
+    "Художник / автор",
+    "Künstler / Urheber"
+  ],
+  [
+    "Artist",
+    "Художник",
+    "Künstler"
+  ],
+  [
+    "Creator",
+    "Автор",
+    "Urheber"
+  ],
+  [
+    "Contributor",
+    "Участник",
+    "Mitwirkende Person"
+  ],
+  [
+    "Uploader / Reposter",
+    "Загрузчик / репостер",
+    "Uploader / Reposter"
+  ],
+  [
+    "Uploader",
+    "Загрузчик",
+    "Uploader"
+  ],
+  [
+    "Original source",
+    "Исходная площадка",
+    "Originalquelle"
+  ],
+  [
+    "Original link",
+    "Исходная ссылка",
+    "Originallink"
+  ],
+  [
+    "Original",
+    "Оригинал",
+    "Original"
+  ],
+  [
+    "The artist, original publication site or uploader can appear first on cards and artwork pages. All known credits remain listed separately on the artwork page.",
+    "На карточке и в шапке работы можно первым показать художника, сайт оригинальной публикации или загрузчика. На странице работы все известные данные остаются видимыми отдельно.",
+    "Auf Karten und Werkseiten können Künstler, Originalplattform oder Uploader zuerst erscheinen. Alle bekannten Angaben bleiben auf der Werkseite separat sichtbar."
+  ],
+  [
+    "Uses the artist category tag. If the artist is unknown, this is stated clearly.",
+    "По тегу категории artist. Если художник неизвестен, так и будет написано.",
+    "Verwendet Tags der Kategorie artist. Ist der Künstler unbekannt, wird dies angegeben."
+  ],
+  [
+    "The address supplied in the source field. It may link to the work rather than the artist's profile.",
+    "Адрес, который площадка указала в поле source. Он может вести на саму работу, а не на профиль автора.",
+    "Die Adresse im Feld source. Sie kann zum Werk statt zum Künstlerprofil führen."
+  ],
+  [
+    "The account that uploaded the post to Danbooru, Gelbooru or Rule34.",
+    "Аккаунт человека, загрузившего запись на Danbooru, Gelbooru или Rule34.",
+    "Das Konto, das den Beitrag auf Danbooru, Gelbooru oder Rule34 hochgeladen hat."
+  ],
+  [
+    "Danbooru is available without a key. Gelbooru and Rule34 require your user ID and API key.",
+    "Danbooru доступен без ключа. Gelbooru и Rule34 требуют ваши user ID и API key.",
+    "Danbooru ist ohne Schlüssel verfügbar. Gelbooru und Rule34 benötigen Ihre User-ID und Ihren API-Schlüssel."
+  ],
+  [
+    "Found in your Gelbooru account settings.",
+    "Указан в настройках вашего аккаунта Gelbooru.",
+    "In Ihren Gelbooru-Kontoeinstellungen zu finden."
+  ],
+  [
+    "The key is encrypted by Windows and stored in your profile. Leave it blank to keep the existing key.",
+    "Ключ шифруется средствами Windows и сохраняется в профиле текущего пользователя. Пустое поле ключа сохраняет уже введённый ключ.",
+    "Der Schlüssel wird durch Windows verschlüsselt und im Profil gespeichert. Ein leeres Feld behält den bisherigen Schlüssel bei."
+  ],
+  [
+    "To remove a key, clear User ID and click Save.",
+    "Чтобы удалить ключ, очистите User ID и нажмите «Сохранить».",
+    "Um einen Schlüssel zu entfernen, leeren Sie die User-ID und klicken Sie auf Speichern."
+  ],
+  [
+    "Your numeric Rule34 user ID.",
+    "Ваш числовой ID на Rule34.",
+    "Ihre numerische Rule34-User-ID."
+  ],
+  [
+    "Get a key in your Rule34 account settings. It is stored locally with Windows encryption.",
+    "Получите ключ в настройках аккаунта Rule34. Он хранится локально с шифрованием Windows.",
+    "Holen Sie den Schlüssel in Ihren Rule34-Kontoeinstellungen. Er wird lokal durch Windows verschlüsselt gespeichert."
+  ],
+  [
+    "Leave the field blank to keep the existing key. To delete it, clear User ID and save.",
+    "Пустое поле сохраняет прежний ключ. Чтобы удалить его, очистите User ID и сохраните.",
+    "Ein leeres Feld behält den bisherigen Schlüssel. Zum Löschen leeren Sie die User-ID und speichern Sie."
+  ],
+  [
+    "Sankaku account",
+    "Аккаунт Sankaku",
+    "Sankaku-Konto"
+  ],
+  [
+    "Public works are available without signing in. Sign in for restricted works and advanced search. Available features depend on your Sankaku account.",
+    "Открытые работы доступны без входа. Для ограниченных работ и расширенного поиска авторизуйтесь. Доступные функции зависят от аккаунта Sankaku.",
+    "Öffentliche Werke sind ohne Anmeldung verfügbar. Melden Sie sich für eingeschränkte Werke und erweiterte Suche an. Verfügbare Funktionen hängen von Ihrem Sankaku-Konto ab."
+  ],
+  [
+    "Signed in:",
+    "Вход выполнен:",
+    "Angemeldet:"
+  ],
+  [
+    "Sign out of Sankaku",
+    "Выйти из Sankaku",
+    "Bei Sankaku abmelden"
+  ],
+  [
+    "Sign in to Sankaku",
+    "Войти в Sankaku",
+    "Bei Sankaku anmelden"
+  ],
+  [
+    "Signing in…",
+    "Входим…",
+    "Anmeldung läuft…"
+  ],
+  [
+    "Username or email",
+    "Логин или email",
+    "Benutzername oder E-Mail"
+  ],
+  [
+    "Password",
+    "Пароль",
+    "Passwort"
+  ],
+  [
+    "The password is not saved. The sign-in token is encrypted by Windows and restored after restart. Two-factor sign-in is not yet supported.",
+    "Пароль не сохраняется. Токен входа хранится с шифрованием Windows и восстанавливается после перезапуска. Вход с двухэтапной проверкой пока не поддерживается.",
+    "Das Passwort wird nicht gespeichert. Das Anmeldetoken wird durch Windows verschlüsselt und nach einem Neustart wiederhergestellt. Zwei-Faktor-Anmeldung wird noch nicht unterstützt."
+  ],
+  [
+    "How to open works",
+    "Как открывать работы",
+    "Werke öffnen"
+  ],
+  [
+    "One temporary preview tab",
+    "Одна временная вкладка просмотра",
+    "Ein temporärer Vorschau-Tab"
+  ],
+  [
+    "The next work replaces the preview tab. Back returns to the previous work and your position in the feed.",
+    "Следующий арт заменяет временную вкладку. «Назад» возвращает предыдущую работу и место в выдаче.",
+    "Das nächste Werk ersetzt die Vorschau. Zurück öffnet das vorherige Werk an der bisherigen Position."
+  ],
+  [
+    "Each work in a separate tab",
+    "Каждая работа в отдельной вкладке",
+    "Jedes Werk in einem eigenen Tab"
+  ],
+  [
+    "Opened works stay in the tab bar until closed.",
+    "Открытые работы остаются в верхней строке до закрытия.",
+    "Geöffnete Werke bleiben bis zum Schließen in der Tableiste."
+  ],
+  [
+    "Ctrl + click or middle-click opens a work in a separate background tab. Ctrl + Shift + click switches to it immediately.",
+    "Ctrl + клик или средняя кнопка мыши открывает работу в отдельной фоновой вкладке. Ctrl + Shift + клик сразу переключает на неё.",
+    "Strg + Klick oder Mittelklick öffnet ein Werk in einem eigenen Hintergrund-Tab. Strg + Umschalt + Klick wechselt sofort dorthin."
+  ],
+  [
+    "Double-click a preview tab or use its pin button to keep it open. Pinned tabs are protected from Close others and Close tabs to the right.",
+    "Двойной клик по временной вкладке или значок закрепления оставляет её открытой. Закреплённые вкладки защищены от команд «Закрыть остальные» и «Закрыть справа».",
+    "Doppelklicken Sie auf einen Vorschau-Tab oder heften Sie ihn an, um ihn offen zu halten. Angeheftete Tabs bleiben bei Andere schließen und Tabs rechts schließen erhalten."
+  ],
+  [
+    "Manage tabs",
+    "Управление вкладками",
+    "Tabs verwalten"
+  ],
+  [
+    "The list button beside + shows all tabs with full titles and search. The right-click menu helps close multiple tabs.",
+    "Кнопка списка рядом с «+» показывает все вкладки с полными названиями и поиском. Меню по правому клику помогает закрывать несколько вкладок.",
+    "Die Listen-Schaltfläche neben + zeigt alle Tabs mit vollständigen Titeln und Suche. Über das Kontextmenü können Sie mehrere Tabs schließen."
+  ],
+  [
+    "DART updates",
+    "Обновления DART",
+    "DART-Updates"
+  ],
+  [
+    "Updates verify signatures and files. Bookmarks, subscriptions and settings stay in your profile.",
+    "Обновление проверяет подпись и файлы. Закладки, подписки и настройки остаются в вашем профиле.",
+    "Updates prüfen Signaturen und Dateien. Lesezeichen, Abonnements und Einstellungen bleiben in Ihrem Profil."
+  ],
+  [
+    "GitHub repository",
+    "Репозиторий GitHub",
+    "GitHub-Repository"
+  ],
+  [
+    "Token for a private repository",
+    "Токен для закрытого репозитория",
+    "Token für ein privates Repository"
+  ],
+  [
+    "Not needed for a public repository",
+    "Не нужен для публичного репозитория",
+    "Für ein öffentliches Repository nicht erforderlich"
+  ],
+  [
+    "Check for updates",
+    "Проверить обновления",
+    "Nach Updates suchen"
+  ],
+  [
+    "Install and restart",
+    "Установить и перезапустить",
+    "Installieren und neu starten"
+  ],
+  [
+    "Install update",
+    "Установить обновление",
+    "Update installieren"
+  ],
+  [
+    "The latest verified version is installed.",
+    "Установлена последняя проверенная версия.",
+    "Die neueste verifizierte Version ist installiert."
+  ],
+  [
+    "Downloading and verifying the update…",
+    "Скачиваем и проверяем обновление…",
+    "Update wird heruntergeladen und geprüft…"
+  ],
+  [
+    "Update failed.",
+    "Не удалось выполнить обновление.",
+    "Update fehlgeschlagen."
+  ],
+  [
+    "Specify a GitHub repository to receive updates.",
+    "Укажите репозиторий GitHub для получения обновлений.",
+    "Geben Sie ein GitHub-Repository für Updates an."
+  ],
+  [
+    "Settings sections",
+    "Разделы настроек",
+    "Einstellungsbereiche"
+  ],
+  [
+    "Search",
+    "Поиск",
+    "Suche"
+  ],
+  [
+    "Search images and posts",
+    "Поиск изображений и публикаций",
+    "Bilder und Beiträge suchen"
+  ],
+  [
+    "Search images and posts · Ctrl+K",
+    "Поиск изображений и публикаций · Ctrl+K",
+    "Bilder und Beiträge suchen · Strg+K"
+  ],
+  [
+    "Find",
+    "Найти",
+    "Suchen"
+  ],
+  [
+    "Menu",
+    "Меню",
+    "Menü"
+  ],
+  [
+    "Navigation",
+    "Навигация",
+    "Navigation"
+  ],
+  [
+    "Back",
+    "Назад",
+    "Zurück"
+  ],
+  [
+    "Forward",
+    "Вперёд",
+    "Vorwärts"
+  ],
+  [
+    "New tab",
+    "Новая вкладка",
+    "Neuer Tab"
+  ],
+  [
+    "Tab",
+    "Вкладка",
+    "Tab"
+  ],
+  [
+    "Open tabs",
+    "Открытые вкладки",
+    "Offene Tabs"
+  ],
+  [
+    "All tabs",
+    "Все вкладки",
+    "Alle Tabs"
+  ],
+  [
+    "No tabs found",
+    "Вкладки не найдены",
+    "Keine Tabs gefunden"
+  ],
+  [
+    "Close",
+    "Закрыть",
+    "Schließen"
+  ],
+  [
+    "Close tab",
+    "Закрыть вкладку",
+    "Tab schließen"
+  ],
+  [
+    "Close window",
+    "Закрыть окно",
+    "Fenster schließen"
+  ],
+  [
+    "Close others",
+    "Закрыть остальные",
+    "Andere schließen"
+  ],
+  [
+    "Close tabs to the right",
+    "Закрыть справа",
+    "Tabs rechts schließen"
+  ],
+  [
+    "Clear all",
+    "Очистить всё",
+    "Alle schließen"
+  ],
+  [
+    "Pin tab",
+    "Закрепить вкладку",
+    "Tab anheften"
+  ],
+  [
+    "Unpin tab",
+    "Открепить вкладку",
+    "Tab lösen"
+  ],
+  [
+    "Pinned",
+    "Закреплена",
+    "Angeheftet"
+  ],
+  [
+    "Temporary preview",
+    "Временный просмотр",
+    "Temporäre Vorschau"
+  ],
+  [
+    "Minimize",
+    "Свернуть",
+    "Minimieren"
+  ],
+  [
+    "Maximize",
+    "Развернуть",
+    "Maximieren"
+  ],
+  [
+    "Restore",
+    "Восстановить",
+    "Wiederherstellen"
+  ],
+  [
+    "Window controls",
+    "Управление окном",
+    "Fenstersteuerung"
+  ],
+  [
+    "For you",
+    "Для вас",
+    "Für Sie"
+  ],
+  [
+    "Favorite tags",
+    "Избранные теги",
+    "Lieblings-Tags"
+  ],
+  [
+    "Favorite tags appear here. Search for one tag and click ☆ beside its name.",
+    "Избранные теги появятся здесь. Найдите один тег и нажмите ☆ рядом с его названием.",
+    "Lieblings-Tags erscheinen hier. Suchen Sie nach einem Tag und klicken Sie auf ☆ neben seinem Namen."
+  ],
+  [
+    "SFW",
+    "Обычные",
+    "SFW"
+  ],
+  [
+    "Normal mode",
+    "Обычный режим",
+    "Normaler Modus"
+  ],
+  [
+    "All images",
+    "Все изображения",
+    "Alle Bilder"
+  ],
+  [
+    "All",
+    "Все",
+    "Alle"
+  ],
+  [
+    "New",
+    "Новое",
+    "Neu"
+  ],
+  [
+    "Newest",
+    "Новые",
+    "Neueste"
+  ],
+  [
+    "Popular",
+    "Популярные",
+    "Beliebt"
+  ],
+  [
+    "Newest first",
+    "Сначала новые",
+    "Neueste zuerst"
+  ],
+  [
+    "Danbooru, Gelbooru and Rule34 use all-time scores. Sankaku uses its official popularity order.",
+    "Danbooru, Gelbooru и Rule34 — по оценкам за всё время. Sankaku — официальный порядок популярности сайта.",
+    "Danbooru, Gelbooru und Rule34 sortieren nach Gesamtbewertungen. Sankaku verwendet die offizielle Beliebtheitsreihenfolge."
+  ],
+  [
+    "Latest posts from all selected sources.",
+    "Последние публикации всех выбранных источников.",
+    "Neueste Beiträge aller ausgewählten Quellen."
+  ],
+  [
+    "New illustrations",
+    "Новые иллюстрации",
+    "Neue Illustrationen"
+  ],
+  [
+    "More from the catalog",
+    "Ещё из каталога",
+    "Mehr aus dem Katalog"
+  ],
+  [
+    "Show all",
+    "Показать все",
+    "Alle anzeigen"
+  ],
+  [
+    "Search by tags, choose sources and rating.",
+    "Ищите по тегам, выбирайте источники и рейтинг.",
+    "Suchen Sie nach Tags und wählen Sie Quellen und Bewertung."
+  ],
+  [
+    "No images here yet. Change your search or choose another source.",
+    "Здесь пока нет изображений. Измените запрос или выберите другой источник.",
+    "Noch keine Bilder vorhanden. Ändern Sie die Suche oder wählen Sie eine andere Quelle."
+  ],
+  [
+    "This page's works are hidden by content filters.",
+    "Работы на этой странице скрыты фильтрами содержимого.",
+    "Die Werke auf dieser Seite werden durch Inhaltsfilter ausgeblendet."
+  ],
+  [
+    "This work is hidden by content filters.",
+    "Эта работа скрыта фильтрами содержимого.",
+    "Dieses Werk wird durch Inhaltsfilter ausgeblendet."
+  ],
+  [
+    "The query contains a tag hidden by content filters.",
+    "Запрос содержит тег, скрытый фильтрами содержимого.",
+    "Die Suche enthält einen durch Inhaltsfilter ausgeblendeten Tag."
+  ],
+  [
+    "Change filters",
+    "Изменить фильтры",
+    "Filter ändern"
+  ],
+  [
+    "Configure hiding",
+    "Настроить скрытие",
+    "Ausblenden konfigurieren"
+  ],
+  [
+    "No unseen works for these tags yet. Try another tag or source.",
+    "Непросмотренных работ по этим тегам пока нет. Попробуйте другой тег или источник.",
+    "Keine ungesehenen Werke mit diesen Tags vorhanden. Versuchen Sie andere Tags oder Quellen."
+  ],
+  [
+    "No new works for you on this page. The catalog will keep loading as you scroll.",
+    "На этой странице нет новых для вас работ. Каталог продолжит загрузку при прокрутке.",
+    "Auf dieser Seite gibt es keine neuen Werke für Sie. Beim Scrollen wird der Katalog weiter geladen."
+  ],
+  [
+    "No matching works for the selected tags. Try another rating or source.",
+    "По выбранным тегам пока нет подходящих работ. Попробуйте другой рейтинг или источник.",
+    "Keine passenden Werke für die gewählten Tags. Versuchen Sie eine andere Bewertung oder Quelle."
+  ],
+  [
+    "No results received. Try searching again.",
+    "Результаты не получены. Повторите поиск.",
+    "Keine Ergebnisse erhalten. Wiederholen Sie die Suche."
+  ],
+  [
+    "Loading more…",
+    "Загружаем ещё…",
+    "Weitere werden geladen…"
+  ],
+  [
+    "All available results loaded",
+    "Все доступные результаты загружены",
+    "Alle verfügbaren Ergebnisse geladen"
+  ],
+  [
+    "All available works loaded",
+    "Все доступные работы загружены",
+    "Alle verfügbaren Werke geladen"
+  ],
+  [
+    "All available recommendations loaded",
+    "Все доступные рекомендации загружены",
+    "Alle verfügbaren Empfehlungen geladen"
+  ],
+  [
+    "Failed to continue loading.",
+    "Не удалось продолжить загрузку.",
+    "Weitere Inhalte konnten nicht geladen werden."
+  ],
+  [
+    "Some sources are temporarily unavailable.",
+    "Часть источников временно недоступна.",
+    "Einige Quellen sind vorübergehend nicht verfügbar."
+  ],
+  [
+    "Retry sources",
+    "Повторить источники",
+    "Quellen erneut versuchen"
+  ],
+  [
+    "Retry",
+    "Повторить",
+    "Erneut versuchen"
+  ],
+  [
+    "Retrying automatically.",
+    "Повторяем автоматически.",
+    "Automatischer erneuter Versuch."
+  ],
+  [
+    "Source currently unavailable.",
+    "Источник сейчас недоступен.",
+    "Quelle derzeit nicht verfügbar."
+  ],
+  [
+    "Failed to load the source. Please try again.",
+    "Не удалось загрузить источник. Повторите запрос.",
+    "Quelle konnte nicht geladen werden. Bitte erneut versuchen."
+  ],
+  [
+    "The local server did not respond. Please try again.",
+    "Локальный сервер не ответил. Повторите запрос.",
+    "Der lokale Server antwortet nicht. Bitte erneut versuchen."
+  ],
+  [
+    "Sign in",
+    "Авторизуйтесь",
+    "Anmelden"
+  ],
+  [
+    "Configure",
+    "Настроить",
+    "Konfigurieren"
+  ],
+  [
+    "Artwork",
+    "Работа",
+    "Werk"
+  ],
+  [
+    "Works",
+    "Работы",
+    "Werke"
+  ],
+  [
+    "Artist's works",
+    "Работы художника",
+    "Werke des Künstlers"
+  ],
+  [
+    "More from this creator",
+    "Ещё работы автора",
+    "Weitere Werke dieses Urhebers"
+  ],
+  [
+    "All works by this creator",
+    "Все работы автора",
+    "Alle Werke dieses Urhebers"
+  ],
+  [
+    "More works are available in the creator's profile.",
+    "Больше работ можно посмотреть в профиле автора.",
+    "Weitere Werke finden Sie im Profil des Urhebers."
+  ],
+  [
+    "No other works found in the available sources.",
+    "Других работ в доступных источниках пока не найдено.",
+    "Keine weiteren Werke in den verfügbaren Quellen gefunden."
+  ],
+  [
+    "Related works",
+    "Похожие работы",
+    "Ähnliche Werke"
+  ],
+  [
+    "Based on characters and meaningful tags. Results expand as you scroll and include other creators.",
+    "По персонажам и содержательным тегам работы. Подбор расширяется при прокрутке; показаны и другие авторы.",
+    "Basierend auf Figuren und aussagekräftigen Tags. Beim Scrollen werden weitere Werke und andere Urheber einbezogen."
+  ],
+  [
+    "Related works are currently unavailable.",
+    "Похожие работы сейчас недоступны.",
+    "Ähnliche Werke sind derzeit nicht verfügbar."
+  ],
+  [
+    "Searching for related works on the next pages…",
+    "Ищем похожие работы на следующих страницах…",
+    "Ähnliche Werke werden auf weiteren Seiten gesucht…"
+  ],
+  [
+    "No related works found by these tags.",
+    "Похожих работ по тегам не найдено.",
+    "Keine ähnlichen Werke mit diesen Tags gefunden."
+  ],
+  [
+    "Loading more related works…",
+    "Загружаем ещё похожие работы…",
+    "Weitere ähnliche Werke werden geladen…"
+  ],
+  [
+    "No more new tag matches for this work yet.",
+    "Новые совпадения по тегам этой работы пока закончились.",
+    "Derzeit keine weiteren neuen Tag-Treffer für dieses Werk."
+  ],
+  [
+    "No new matches yet.",
+    "Новых совпадений пока нет.",
+    "Noch keine neuen Treffer."
+  ],
+  [
+    "Keep searching",
+    "Искать дальше",
+    "Weitersuchen"
+  ],
+  [
+    "Image unavailable",
+    "Изображение недоступно",
+    "Bild nicht verfügbar"
+  ],
+  [
+    "Video playback failed. Try again or open the post on its source site.",
+    "Видео не удалось воспроизвести. Попробуйте ещё раз или откройте запись на сайте.",
+    "Video konnte nicht abgespielt werden. Versuchen Sie es erneut oder öffnen Sie den Originalbeitrag."
+  ],
+  [
+    "Catalog",
+    "Каталог",
+    "Katalog"
+  ],
+  [
+    "Catalogs",
+    "Каталоги",
+    "Kataloge"
+  ],
+  [
+    "Artwork ID ·",
+    "ID работы ·",
+    "Werk-ID ·"
+  ],
+  [
+    "Date not provided",
+    "Дата не указана",
+    "Datum nicht angegeben"
+  ],
+  [
+    "Rating not provided",
+    "Рейтинг не указан",
+    "Bewertung nicht angegeben"
+  ],
+  [
+    "Open on website ↗",
+    "Открыть на сайте ↗",
+    "Auf Website öffnen ↗"
+  ],
+  [
+    "Open Sankaku ↗",
+    "Открыть Sankaku ↗",
+    "Sankaku öffnen ↗"
+  ],
+  [
+    "This Sankaku work requires additional account access on the site.",
+    "Для этой работы Sankaku требуется дополнительный доступ аккаунта на сайте.",
+    "Für dieses Sankaku-Werk benötigen Sie zusätzliche Zugriffsrechte auf der Website."
+  ],
+  [
+    "Creator not specified",
+    "Автор не указан",
+    "Urheber nicht angegeben"
+  ],
+  [
+    "This work's creator has not been identified yet",
+    "Автор этой работы пока не определён",
+    "Der Urheber dieses Werks ist noch nicht bekannt"
+  ],
+  [
+    "The creator is not yet known. Check the source link and tags.",
+    "Автор пока не определён. Проверьте исходную ссылку и теги работы.",
+    "Der Urheber ist noch nicht bekannt. Prüfen Sie Originallink und Tags."
+  ],
+  [
+    "This work's uploader is not specified",
+    "Загрузчик этой работы не указан",
+    "Uploader dieses Werks nicht angegeben"
+  ],
+  [
+    "The artist tag is not confirmed yet. The uploader is not treated as the creator.",
+    "Тег художника пока не подтверждён. Загрузчик не считается автором.",
+    "Der Künstler-Tag ist noch nicht bestätigt. Der Uploader wird nicht als Urheber behandelt."
+  ],
+  [
+    "Voice acting",
+    "Озвучка",
+    "Synchronsprecher"
+  ],
+  [
+    "Animation",
+    "Анимация",
+    "Animation"
+  ],
+  [
+    "Colorist",
+    "Колорист",
+    "Kolorist"
+  ],
+  [
+    "Sound",
+    "Звук",
+    "Ton"
+  ],
+  [
+    "Editing",
+    "Монтаж",
+    "Schnitt"
+  ],
+  [
+    "Music",
+    "Музыка",
+    "Musik"
+  ],
+  [
+    "Translation",
+    "Перевод",
+    "Übersetzung"
+  ],
+  [
+    "Writing",
+    "Сценарий",
+    "Skript"
+  ],
+  [
+    "Artist profile",
+    "Профиль художника",
+    "Künstlerprofil"
+  ],
+  [
+    "Voice actor profile",
+    "Профиль актёра озвучки",
+    "Synchronsprecherprofil"
+  ],
+  [
+    "Animator profile",
+    "Профиль аниматора",
+    "Animatorprofil"
+  ],
+  [
+    "Contributor profile",
+    "Профиль участника",
+    "Profil der mitwirkenden Person"
+  ],
+  [
+    "Profile",
+    "Профиль",
+    "Profil"
+  ],
+  [
+    "Follow artist",
+    "Подписаться на художника",
+    "Künstler abonnieren"
+  ],
+  [
+    "Follow creator",
+    "Подписаться на автора",
+    "Urheber abonnieren"
+  ],
+  [
+    "Follow voice actor",
+    "Подписаться на актёра озвучки",
+    "Synchronsprecher abonnieren"
+  ],
+  [
+    "Follow animator",
+    "Подписаться на аниматора",
+    "Animator abonnieren"
+  ],
+  [
+    "Follow uploader",
+    "Подписаться на загрузчика",
+    "Uploader abonnieren"
+  ],
+  [
+    "Follow sound designer",
+    "Подписаться на звукорежиссёра",
+    "Tongestalter abonnieren"
+  ],
+  [
+    "Follow colorist",
+    "Подписаться на колориста",
+    "Koloristen abonnieren"
+  ],
+  [
+    "Follow editor",
+    "Подписаться на монтажёра",
+    "Editor abonnieren"
+  ],
+  [
+    "Follow musician",
+    "Подписаться на музыканта",
+    "Musiker abonnieren"
+  ],
+  [
+    "Follow translator",
+    "Подписаться на переводчика",
+    "Übersetzer abonnieren"
+  ],
+  [
+    "Follow writer",
+    "Подписаться на сценариста",
+    "Autor abonnieren"
+  ],
+  [
+    "Following · Unfollow",
+    "Вы подписаны · Отписаться",
+    "Abonniert · Nicht mehr abonnieren"
+  ],
+  [
+    "Follow",
+    "Подписаться",
+    "Abonnieren"
+  ],
+  [
+    "Unfollow",
+    "Отписаться",
+    "Nicht mehr abonnieren"
+  ],
+  [
+    "You followed this creator",
+    "Вы подписались на автора",
+    "Sie haben diesen Urheber abonniert"
+  ],
+  [
+    "Unfollowed",
+    "Подписка отменена",
+    "Abonnement beendet"
+  ],
+  [
+    "This artist is already followed",
+    "Этот художник уже в подписках",
+    "Dieser Künstler ist bereits abonniert"
+  ],
+  [
+    "Add an artist by tag",
+    "Добавить художника по тегу",
+    "Künstler per Tag hinzufügen"
+  ],
+  [
+    "For example, sample_artist",
+    "например, sample_artist",
+    "Zum Beispiel sample_artist"
+  ],
+  [
+    "One artist-tag subscription shows works from connected catalogs. Restricted Sankaku works require sign-in. The feed refreshes on first opening or with Refresh; returning keeps your place. New works are marked.",
+    "Одна подписка на тег художника показывает работы из подключённых каталогов. Закрытые работы Sankaku требуют входа. Лента обновляется при первом открытии или кнопкой «Обновить»; при возвращении сохраняется ваша позиция. Новые работы отмечены.",
+    "Ein Künstler-Tag-Abonnement zeigt Werke aus verbundenen Katalogen. Eingeschränkte Sankaku-Werke erfordern eine Anmeldung. Der Feed wird beim ersten Öffnen oder mit „Aktualisieren“ geladen; beim Zurückkehren bleibt Ihre Position erhalten. Neue Werke werden markiert."
+  ],
+  [
+    "Add an artist tag or click Follow on one of their works.",
+    "Добавьте тег художника или нажмите «Подписаться» на его работе.",
+    "Fügen Sie einen Künstler-Tag hinzu oder klicken Sie bei einem Werk auf Abonnieren."
+  ],
+  [
+    "Gelbooru and Rule34 search by artist tag. Uploader subscriptions remain separate.",
+    "На Gelbooru и Rule34 поиск идёт по тегу художника. Подписка на загрузчика остаётся отдельной.",
+    "Gelbooru und Rule34 suchen nach Künstler-Tags. Uploader-Abonnements bleiben separat."
+  ],
+  [
+    "Artist subscriptions use confirmed tags. Rule34 artist detection requires Gelbooru and Rule34 keys: candidates are taken from Gelbooru categories and verified on Rule34. The owner field identifies the uploader and is not used for artist subscriptions.",
+    "Подписка на художника использует подтверждённый тег. Для определения художника Rule34 нужны ключи Gelbooru и Rule34: список кандидатов берётся из категорий Gelbooru и проверяется на Rule34. Поле owner считается загрузчиком; по нему подписка на художника не создаётся.",
+    "Künstler-Abonnements verwenden bestätigte Tags. Die Künstlererkennung auf Rule34 benötigt Gelbooru- und Rule34-Schlüssel: Kandidaten werden aus Gelbooru-Kategorien übernommen und auf Rule34 geprüft. Das Feld owner bezeichnet den Uploader und wird nicht für Künstler-Abonnements verwendet."
+  ],
+  [
+    "No images in this rating from the creators you follow yet.",
+    "В этом рейтинге пока нет изображений от авторов, на которых вы подписаны.",
+    "Noch keine Bilder mit dieser Bewertung von abonnierten Urhebern."
+  ],
+  [
+    "Latest works",
+    "Последние работы",
+    "Neueste Werke"
+  ],
+  [
+    "Updating other creators…",
+    "Обновляем остальных авторов…",
+    "Weitere Urheber werden aktualisiert…"
+  ],
+  [
+    "Hide subscription list",
+    "Скрыть список подписок",
+    "Abonnementliste ausblenden"
+  ],
+  [
+    "Manage subscriptions",
+    "Управление подписками",
+    "Abonnements verwalten"
+  ],
+  [
+    "Refresh",
+    "Обновить",
+    "Aktualisieren"
+  ],
+  [
+    "Subscription tag",
+    "Тег подписки",
+    "Abonnement-Tag"
+  ],
+  [
+    "Artist tag on Gelbooru",
+    "Тег художника на Gelbooru",
+    "Künstler-Tag auf Gelbooru"
+  ],
+  [
+    "Gelbooru tag",
+    "Тег Gelbooru",
+    "Gelbooru-Tag"
+  ],
+  [
+    "If the tag name differs, enter it here. An empty field restores the Danbooru tag.",
+    "Если имя тега отличается, укажите его здесь. Пустое поле вернёт тег Danbooru.",
+    "Wenn der Tag-Name abweicht, geben Sie ihn hier ein. Ein leeres Feld stellt den Danbooru-Tag wieder her."
+  ],
+  [
+    "Save",
+    "Сохранить",
+    "Speichern"
+  ],
+  [
+    "Save source",
+    "Сохранить источник",
+    "Quelle speichern"
+  ],
+  [
+    "Cancel",
+    "Отмена",
+    "Abbrechen"
+  ],
+  [
+    "Add",
+    "Добавить",
+    "Hinzufügen"
+  ],
+  [
+    "Saved works are available without searching again.",
+    "Сохранённые работы доступны без повторного поиска.",
+    "Gespeicherte Werke sind ohne erneute Suche verfügbar."
+  ],
+  [
+    "Browsing history is stored on this computer.",
+    "История просмотра хранится на этом компьютере.",
+    "Der Verlauf wird auf diesem Computer gespeichert."
+  ],
+  [
+    "History",
+    "История",
+    "Verlauf"
+  ],
+  [
+    "Bookmark",
+    "Закладка",
+    "Lesezeichen"
+  ],
+  [
+    "Add bookmark",
+    "Добавить в закладки",
+    "Lesezeichen hinzufügen"
+  ],
+  [
+    "Bookmarked",
+    "В закладках",
+    "Als Lesezeichen gespeichert"
+  ],
+  [
+    "Added to bookmarks",
+    "Добавлено в закладки",
+    "Zu Lesezeichen hinzugefügt"
+  ],
+  [
+    "Removed from bookmarks",
+    "Удалено из закладок",
+    "Aus Lesezeichen entfernt"
+  ],
+  [
+    "Recommendations based on tags of works you liked. Liked works do not repeat.",
+    "Подборка по тегам изображений, которые вы отметили сердечком. Понравившиеся работы не повторяются.",
+    "Empfehlungen anhand der Tags Ihrer mit Herz markierten Werke. Bereits markierte Werke werden nicht erneut angezeigt."
+  ],
+  [
+    "Like images with the heart button to get recommendations here.",
+    "Поставьте лайк сердечком, и здесь появятся рекомендации.",
+    "Markieren Sie Bilder mit dem Herz, um hier Empfehlungen zu erhalten."
+  ],
+  [
+    "No suitable recommendation tags in your liked works yet.",
+    "У понравившихся работ пока нет подходящих тегов для подбора.",
+    "Ihre mit Herz markierten Werke haben noch keine passenden Tags für Empfehlungen."
+  ],
+  [
+    "All liked works are hidden by filters. Change content settings to get recommendations.",
+    "Все понравившиеся работы скрыты фильтрами. Измените настройки содержимого, чтобы получить рекомендации.",
+    "Alle mit Herz markierten Werke werden durch Filter ausgeblendet. Ändern Sie die Inhaltseinstellungen, um Empfehlungen zu erhalten."
+  ],
+  [
+    "Your frequent tags",
+    "Ваши частые теги",
+    "Ihre häufigen Tags"
+  ],
+  [
+    "Content tags",
+    "Теги содержания",
+    "Inhalts-Tags"
+  ],
+  [
+    "Frequent specific tags influence recommendations. Broad muted tags count only with yellow priority. Configure with right-click.",
+    "Частые необычные теги влияют на подбор. Приглушённые общие теги учитываются только с жёлтым приоритетом. Настройка — правой кнопкой мыши.",
+    "Häufige spezifische Tags beeinflussen Empfehlungen. Gedämpfte allgemeine Tags zählen nur mit gelber Priorität. Einstellungen per Rechtsklick."
+  ],
+  [
+    "Find a content tag",
+    "Найти тег содержания",
+    "Inhalts-Tag suchen"
+  ],
+  [
+    "Find a tag, for example group_sex",
+    "Найти тег, например group_sex",
+    "Tag suchen, zum Beispiel group_sex"
+  ],
+  [
+    "Right-click to customize recommendations",
+    "Правая кнопка — настроить рекомендации",
+    "Rechtsklick zum Anpassen der Empfehlungen"
+  ],
+  [
+    "Show more often",
+    "Показывать чаще",
+    "Häufiger anzeigen"
+  ],
+  [
+    "Normal priority",
+    "Обычный приоритет",
+    "Normale Priorität"
+  ],
+  [
+    "Disabled for recommendations",
+    "Выключен для рекомендаций",
+    "Für Empfehlungen deaktiviert"
+  ],
+  [
+    "Disable tag",
+    "Выключить тег",
+    "Tag deaktivieren"
+  ],
+  [
+    "Broad tag: enable yellow priority to influence recommendations",
+    "Общий тег: включите жёлтый приоритет, чтобы он влиял на подбор",
+    "Allgemeiner Tag: Aktivieren Sie gelbe Priorität für Empfehlungen"
+  ],
+  [
+    "Finding more…",
+    "Подбираем ещё…",
+    "Weitere werden gesucht…"
+  ],
+  [
+    "Finished searching available sources. Paused sources can be retried.",
+    "Подбор в доступных источниках завершён. Приостановленные источники можно повторить.",
+    "Die Suche in verfügbaren Quellen ist abgeschlossen. Pausierte Quellen können erneut versucht werden."
+  ],
+  [
+    "Failed to continue recommendations.",
+    "Не удалось продолжить подбор.",
+    "Weitere Empfehlungen konnten nicht geladen werden."
+  ],
+  [
+    "Search tag selection",
+    "Выбор тегов для поиска",
+    "Tag-Auswahl für die Suche"
+  ],
+  [
+    "Selected:",
+    "Выбрано:",
+    "Ausgewählt:"
+  ],
+  [
+    "Reset",
+    "Сбросить",
+    "Zurücksetzen"
+  ],
+  [
+    "Collapse tags",
+    "Свернуть теги",
+    "Tags einklappen"
+  ],
+  [
+    "Recent searches",
+    "Недавние запросы",
+    "Letzte Suchanfragen"
+  ],
+  [
+    "No matching tags",
+    "Таких тегов нет",
+    "Keine passenden Tags"
+  ],
+  [
+    "Settings saved",
+    "Настройки сохранены",
+    "Einstellungen gespeichert"
+  ],
+  [
+    "Tab settings saved",
+    "Настройки вкладок сохранены",
+    "Tab-Einstellungen gespeichert"
+  ],
+  [
+    "Signed in to Sankaku",
+    "Вход в Sankaku выполнен",
+    "Bei Sankaku angemeldet"
+  ],
+  [
+    "Signed out of Sankaku",
+    "Вы вышли из Sankaku",
+    "Bei Sankaku abgemeldet"
+  ],
+  [
+    "Gelbooru tag saved",
+    "Тег Gelbooru сохранён",
+    "Gelbooru-Tag gespeichert"
+  ],
+  [
+    "Failed to read settings",
+    "Настройки не удалось прочитать",
+    "Einstellungen konnten nicht gelesen werden"
+  ],
+  [
+    "Failed to read content filters",
+    "Фильтры содержимого не удалось прочитать",
+    "Inhaltsfilter konnten nicht gelesen werden"
+  ],
+  [
+    "Failed to save settings",
+    "Не удалось сохранить настройки",
+    "Einstellungen konnten nicht gespeichert werden"
+  ],
+  [
+    "Failed to save filters",
+    "Не удалось сохранить фильтры",
+    "Filter konnten nicht gespeichert werden"
+  ],
+  [
+    "Failed to read bookmarks",
+    "Закладки не удалось прочитать",
+    "Lesezeichen konnten nicht gelesen werden"
+  ],
+  [
+    "Failed to change bookmarks",
+    "Не удалось изменить закладки",
+    "Lesezeichen konnten nicht geändert werden"
+  ],
+  [
+    "Failed to read subscriptions",
+    "Подписки не удалось прочитать",
+    "Abonnements konnten nicht gelesen werden"
+  ],
+  [
+    "Failed to change subscription",
+    "Не удалось изменить подписку",
+    "Abonnement konnte nicht geändert werden"
+  ],
+  [
+    "Failed to load the subscription list.",
+    "Не удалось загрузить список подписок.",
+    "Abonnementliste konnte nicht geladen werden."
+  ],
+  [
+    "Failed to save the Gelbooru tag",
+    "Не удалось сохранить тег Gelbooru",
+    "Gelbooru-Tag konnte nicht gespeichert werden"
+  ],
+  [
+    "Failed to load the profile.",
+    "Не удалось загрузить профиль.",
+    "Profil konnte nicht geladen werden."
+  ],
+  [
+    "Failed to read favorite tags",
+    "Избранные теги не удалось прочитать",
+    "Lieblings-Tags konnten nicht gelesen werden"
+  ],
+  [
+    "Failed to save the favorite tag",
+    "Не удалось сохранить избранный тег",
+    "Lieblings-Tag konnte nicht gespeichert werden"
+  ],
+  [
+    "Failed to save the tag preference. Try again.",
+    "Не удалось сохранить настройку тега. Попробуйте ещё раз.",
+    "Tag-Einstellung konnte nicht gespeichert werden. Bitte erneut versuchen."
+  ],
+  [
+    "Failed to read viewed history",
+    "Историю просмотренных работ не удалось прочитать",
+    "Verlauf angesehener Werke konnte nicht gelesen werden"
+  ],
+  [
+    "Failed to save viewed history",
+    "Историю просмотренных работ не удалось сохранить",
+    "Verlauf angesehener Werke konnte nicht gespeichert werden"
+  ],
+  [
+    "Failed to save the viewed marker. The New label may reappear next time.",
+    "Не удалось сохранить отметку просмотра. При следующем открытии метка «Новое» может повториться.",
+    "Angesehen-Markierung konnte nicht gespeichert werden. Die Kennzeichnung Neu kann beim nächsten Öffnen erneut erscheinen."
+  ],
+  [
+    "Enter one or more tags",
+    "Введите один или несколько тегов",
+    "Geben Sie einen oder mehrere Tags ein"
+  ],
+  [
+    "A tag cannot exceed 100 characters",
+    "Один тег не может быть длиннее 100 символов",
+    "Ein Tag darf höchstens 100 Zeichen lang sein"
+  ],
+  [
+    "You can exclude up to 100 tags",
+    "Можно исключить не больше 100 тегов",
+    "Sie können höchstens 100 Tags ausschließen"
+  ],
+  [
+    "Enter one artist tag without special search commands",
+    "Укажите один тег художника без специальных команд поиска",
+    "Geben Sie einen Künstler-Tag ohne spezielle Suchbefehle ein"
+  ],
+  [
+    "The tag combination is too long. Select fewer tags.",
+    "Слишком длинная комбинация тегов. Выберите меньше тегов.",
+    "Die Tag-Kombination ist zu lang. Wählen Sie weniger Tags."
+  ],
+  [
+    "Set an API key in settings to load Gelbooru works.",
+    "Для работ Gelbooru укажите API key в настройках.",
+    "Geben Sie in den Einstellungen einen API-Schlüssel für Gelbooru-Werke an."
+  ],
+  [
+    "Questionable — borderline content",
+    "Questionable — пограничный контент",
+    "Questionable — grenzwertige Inhalte"
+  ],
+  [
+    "Votes:",
+    "Голоса:",
+    "Stimmen:"
+  ],
+  [
+    "More",
+    "Ещё",
+    "Weitere"
+  ],
+  [
+    "tags",
+    "тегов",
+    "Tags"
+  ],
+  [
+    "of",
+    "из",
+    "von"
+  ],
+  [
+    "records ·",
+    "записей ·",
+    "Datensätze ·"
+  ],
+  [
+    "new",
+    "новых",
+    "neue"
+  ],
+  [
+    "signed in",
+    "вход выполнен",
+    "angemeldet"
+  ],
+  [
+    "guest access",
+    "гостевой доступ",
+    "Gastzugang"
+  ],
+  [
+    "connected",
+    "подключён",
+    "verbunden"
+  ],
+  [
+    "requires key",
+    "требует ключ",
+    "Schlüssel erforderlich"
+  ],
+  [
+    "local build",
+    "локальная сборка",
+    "lokaler Build"
+  ],
+  [
+    "unavailable",
+    "недоступен",
+    "nicht verfügbar"
+  ],
+  [
+    "· uploader",
+    "· загрузчик",
+    "· Uploader"
+  ],
+  [
+    "· key needed",
+    "· нужен ключ",
+    "· Schlüssel benötigt"
+  ],
+  [
+    "· paused",
+    "· пауза",
+    "· pausiert"
+  ],
+  [
+    "· check API",
+    "· проверьте API",
+    "· API prüfen"
+  ],
+  [
+    "· sign-in required",
+    "· требуется вход",
+    "· Anmeldung erforderlich"
+  ],
+  [
+    "loading",
+    "загрузку",
+    "Laden"
+  ],
+  [
+    "search",
+    "поиск",
+    "Suche"
+  ],
+  [
+    "favorites",
+    "избранное",
+    "Favoriten"
+  ],
+  [
+    "Works shown:",
+    "Показано работ:",
+    "Angezeigte Werke:"
+  ],
+  [
+    "Records loaded:",
+    "Загружено записей:",
+    "Geladene Datensätze:"
+  ],
+  [
+    "Grouped copies:",
+    "Объединено копий:",
+    "Zusammengefasste Kopien:"
+  ],
+  [
+    "Viewed and saved:",
+    "Просмотренные и сохранённые:",
+    "Angesehen und gespeichert:"
+  ],
+  [
+    "Hidden by filters:",
+    "Скрыты фильтрами:",
+    "Durch Filter ausgeblendet:"
+  ],
+  [
+    ": records without an accessible file in the API —",
+    ": записей без доступного файла в API —",
+    ": Datensätze ohne zugängliche Datei in der API —"
+  ],
+  [
+    ": records missing the required tags —",
+    ": записей без нужных тегов —",
+    ": Datensätze ohne erforderliche Tags —"
+  ],
+  [
+    ": records with a different rating —",
+    ": записей другого рейтинга —",
+    ": Datensätze mit anderer Bewertung —"
+  ],
+  [
+    "Ctrl + click — select · Enter — search",
+    "Ctrl + клик — выбор · Enter — поиск",
+    "Strg + Klick — auswählen · Eingabe — suchen"
+  ],
+  [
+    "Find a tab…",
+    "Найти вкладку…",
+    "Tab suchen…"
+  ],
+  [
+    "Open",
+    "Открыть",
+    "Öffnen"
+  ],
+  [
+    "Recommended",
+    "Рекомендуется",
+    "Empfohlen"
+  ],
+  [
+    "Tags",
+    "Теги",
+    "Tags"
+  ],
+  [
+    "Catalog record count before grouping, availability checks and filters.",
+    "Число записей в каталогах до объединения, проверки доступности и применения фильтров.",
+    "Anzahl der Katalogeinträge vor Zusammenführung, Verfügbarkeitsprüfung und Filtern."
+  ],
+  [
+    "Gelbooru could not retrieve tag aliases. Retry the search later.",
+    "Gelbooru временно не вернул данные синонимов тегов. Повторите поиск позже.",
+    "Gelbooru konnte die Tag-Aliasse nicht abrufen. Versuchen Sie die Suche später erneut."
+  ],
+  [
+    "Video",
+    "Видео",
+    "Video"
+  ],
+  [
+    "Video · Hover for 5 preview frames",
+    "Видео · Наведите мышь для просмотра 5 кадров",
+    "Video · Mauszeiger darüber: 5 Vorschaubilder"
+  ],
+  [
+    "NSFW — explicit content",
+    "NSFW — откровенный контент",
+    "NSFW — explizite Inhalte"
+  ],
+  [
+    "Find a tab",
+    "Найти вкладку",
+    "Tab suchen"
+  ],
+  [
+    "Close tab list",
+    "Закрыть список вкладок",
+    "Tab-Liste schließen"
+  ],
+  [
+    "Close all tabs, including pinned tabs",
+    "Закрыть все вкладки, включая закреплённые",
+    "Alle Tabs schließen, einschließlich angehefteter Tabs"
+  ],
+  [
+    "Click or Enter to search selected tags. Ctrl + click to deselect.",
+    "Клик или Enter — искать выбранные теги. Ctrl + клик — снять выбор.",
+    "Klicken oder Eingabe für die Suche nach ausgewählten Tags. Strg + Klick zum Abwählen."
+  ],
+  [
+    "Ctrl + click to select a tag. Click normally to search this tag.",
+    "Ctrl + клик — выбрать тег. Обычный клик — искать этот тег.",
+    "Strg + Klick zum Auswählen eines Tags. Normaler Klick für die Suche nach diesem Tag."
+  ],
+  [
+    "Installed:",
+    "Установлено:",
+    "Installiert:"
+  ],
+  [
+    "Version available",
+    "Доступна версия",
+    "Version verfügbar"
+  ],
+  [
+    "Install DART",
+    "Установить DART",
+    "DART installieren"
+  ],
+  [
+    "Remove tag",
+    "Удалить тег",
+    "Tag entfernen"
+  ],
+  [
+    "Favorite tag",
+    "Избранный тег",
+    "Lieblings-Tag"
+  ],
+  [
+    "Add tag to favorites",
+    "Добавить тег в избранное",
+    "Tag zu Favoriten hinzufügen"
+  ],
+  [
+    "Remove tag from favorites",
+    "Убрать тег из избранного",
+    "Tag aus Favoriten entfernen"
+  ],
+  [
+    "Remove tag",
+    "Убрать тег",
+    "Tag entfernen"
+  ],
+  [
+    "Key already saved",
+    "Ключ уже сохранён",
+    "Schlüssel bereits gespeichert"
+  ],
+  [
+    "Enter API key",
+    "Введите API key",
+    "API-Schlüssel eingeben"
+  ],
+  [
+    "Double-click to pin",
+    "Двойной клик — закрепить",
+    "Zum Anheften doppelklicken"
+  ],
+  [
+    "Go to:",
+    "Перейти:",
+    "Wechseln zu:"
+  ],
+  [
+    "Records available:",
+    "Доступно записей:",
+    "Verfügbare Datensätze:"
+  ],
+  [
+    "Grouped:",
+    "Объединено:",
+    "Zusammengefasst:"
+  ],
+  [
+    "Hidden by filters:",
+    "Скрыто фильтрами:",
+    "Durch Filter ausgeblendet:"
+  ],
+  [
+    "Add to favorite tags",
+    "Добавить в избранные теги",
+    "Zu Lieblings-Tags hinzufügen"
+  ],
+  [
+    "Remove from favorite tags",
+    "Убрать из избранных тегов",
+    "Aus Lieblings-Tags entfernen"
+  ],
+  [
+    "Grouped",
+    "Объединено",
+    "Zusammengefasst:"
+  ],
+  [
+    "The search query is too long.",
+    "Поисковый запрос слишком длинный.",
+    "Die Suchanfrage ist zu lang."
+  ],
+  [
+    "This profile is currently unavailable.",
+    "Профиль сейчас недоступен.",
+    "Dieses Profil ist derzeit nicht verfügbar."
+  ],
+  [
+    "Invalid identifier.",
+    "Неверный идентификатор.",
+    "Ungültige Kennung."
+  ],
+  [
+    "Sankaku sign-in is currently unavailable. Try again later.",
+    "Сервис входа Sankaku сейчас недоступен. Повторите позже.",
+    "Die Sankaku-Anmeldung ist derzeit nicht verfügbar. Versuchen Sie es später erneut."
+  ],
+  [
+    "Enter a GitHub repository URL: https://github.com/owner/name.",
+    "Нужна ссылка на репозиторий https://github.com/owner/name.",
+    "Geben Sie eine GitHub-Repository-URL ein: https://github.com/owner/name."
+  ],
+  [
+    "Update settings are available in an installed copy of DART.",
+    "Настройка обновлений доступна в установленной DART.",
+    "Update-Einstellungen sind in einer installierten DART-Version verfügbar."
+  ],
+  [
+    "Wait for installation to finish.",
+    "Дождитесь завершения установки.",
+    "Warten Sie, bis die Installation abgeschlossen ist."
+  ],
+  [
+    "Invalid GitHub token.",
+    "Неверный токен GitHub.",
+    "Ungültiges GitHub-Token."
+  ],
+  [
+    "The release is missing the complete update file or its signature.",
+    "В выпуске нет полного файла обновления или подписи.",
+    "Dem Release fehlt die vollständige Update-Datei oder ihre Signatur."
+  ],
+  [
+    "The update file is outside the selected repository.",
+    "Файл обновления расположен за пределами выбранного репозитория.",
+    "Die Update-Datei liegt außerhalb des ausgewählten Repositorys."
+  ],
+  [
+    "Could not check GitHub. Check access and try again later.",
+    "Не удалось проверить GitHub. Проверьте доступ и повторите позже.",
+    "GitHub konnte nicht geprüft werden. Prüfen Sie den Zugriff und versuchen Sie es später erneut."
+  ],
+  [
+    "Update checks are temporarily unavailable. Try again later.",
+    "Проверка обновлений временно недоступна. Повторите позже.",
+    "Die Update-Prüfung ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut."
+  ],
+  [
+    "No verified update is available yet.",
+    "Проверенного обновления пока нет.",
+    "Es ist noch kein verifiziertes Update verfügbar."
+  ],
+  [
+    "The update size does not match the signed release.",
+    "Размер обновления не совпадает с подписанным выпуском.",
+    "Die Update-Größe stimmt nicht mit dem signierten Release überein."
+  ],
+  [
+    "Could not start the update installation.",
+    "Не удалось запустить установку обновления.",
+    "Die Update-Installation konnte nicht gestartet werden."
+  ],
+  [
+    "Rule34 rate limit reached (HTTP 429). Loading will resume automatically.",
+    "Rule34 ограничил частоту запросов (HTTP 429). Загрузка возобновится автоматически.",
+    "Das Rule34-Anfragelimit wurde erreicht (HTTP 429). Der Ladevorgang wird automatisch fortgesetzt."
+  ],
+  [
+    "Rule34 rejected the API key. Check your details in settings.",
+    "Rule34 отклонил ключ API. Проверьте данные в настройках.",
+    "Rule34 hat den API-Schlüssel abgelehnt. Prüfen Sie Ihre Angaben in den Einstellungen."
+  ],
+  [
+    "Rule34 temporarily restricted access (HTTP 403). We will retry later.",
+    "Rule34 временно ограничил доступ (HTTP 403). Повторим позже.",
+    "Rule34 hat den Zugriff vorübergehend eingeschränkt (HTTP 403). Ein neuer Versuch erfolgt später."
+  ],
+  [
+    "Rule34 did not respond in time. Loading will retry automatically.",
+    "Rule34 не ответил вовремя. Повторим загрузку автоматически.",
+    "Rule34 hat nicht rechtzeitig geantwortet. Der Ladevorgang wird automatisch erneut versucht."
+  ],
+  [
+    "Rule34 returned an incomplete response or a protection page. We will retry later.",
+    "Rule34 вернул неполный ответ или страницу защиты вместо данных. Повторим позже.",
+    "Rule34 hat eine unvollständige Antwort oder eine Schutzseite zurückgegeben. Ein neuer Versuch erfolgt später."
+  ],
+  [
+    "Rule34 search is temporarily unavailable on the site. Loading will resume automatically.",
+    "Поиск Rule34 временно недоступен на стороне сайта. Загрузка возобновится автоматически.",
+    "Die Rule34-Suche ist auf der Website vorübergehend nicht verfügbar. Der Ladevorgang wird automatisch fortgesetzt."
+  ],
+  [
+    "Rule34 returned an incomplete response instead of works. We will retry later.",
+    "Rule34 вернул неполный ответ вместо списка работ. Повторим позже.",
+    "Rule34 hat statt der Werkliste eine unvollständige Antwort zurückgegeben. Ein neuer Versuch erfolgt später."
+  ],
+  [
+    "Rule34 is temporarily unavailable (HTTP",
+    "Rule34 временно не отвечает (HTTP",
+    "Rule34 ist vorübergehend nicht verfügbar (HTTP"
+  ],
+  [
+    "). We will retry later.",
+    "). Повторим позже.",
+    "). Ein neuer Versuch erfolgt später."
+  ],
+  [
+    "Sankaku did not return a list of works. Check your tags.",
+    "Sankaku не вернул список работ. Проверьте теги.",
+    "Sankaku hat keine Werkliste zurückgegeben. Prüfen Sie Ihre Tags."
+  ],
+  [
+    "Quick video preview",
+    "Быстрый просмотр видео",
+    "Videovorschau"
+  ],
+  [
+    "Fullscreen video preview",
+    "Полноэкранный просмотр видео",
+    "Videovorschau im Vollbild"
+  ],
+  [
+    "Video could not be played.",
+    "Не удалось воспроизвести видео.",
+    "Das Video konnte nicht abgespielt werden."
+  ],
+  [
+    "Sign in to Sankaku to view this work.",
+    "Для просмотра этой работы авторизуйтесь в Sankaku.",
+    "Melden Sie sich bei Sankaku an, um dieses Werk anzusehen."
+  ],
+  [
+    "Sign in to Sankaku in settings to access these works.",
+    "Авторизуйтесь в Sankaku в настройках, чтобы получить доступ к этим работам.",
+    "Melden Sie sich in den Einstellungen bei Sankaku an, um auf diese Werke zuzugreifen."
+  ],
+  [
+    "Sankaku restricted access for this account. Check access requirements or your Plus subscription on the site.",
+    "Sankaku ограничил доступ для этого аккаунта. Проверьте условия доступа или подписку Plus на сайте.",
+    "Sankaku hat den Zugriff für dieses Konto eingeschränkt. Prüfen Sie die Zugangsbedingungen oder Ihr Plus-Abonnement auf der Website."
+  ],
+  [
+    "Enter your Sankaku username and password.",
+    "Введите логин и пароль Sankaku.",
+    "Geben Sie Ihren Sankaku-Benutzernamen und Ihr Passwort ein."
+  ],
+  [
+    "Too many sign-in attempts. Wait and try again.",
+    "Слишком много запросов входа. Подождите и повторите.",
+    "Zu viele Anmeldeversuche. Warten Sie und versuchen Sie es erneut."
+  ],
+  [
+    "Sankaku requires two-factor authentication. This sign-in method does not support it yet.",
+    "Sankaku требует двухэтапную проверку. Этот способ входа пока не поддерживает её.",
+    "Sankaku erfordert Zwei-Faktor-Authentifizierung. Diese Anmeldemethode unterstützt sie noch nicht."
+  ],
+  [
+    "Incorrect Sankaku username or password.",
+    "Неверный логин или пароль Sankaku.",
+    "Falscher Sankaku-Benutzername oder falsches Passwort."
+  ],
+  [
+    "Sankaku sign-in is temporarily unavailable. Try again later.",
+    "Вход Sankaku временно недоступен. Повторите позже.",
+    "Die Sankaku-Anmeldung ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut."
+  ],
+  [
+    "Invalid Sankaku identifier.",
+    "Неверный идентификатор Sankaku.",
+    "Ungültige Sankaku-Kennung."
+  ],
+  [
+    "Sankaku rejected the request. Try fewer tags.",
+    "Sankaku не принял запрос. Попробуйте меньше тегов.",
+    "Sankaku hat die Anfrage abgelehnt. Versuchen Sie es mit weniger Tags."
+  ],
+  [
+    "Could not refresh Sankaku sign-in. Wait and try again.",
+    "Не удалось обновить вход Sankaku. Подождите и повторите.",
+    "Die Sankaku-Anmeldung konnte nicht erneuert werden. Warten Sie und versuchen Sie es erneut."
+  ],
+  [
+    "This source is not supported.",
+    "Источник не поддерживается.",
+    "Diese Quelle wird nicht unterstützt."
+  ],
+  [
+    "The site rate limit was reached (HTTP",
+    "Сайт ограничил частоту запросов (HTTP",
+    "Das Anfragelimit der Website wurde erreicht (HTTP"
+  ],
+  [
+    "). Wait and try again.",
+    "). Подождите и повторите.",
+    "). Warten Sie und versuchen Sie es erneut."
+  ],
+  [
+    "The source server is temporarily unavailable (HTTP",
+    "Сервер источника временно не отвечает (HTTP",
+    "Der Quellserver ist vorübergehend nicht verfügbar (HTTP"
+  ],
+  [
+    "). Try again later.",
+    "). Повторите позже.",
+    "). Versuchen Sie es später erneut."
+  ],
+  [
+    "The source denied access (HTTP",
+    "Источник отклонил доступ (HTTP",
+    "Die Quelle hat den Zugriff verweigert (HTTP"
+  ],
+  [
+    "). Check the API key in settings.",
+    "). Проверьте ключ API в настройках.",
+    "). Prüfen Sie den API-Schlüssel in den Einstellungen."
+  ],
+  [
+    "The source returned HTTP error",
+    "Источник вернул ошибку HTTP",
+    "Die Quelle hat einen HTTP-Fehler zurückgegeben:"
+  ],
+  [
+    ". Try again later.",
+    ". Повторите запрос позже.",
+    ". Versuchen Sie es später erneut."
+  ],
+  [
+    "The source did not respond in time. Try again.",
+    "Источник не ответил вовремя. Повторите запрос.",
+    "Die Quelle hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut."
+  ],
+  [
+    "The source is currently unavailable. Try again later.",
+    "Источник сейчас недоступен. Повторите запрос позже.",
+    "Die Quelle ist derzeit nicht verfügbar. Versuchen Sie es später erneut."
+  ],
+  [
+    "The source returned an invalid post ID.",
+    "Источник вернул неверный ID публикации.",
+    "Die Quelle hat eine ungültige Beitrags-ID zurückgegeben."
+  ],
+  [
+    "Could not determine the latest post from this source.",
+    "Не удалось определить последнюю публикацию источника.",
+    "Der neueste Beitrag dieser Quelle konnte nicht ermittelt werden."
+  ],
+  [
+    "Could not determine the post ID from this source.",
+    "Не удалось определить ID публикации источника.",
+    "Die Beitrags-ID dieser Quelle konnte nicht ermittelt werden."
+  ],
+  [
+    "Could not read the Gelbooru date.",
+    "Не удалось прочитать дату Gelbooru.",
+    "Das Gelbooru-Datum konnte nicht gelesen werden."
+  ],
+  [
+    "Could not read the Rule34 date.",
+    "Не удалось прочитать дату Rule34.",
+    "Das Rule34-Datum konnte nicht gelesen werden."
+  ],
+  [
+    "The source did not return a post to determine the start of the month.",
+    "Источник не вернул публикацию для определения начала месяца.",
+    "Die Quelle hat keinen Beitrag zur Ermittlung des Monatsbeginns zurückgegeben."
+  ],
+  [
+    "Enter your Gelbooru user ID and API key in settings.",
+    "Укажите user ID и API key Gelbooru в настройках.",
+    "Geben Sie Ihre Gelbooru-User-ID und Ihren API-Schlüssel in den Einstellungen ein."
+  ],
+  [
+    "Enter your Rule34 user ID and API key in settings.",
+    "Укажите user ID и API key Rule34 в настройках.",
+    "Geben Sie Ihre Rule34-User-ID und Ihren API-Schlüssel in den Einstellungen ein."
+  ],
+  [
+    "Rule34 search is temporarily unavailable on the site. Try again later.",
+    "Поиск Rule34 временно недоступен на стороне сайта. Повторите позже.",
+    "Die Rule34-Suche ist auf der Website vorübergehend nicht verfügbar. Versuchen Sie es später erneut."
+  ],
+  [
+    "Curation",
+    "Отбор",
+    "Auswahl"
+  ],
+  [
+    "Ratings and personal taste",
+    "Оценки и личные предпочтения",
+    "Bewertungen und persönlicher Geschmack"
+  ],
+  [
+    "Bring promising works higher using catalog metadata and your local likes.",
+    "Поднимайте интересные работы выше с учётом данных каталогов и ваших лайков.",
+    "Interessante Werke anhand von Katalogdaten und Ihren lokalen Likes höher einordnen."
+  ],
+  [
+    "Enable curation",
+    "Включить отбор",
+    "Auswahl aktivieren"
+  ],
+  [
+    "Applies the selected factors across every artwork list.",
+    "Применяет выбранные факторы во всех списках работ.",
+    "Wendet die gewählten Faktoren in allen Werklisten an."
+  ],
+  [
+    "Curation is off.",
+    "Отбор выключен.",
+    "Auswahl ist ausgeschaltet."
+  ],
+  [
+    "Curation is on. Selected factors are applied together.",
+    "Отбор включён. Выбранные факторы учитываются вместе.",
+    "Auswahl ist eingeschaltet. Die gewählten Faktoren wirken zusammen."
+  ],
+  [
+    "Select at least one factor. Base order is used while all factors are off.",
+    "Выберите хотя бы один фактор. Пока все выключены, используется обычный порядок.",
+    "Wählen Sie mindestens einen Faktor. Sind alle ausgeschaltet, gilt die ursprüngliche Reihenfolge."
+  ],
+  [
+    "Ranking factors",
+    "Факторы отбора",
+    "Auswahlfaktoren"
+  ],
+  [
+    "Community ratings",
+    "Оценки сообщества",
+    "Bewertungen der Community"
+  ],
+  [
+    "Compares votes within the same catalog and rating. Missing votes are neutral; mirrored copies add no points.",
+    "Сравнивает оценки внутри одного каталога и возрастного рейтинга. Отсутствие оценок нейтрально; копии не добавляют баллов.",
+    "Vergleicht Stimmen innerhalb desselben Katalogs und derselben Altersfreigabe. Fehlende Stimmen sind neutral; Kopien bringen keine Zusatzpunkte."
+  ],
+  [
+    "Your preferences",
+    "Ваши предпочтения",
+    "Ihre Vorlieben"
+  ],
+  [
+    "Uses tags from your liked works. With no likes, this factor is neutral.",
+    "Учитывает теги понравившихся работ. Без лайков этот фактор нейтрален.",
+    "Verwendet Tags Ihrer mit „Gefällt mir“ markierten Werke. Ohne Likes ist dieser Faktor neutral."
+  ],
+  [
+    "Publication age",
+    "Возраст публикации",
+    "Alter der Veröffentlichung"
+  ],
+  [
+    "Gives recent uploads a chance. An older known copy keeps its original age.",
+    "Даёт шанс недавним публикациям. Известная старая копия сохраняет исходный возраст.",
+    "Gibt neuen Veröffentlichungen eine Chance. Eine bekannte ältere Kopie behält ihr ursprüngliches Alter."
+  ],
+  [
+    "Original resolution",
+    "Исходное разрешение",
+    "Originalauflösung"
+  ],
+  [
+    "Uses original dimensions when available. Thumbnails, sketches, line art and pixel art are not penalized.",
+    "Учитывает известные размеры оригинала. Миниатюры, скетчи, лайнарт и пиксельная графика не снижают оценку.",
+    "Berücksichtigt bekannte Originalmaße. Vorschaubilder, Skizzen, Lineart und Pixel-Art werden nicht abgewertet."
+  ],
+  [
+    "Ranks available results without extra image downloads. Works with missing data remain eligible.",
+    "Сортирует доступные результаты без дополнительных скачиваний изображений. Работы с неполными данными остаются в выдаче.",
+    "Sortiert verfügbare Ergebnisse ohne zusätzliche Bilddownloads. Werke mit unvollständigen Daten bleiben verfügbar."
+  ],
+  [
+    "Works in the catalog, search, recommendations, related works, Following, artist profiles, Liked, Bookmarks and history.",
+    "Работает в каталоге, поиске, рекомендациях, похожих работах, подписках, профилях художников, лайках, закладках и истории.",
+    "Wirkt im Katalog, in der Suche, in Empfehlungen, ähnlichen Werken, Abonnements, Künstlerprofilen, Likes, Lesezeichen und im Verlauf."
+  ],
+  [
+    "New works stay first in Following. New and Popular choose the source ordering; curation refines the available results.",
+    "Новые работы остаются первыми в подписках. «Новые» и «Популярные» задают порядок запроса к источникам; отбор сортирует полученные результаты.",
+    "Neue Werke bleiben in Abonnements an erster Stelle. „Neu“ und „Beliebt“ bestimmen die Abfragereihenfolge der Quellen; die Auswahl sortiert die verfügbaren Ergebnisse."
+  ],
+  [
+    "Could not save curation settings",
+    "Не удалось сохранить настройки отбора",
+    "Die Auswahleinstellungen konnten nicht gespeichert werden"
+  ],
+  [
+    "Check source connections in Settings.",
+    "Проверьте подключение источников в настройках.",
+    "Prüfen Sie die Quellenverbindungen in den Einstellungen."
+  ],
+  [
+    "Sources are temporarily unavailable. Retrying automatically.",
+    "Источники временно недоступны. Повторим автоматически.",
+    "Quellen sind vorübergehend nicht erreichbar. Der nächste Versuch erfolgt automatisch."
+  ],
+  [
+    "Automatic retries are paused.",
+    "Автоматические повторы приостановлены.",
+    "Automatische Wiederholungen sind pausiert."
+  ],
+  [
+    "Updates temporarily unavailable",
+    "Проверка обновлений временно недоступна",
+    "Update-Prüfung vorübergehend nicht verfügbar"
+  ],
+  [
+    "Waiting to check for updates.",
+    "Ожидание проверки обновлений.",
+    "Warten auf die Update-Prüfung."
+  ],
+  [
+    "Checking for updates…",
+    "Проверяем обновления…",
+    "Es wird nach Updates gesucht…"
+  ],
+  [
+    "Next automatic check:",
+    "Следующая автоматическая проверка:",
+    "Nächste automatische Prüfung:"
+  ],
+  [
+    "GitHub temporarily limited update checks.",
+    "GitHub временно ограничил частоту проверки обновлений.",
+    "GitHub hat die Häufigkeit der Update-Prüfungen vorübergehend begrenzt."
+  ],
+  [
+    "Could not check GitHub. Check the repository and access, then try again later.",
+    "Не удалось проверить GitHub. Проверьте репозиторий и доступ, затем повторите позже.",
+    "GitHub konnte nicht geprüft werden. Prüfen Sie Repository und Zugriff und versuchen Sie es später erneut."
+  ],
+  [
+    "The update service response is too large.",
+    "Слишком большой ответ службы обновлений.",
+    "Die Antwort des Update-Dienstes ist zu groß."
+  ],
+  [
+    "Update settings changed. Check the release again.",
+    "Настройки обновлений изменились. Проверьте выпуск заново.",
+    "Die Update-Einstellungen haben sich geändert. Prüfen Sie die Version erneut."
+  ],
+  [
+    "Explore",
+    "Обзор",
+    "Entdecken"
+  ],
+  [
+    "My profile",
+    "Моё",
+    "Mein Profil"
+  ],
+  [
+    "All",
+    "Всё",
+    "Alle"
+  ],
+  [
+    "SFW",
+    "Обычное",
+    "SFW"
+  ],
+  [
+    "Search illustrations",
+    "Поиск иллюстраций",
+    "Illustrationen suchen"
+  ],
+  [
+    "Artwork",
+    "Иллюстрация",
+    "Werk"
+  ],
+  [
+    "All connected sources",
+    "Все подключённые источники",
+    "Alle verbundenen Quellen"
+  ],
+  [
+    "More works by the artist",
+    "Другие работы автора",
+    "Weitere Werke des Künstlers"
+  ],
+  [
+    "Following artists",
+    "Подписки на художников",
+    "Gefolgte Künstler"
+  ],
+  [
+    "Follow artist",
+    "Подписка на художника",
+    "Künstler abonnieren"
+  ],
+  [
+    "Following",
+    "Вы подписаны",
+    "Abonnements"
+  ],
+  [
+    "Add artist tag",
+    "Добавить тег художника",
+    "Künstler-Tag hinzufügen"
+  ],
+  [
+    "Artist tag, for example artist_name",
+    "Тег художника, например artist_name",
+    "Künstler-Tag, zum Beispiel artist_name"
+  ],
+  [
+    "Enter one artist tag",
+    "Введите один тег художника",
+    "Einen Künstler-Tag eingeben"
+  ],
+  [
+    "Enter the artist's catalog tag. One tag searches all connected catalogs.",
+    "Укажите тег художника из источника. Один тег ищется во всех подключённых каталогах.",
+    "Gib den Künstler-Tag aus dem Katalog ein. Der Tag wird in allen verbundenen Katalogen gesucht."
+  ],
+  [
+    "New works in this feed",
+    "Новые работы в ленте",
+    "Neue Werke in diesem Feed"
+  ],
+  [
+    "No works yet",
+    "Пока нет работ",
+    "Noch keine Werke"
+  ],
+  [
+    "No results",
+    "Ничего не найдено",
+    "Keine Ergebnisse"
+  ],
+  [
+    "Loading…",
+    "Загрузка…",
+    "Wird geladen…"
+  ],
+  [
+    "Tap to retry",
+    "Нажмите, чтобы повторить",
+    "Zum Wiederholen tippen"
+  ],
+  [
+    "Retry loading",
+    "Повторить загрузку",
+    "Laden wiederholen"
+  ],
+  [
+    "Refresh feed",
+    "Обновить ленту",
+    "Feed aktualisieren"
+  ],
+  [
+    "Sources are temporarily unavailable",
+    "Источники временно недоступны",
+    "Quellen sind vorübergehend nicht verfügbar"
+  ],
+  [
+    "Open artwork",
+    "Открыть иллюстрацию",
+    "Werk öffnen"
+  ],
+  [
+    "Open original",
+    "Открыть оригинал",
+    "Original öffnen"
+  ],
+  [
+    "Download original",
+    "Скачать оригинал",
+    "Original herunterladen"
+  ],
+  [
+    "Open on website",
+    "Открыть на сайте",
+    "Auf Website öffnen"
+  ],
+  [
+    "Original source",
+    "Первоисточник",
+    "Originalquelle"
+  ],
+  [
+    "View",
+    "Смотреть",
+    "Ansehen"
+  ],
+  [
+    "Play video",
+    "Смотреть видео",
+    "Video abspielen"
+  ],
+  [
+    "Liked",
+    "Понравилось",
+    "Gefällt mir"
+  ],
+  [
+    "Remove like",
+    "Убрать из понравившегося",
+    "Gefällt mir entfernen"
+  ],
+  [
+    "Removed from liked works",
+    "Убрано из понравившегося",
+    "Aus den Likes entfernt"
+  ],
+  [
+    "Removed from bookmarks",
+    "Убрано из закладок",
+    "Aus Lesezeichen entfernt"
+  ],
+  [
+    "Liked works",
+    "Понравившееся",
+    "Likes"
+  ],
+  [
+    "Search history",
+    "История запросов",
+    "Suchverlauf"
+  ],
+  [
+    "Open works",
+    "Открытые работы",
+    "Offene Werke"
+  ],
+  [
+    "Pin",
+    "Закрепить",
+    "Anheften"
+  ],
+  [
+    "Unpin",
+    "Открепить",
+    "Loslösen"
+  ],
+  [
+    "Close all",
+    "Закрыть все",
+    "Alle schließen"
+  ],
+  [
+    "Clear history",
+    "Очистить историю",
+    "Verlauf leeren"
+  ],
+  [
+    "Language settings",
+    "Настройки языка",
+    "Spracheinstellungen"
+  ],
+  [
+    "Screen capture protection",
+    "Защита от снимков экрана",
+    "Schutz vor Bildschirmaufnahme"
+  ],
+  [
+    "Hide from screenshots and screen sharing",
+    "Скрывать в снимках экрана и демонстрации",
+    "In Bildschirmaufnahmen und Freigaben verbergen"
+  ],
+  [
+    "Theme",
+    "Тема",
+    "Design"
+  ],
+  [
+    "Artwork tabs",
+    "Вкладки работ",
+    "Werk-Tabs"
+  ],
+  [
+    "Preview mode",
+    "Режим предпросмотра",
+    "Vorschaumodus"
+  ],
+  [
+    "Open in a new tab",
+    "Открывать в новой вкладке",
+    "In neuem Tab öffnen"
+  ],
+  [
+    "Content visibility",
+    "Видимость контента",
+    "Sichtbarkeit von Inhalten"
+  ],
+  [
+    "Hide followed artists outside Following",
+    "Скрывать подписанных художников вне подписок",
+    "Gefolgte Künstler außerhalb des Folge-Feeds verbergen"
+  ],
+  [
+    "Hide viewed and saved works",
+    "Скрывать просмотренные и сохранённые",
+    "Angesehene und gespeicherte Werke ausblenden"
+  ],
+  [
+    "Hide furry content",
+    "Скрывать furry-контент",
+    "Furry-Inhalte ausblenden"
+  ],
+  [
+    "Show all",
+    "Показывать всё",
+    "Alle anzeigen"
+  ],
+  [
+    "Hide creator",
+    "Скрыть автора",
+    "Urheber verbergen"
+  ],
+  [
+    "Show creator",
+    "Показать автора",
+    "Urheber anzeigen"
+  ],
+  [
+    "Add to favorites",
+    "Добавить в избранное",
+    "Zu Favoriten hinzufügen"
+  ],
+  [
+    "Hide tag",
+    "Скрыть тег",
+    "Tag verbergen"
+  ],
+  [
+    "Tag actions",
+    "Действия с тегом",
+    "Tag-Aktionen"
+  ],
+  [
+    "Recommendation settings",
+    "Настройки рекомендаций",
+    "Empfehlungseinstellungen"
+  ],
+  [
+    "Settings from liked works",
+    "Настройки по понравившимся работам",
+    "Einstellungen anhand deiner Likes"
+  ],
+  [
+    "Calculating interests…",
+    "Считаем интересы…",
+    "Vorlieben werden ermittelt…"
+  ],
+  [
+    "Default",
+    "Обычно",
+    "Standard"
+  ],
+  [
+    "Priority",
+    "Приоритет",
+    "Priorität"
+  ],
+  [
+    "Exclude",
+    "Исключить",
+    "Ausschließen"
+  ],
+  [
+    "Work curation",
+    "Отбор работ",
+    "Werkauswahl"
+  ],
+  [
+    "Enable work curation",
+    "Включить отбор работ",
+    "Werkauswahl aktivieren"
+  ],
+  [
+    "Popularity within each source",
+    "Популярность в своём источнике",
+    "Beliebtheit innerhalb der Quelle"
+  ],
+  [
+    "Your preferences from likes",
+    "Ваши предпочтения по лайкам",
+    "Deine Vorlieben anhand der Likes"
+  ],
+  [
+    "Publication freshness",
+    "Свежесть публикации",
+    "Aktualität der Veröffentlichung"
+  ],
+  [
+    "Image size",
+    "Размер изображения",
+    "Bildgröße"
+  ],
+  [
+    "Common ranking rules for search, illustrations, recommendations and related works. Votes are compared within their source and rating.",
+    "Общие правила отбора для поиска, иллюстраций, рекомендаций и похожих работ. Оценки сравниваются внутри своего источника и рейтинга.",
+    "Gemeinsame Auswahlregeln für Suche, Illustrationen, Empfehlungen und ähnliche Werke. Bewertungen werden innerhalb derselben Quelle und Altersfreigabe verglichen."
+  ],
+  [
+    "One JSON file for DART on Windows and Android. Transfer it by any convenient method and import it on the other device.",
+    "Один JSON-файл для DART на ПК и Android. Передайте его любым удобным способом и выберите импорт на другом устройстве.",
+    "Eine JSON-Datei für DART auf Windows und Android. Übertrage sie auf beliebigem Weg und importiere sie auf dem anderen Gerät."
+  ],
+  [
+    "Likes, bookmarks, follows, viewed works, favorite tags and recommendation priorities are transferred. Import adds to your profile without removing entries. Content filters and curation can be applied separately.",
+    "Переносятся лайки, закладки, подписки, просмотренное, избранные теги и приоритеты рекомендаций. Импорт дополняет профиль без удаления существующих записей. Фильтры и отбор можно перенести отдельно.",
+    "Likes, Lesezeichen, Abonnements, gesehene Werke, Lieblings-Tags und Empfehlungsvorlieben werden übertragen. Der Import ergänzt das Profil ohne Einträge zu entfernen. Inhaltsfilter und Auswahl können separat übernommen werden."
+  ],
+  [
+    "API keys and source sign-ins stay on their own device. Configure source access on each device.",
+    "Ключи API и вход в источники остаются только на своём устройстве. Доступ к источникам настройте на каждом устройстве.",
+    "API-Schlüssel und Anmeldungen bleiben auf ihrem Gerät. Richte den Zugriff auf die Quellen auf jedem Gerät ein."
+  ],
+  [
+    "Import profile",
+    "Импорт профиля",
+    "Profil importieren"
+  ],
+  [
+    "Profile exported",
+    "Профиль экспортирован",
+    "Profil exportiert"
+  ],
+  [
+    "Profile imported",
+    "Профиль импортирован",
+    "Profil importiert"
+  ],
+  [
+    "Import completed",
+    "Импорт завершён",
+    "Import abgeschlossen"
+  ],
+  [
+    "Transfer failed",
+    "Не удалось перенести профиль",
+    "Profil konnte nicht übertragen werden"
+  ],
+  [
+    "Cannot read file",
+    "Не удалось прочитать файл",
+    "Datei konnte nicht gelesen werden"
+  ],
+  [
+    "File is too large",
+    "Файл слишком большой",
+    "Datei ist zu groß"
+  ],
+  [
+    "Keep existing settings",
+    "Сохранить текущие настройки",
+    "Vorhandene Einstellungen behalten"
+  ],
+  [
+    "Apply content settings from file",
+    "Применить настройки контента из файла",
+    "Inhaltseinstellungen aus Datei übernehmen"
+  ],
+  [
+    "Data is added without deleting existing entries.",
+    "Данные добавляются без удаления существующих.",
+    "Daten werden ergänzt, ohne vorhandene Einträge zu löschen."
+  ],
+  [
+    "No API key required",
+    "API key не нужен",
+    "Kein API-Schlüssel erforderlich"
+  ],
+  [
+    "Public works available without sign-in",
+    "Без авторизации · доступны публичные работы",
+    "Ohne Anmeldung sind öffentliche Werke verfügbar"
+  ],
+  [
+    "Sankaku username or email",
+    "Логин или email Sankaku",
+    "Sankaku-Benutzername oder E-Mail"
+  ],
+  [
+    "Sankaku password",
+    "Пароль Sankaku",
+    "Sankaku-Passwort"
+  ],
+  [
+    "Enter your Sankaku username and password",
+    "Введите логин и пароль Sankaku",
+    "Gib deinen Sankaku-Benutzernamen und dein Passwort ein"
+  ],
+  [
+    "Signing in to Sankaku…",
+    "Авторизация в Sankaku…",
+    "Anmeldung bei Sankaku…"
+  ],
+  [
+    "Sankaku connected",
+    "Sankaku подключён",
+    "Sankaku verbunden"
+  ],
+  [
+    "Connection settings",
+    "Настройки подключения",
+    "Verbindungseinstellungen"
+  ],
+  [
+    "User ID",
+    "ID пользователя",
+    "Benutzer-ID"
+  ],
+  [
+    "Saved",
+    "Сохранено",
+    "Gespeichert"
+  ],
+  [
+    "Connection saved",
+    "Подключение сохранено",
+    "Verbindung gespeichert"
+  ],
+  [
+    "Changes saved",
+    "Изменения сохранены",
+    "Änderungen gespeichert"
+  ],
+  [
+    "Apply",
+    "Применить",
+    "Anwenden"
+  ],
+  [
+    "Remove",
+    "Удалить",
+    "Entfernen"
+  ],
+  [
+    "Done",
+    "Готово",
+    "Fertig"
+  ],
+  [
+    "Filters",
+    "Фильтры",
+    "Filter"
+  ],
+  [
+    "Rating",
+    "Рейтинг",
+    "Altersfreigabe"
+  ],
+  [
+    "Source",
+    "Источник",
+    "Quelle"
+  ],
+  [
+    "Uploader profile",
+    "Профиль загрузчика",
+    "Profil des Hochladenden"
+  ],
+  [
+    "Dark DART",
+    "Тёмная DART",
+    "Dunkles DART"
+  ],
+  [
+    "There are no favorite tags yet.",
+    "Избранных тегов пока нет.",
+    "Noch keine Lieblings-Tags."
+  ],
+  [
+    "Add tags from an artwork or search.",
+    "Добавляйте теги из работы или поиска.",
+    "Füge Tags aus einem Werk oder der Suche hinzu."
+  ],
+  [
+    "No hidden authors yet. Open an artist profile and choose Hide creator.",
+    "Скрытых авторов пока нет. Откройте профиль художника и нажмите «Скрыть автора».",
+    "Noch keine verborgenen Urheber. Öffne ein Künstlerprofil und wähle „Urheber verbergen“."
+  ],
+  [
+    "Works by these artists and uploaders are hidden in feeds, history, bookmarks and related works. Entries are kept.",
+    "Работы этих художников и загрузчиков скрыты в лентах, истории, закладках и похожем. Записи не удаляются.",
+    "Werke dieser Künstler und Hochladenden werden in Feeds, Verlauf, Lesezeichen und ähnlichen Werken verborgen. Einträge bleiben erhalten."
+  ],
+  [
+    "Got it",
+    "Понятно",
+    "Verstanden"
+  ],
+  [
+    "Find illustrations",
+    "Найти иллюстрации",
+    "Illustrationen finden"
+  ],
+  [
+    "Popular",
+    "Популярное",
+    "Beliebt"
+  ],
+  [
+    "All new works",
+    "Все новые",
+    "Alle neuen Werke"
+  ],
+  [
+    "All sources",
+    "Все источники",
+    "Alle Quellen"
+  ],
+  [
+    "Popular in your feed",
+    "Популярные в ленте",
+    "Beliebt in deinem Feed"
+  ],
+  [
+    "The source repeated a page. Tap to retry.",
+    "Источник повторил страницу. Нажмите для повторной загрузки.",
+    "Die Quelle hat eine Seite wiederholt. Tippe zum erneuten Laden."
+  ],
+  [
+    "Could not load the catalog. Tap to retry.",
+    "Не удалось загрузить каталог. Нажмите, чтобы повторить.",
+    "Der Katalog konnte nicht geladen werden. Tippe zum Wiederholen."
+  ],
+  [
+    "No works match these filters. Change your settings.",
+    "Нет работ для этих фильтров. Измените настройки.",
+    "Keine Werke entsprechen diesen Filtern. Ändere deine Einstellungen."
+  ],
+  [
+    "Illustrations from your sources",
+    "Иллюстрации из ваших источников",
+    "Illustrationen aus deinen Quellen"
+  ],
+  [
+    "Preparing the next illustrations…",
+    "Подготовка следующих иллюстраций…",
+    "Die nächsten Illustrationen werden vorbereitet…"
+  ],
+  [
+    "Looking for available works…",
+    "Ищем доступные работы…",
+    "Verfügbare Werke werden gesucht…"
+  ],
+  [
+    "Load more",
+    "Загрузить ещё",
+    "Mehr laden"
+  ],
+  [
+    "Follow an artist to see their new works.",
+    "Подпишитесь на художника, чтобы видеть его новые работы.",
+    "Folge einem Künstler, um seine neuen Werke zu sehen."
+  ],
+  [
+    "Selection viewed · tap to refresh recommendations",
+    "Подборка просмотрена · нажмите, чтобы обновить рекомендации",
+    "Auswahl angesehen · tippe für neue Empfehlungen"
+  ],
+  [
+    "No new results yet · tap to refresh",
+    "Пока новых результатов нет · нажмите, чтобы обновить",
+    "Noch keine neuen Ergebnisse · tippe zum Aktualisieren"
+  ],
+  [
+    "Sign in to Sankaku",
+    "Авторизуйтесь в Sankaku",
+    "Bei Sankaku anmelden"
+  ],
+  [
+    "Sankaku access is restricted",
+    "Доступ Sankaku ограничен",
+    "Der Zugriff auf Sankaku ist eingeschränkt"
+  ],
+  [
+    "Sign in",
+    "Авторизоваться",
+    "Anmelden"
+  ],
+  [
+    "Open Sankaku",
+    "Открыть Sankaku",
+    "Sankaku öffnen"
+  ],
+  [
+    "Search illustrations by tags",
+    "Поиск иллюстраций по тегам",
+    "Illustrationen nach Tags suchen"
+  ],
+  [
+    "Search",
+    "Искать",
+    "Suchen"
+  ],
+  [
+    "Search query is too long",
+    "Запрос слишком длинный",
+    "Die Suchanfrage ist zu lang"
+  ],
+  [
+    "Landscapes",
+    "Пейзажи",
+    "Landschaften"
+  ],
+  [
+    "Original works",
+    "Оригинальное",
+    "Originalwerke"
+  ],
+  [
+    "Sky",
+    "Небо",
+    "Himmel"
+  ],
+  [
+    "Animals",
+    "Животные",
+    "Tiere"
+  ],
+  [
+    "Portraits",
+    "Портреты",
+    "Porträts"
+  ],
+  [
+    "Fantasy",
+    "Фэнтези",
+    "Fantasy"
+  ],
+  [
+    "Cities",
+    "Города",
+    "Städte"
+  ],
+  [
+    "Flowers",
+    "Цветы",
+    "Blumen"
+  ],
+  [
+    "Pixel art",
+    "Пиксель-арт",
+    "Pixel-Art"
+  ],
+  [
+    "Space",
+    "Космос",
+    "Weltraum"
+  ],
+  [
+    "Sea",
+    "Море",
+    "Meer"
+  ],
+  [
+    "Nature",
+    "Природа",
+    "Natur"
+  ],
+  [
+    "Illustrations from the catalog",
+    "Иллюстрации из каталога",
+    "Illustrationen aus dem Katalog"
+  ],
+  [
+    "My page",
+    "Моя страница",
+    "Meine Seite"
+  ],
+  [
+    "Your catalog on your phone",
+    "Ваш каталог на телефоне",
+    "Dein Katalog auf dem Smartphone"
+  ],
+  [
+    "Import profile from PC",
+    "Импорт профиля с ПК",
+    "Profil vom PC importieren"
+  ],
+  [
+    "Sankaku sign-in status",
+    "Статус авторизации Sankaku",
+    "Sankaku-Anmeldestatus"
+  ],
+  [
+    "Sign in to Sankaku to access restricted works. Popular works follow the site's ordering. Some features and works may require Plus.",
+    "Для ограниченных работ авторизуйтесь в Sankaku. Популярные загружаются в порядке сайта. Отдельные функции и работы могут требовать подписку Plus.",
+    "Melde dich bei Sankaku an, um eingeschränkte Werke zu öffnen. Beliebte Werke folgen der Reihenfolge der Website. Manche Funktionen und Werke erfordern Plus."
+  ],
+  [
+    "Sankaku login",
+    "Логин Sankaku",
+    "Sankaku-Anmeldename"
+  ],
+  [
+    "Sankaku did not respond. Please sign in again.",
+    "Sankaku не ответил. Повторите вход.",
+    "Sankaku hat nicht geantwortet. Bitte melde dich erneut an."
+  ],
+  [
+    "Could not save the sign-in. Please sign in again.",
+    "Не удалось сохранить вход. Повторите авторизацию.",
+    "Die Anmeldung konnte nicht gespeichert werden. Bitte melde dich erneut an."
+  ],
+  [
+    "Could not sign in to Sankaku",
+    "Не удалось войти в Sankaku",
+    "Anmeldung bei Sankaku fehlgeschlagen"
+  ],
+  [
+    "Signed out · public works are available",
+    "Вы вышли · доступны публичные работы",
+    "Abgemeldet · öffentliche Werke sind verfügbar"
+  ],
+  [
+    "Your password is sent only to Sankaku over HTTPS and is not saved. Sign-in tokens are encrypted with Android Keystore and excluded from profile exports.",
+    "Пароль отправляется по HTTPS только в Sankaku и не сохраняется. Токены входа зашифрованы Android Keystore и не входят в экспорт профиля.",
+    "Dein Passwort wird ausschließlich über HTTPS an Sankaku gesendet und nicht gespeichert. Anmeldetokens werden mit Android Keystore verschlüsselt und nicht exportiert."
+  ],
+  [
+    "Open Sankaku website",
+    "Открыть сайт Sankaku",
+    "Sankaku-Website öffnen"
+  ],
+  [
+    "Normal tag",
+    "Обычный тег",
+    "Normaler Tag"
+  ],
+  [
+    "Priority tag",
+    "Приоритетный тег",
+    "Bevorzugter Tag"
+  ],
+  [
+    "Exclude from recommendations",
+    "Не показывать в рекомендациях",
+    "Nicht in Empfehlungen anzeigen"
+  ],
+  [
+    "Show tag",
+    "Показывать тег",
+    "Tag anzeigen"
+  ],
+  [
+    "Search tag",
+    "Искать тег",
+    "Nach Tag suchen"
+  ],
+  [
+    "Select for a combined search",
+    "Выбрать для поиска с другими тегами",
+    "Für eine Suche mit anderen Tags auswählen"
+  ],
+  [
+    "Yellow tags have priority; red tags are excluded from recommendations. Tap a tag to change it. Likes and bookmarks are stored separately.",
+    "Жёлтый тег получает приоритет, красный исключается из рекомендаций. Нажмите на тег, чтобы изменить его. Лайки и закладки хранятся отдельно.",
+    "Gelbe Tags werden bevorzugt, rote aus Empfehlungen ausgeschlossen. Tippe auf einen Tag, um ihn zu ändern. Likes und Lesezeichen werden getrennt gespeichert."
+  ],
+  [
+    "Like a few illustrations to see your interests here. Until then, Home shows the general feed.",
+    "Отметьте несколько иллюстраций сердцем, и здесь появятся ваши интересы. До этого главная показывает общую ленту.",
+    "Markiere einige Illustrationen mit einem Herz, um hier deine Interessen zu sehen. Bis dahin zeigt die Startseite den allgemeinen Feed."
+  ],
+  [
+    "Interface language. Artist names, artwork titles and tags are not translated.",
+    "Язык интерфейса. Имена художников, названия работ и теги остаются без перевода.",
+    "Sprache der Oberfläche. Künstlernamen, Werktitel und Tags werden nicht übersetzt."
+  ],
+  [
+    "Choose a theme for the whole app. System mode follows your phone's settings.",
+    "Выберите оформление для всего приложения. Системный режим следует настройке телефона.",
+    "Wähle ein Design für die ganze App. Der Systemmodus folgt den Einstellungen deines Smartphones."
+  ],
+  [
+    "Follow system",
+    "Как в системе",
+    "Systemeinstellung"
+  ],
+  [
+    "Apply theme",
+    "Применить тему",
+    "Design anwenden"
+  ],
+  [
+    "Privacy",
+    "Приватность",
+    "Datenschutz"
+  ],
+  [
+    "Screen protection",
+    "Защита экрана",
+    "Bildschirmschutz"
+  ],
+  [
+    "Hide the app in screenshots",
+    "Скрывать приложение на снимках экрана",
+    "App in Bildschirmaufnahmen ausblenden"
+  ],
+  [
+    "Android blocks screenshots and recordings of the app window while this switch is enabled. Content remains visible on the phone itself.",
+    "Android блокирует снимки и запись окна приложения, пока переключатель включён. Содержимое остаётся видно на самом телефоне.",
+    "Android blockiert Bildschirmfotos und Aufnahmen des App-Fensters, solange diese Option aktiviert ist. Auf dem Smartphone selbst bleibt der Inhalt sichtbar."
+  ],
+  [
+    "Content filters",
+    "Фильтры содержимого",
+    "Inhaltsfilter"
+  ],
+  [
+    "Configure recommendations",
+    "Настроить рекомендации",
+    "Empfehlungen einstellen"
+  ],
+  [
+    "Profile transfer · PC ↔ Android",
+    "Перенос профиля · ПК ↔ Android",
+    "Profilübertragung · PC ↔ Android"
+  ],
+  [
+    "Uses AI-generated, AI-art, Stable Diffusion, NovelAI and AI-assisted tags. Untagged works are not automatically classified as AI.",
+    "Учитываются метки AI-generated, AI-art, Stable Diffusion, NovelAI и AI-assisted. Работы без этих тегов не определяются автоматически как AI.",
+    "Berücksichtigt AI-generated, AI-art, Stable Diffusion, NovelAI und AI-assisted. Werke ohne diese Tags werden nicht automatisch als KI-Inhalte eingestuft."
+  ],
+  [
+    "Hides works from search, recommendations and related works, including copies with the same MD5. Bookmarks, history and artist profiles stay available.",
+    "Скрывает работы из поиска, рекомендаций и похожих, включая копии с тем же MD5. Закладки, история и профили авторов остаются доступны.",
+    "Blendet Werke aus Suche, Empfehlungen und ähnlichen Werken aus, einschließlich Kopien mit derselben MD5. Lesezeichen, Verlauf und Künstlerprofile bleiben verfügbar."
+  ],
+  [
+    "Hide followed artists outside Following",
+    "Скрывать подписанных авторов вне Following",
+    "Gefolgte Künstler außerhalb von Following ausblenden"
+  ],
+  [
+    "Only affects search, illustrations, recommendations and related works. Following, likes, bookmarks, history and profiles remain available.",
+    "Только в поиске, иллюстрациях, рекомендациях и похожих работах. Подписки, лайки, закладки, история и профили сохраняются.",
+    "Betrifft nur Suche, Illustrationen, Empfehlungen und ähnliche Werke. Following, Likes, Lesezeichen, Verlauf und Profile bleiben verfügbar."
+  ],
+  [
+    "Enter tags separated by commas. Matching is exact: latex does not exclude latex_gloves.",
+    "Можно указать несколько тегов через запятую. Совпадение точное: latex не исключает latex_gloves.",
+    "Trenne mehrere Tags durch Kommas. Der Abgleich ist exakt: latex schließt latex_gloves nicht aus."
+  ],
+  [
+    "Save filters",
+    "Сохранить фильтры",
+    "Filter speichern"
+  ],
+  [
+    "Hide furry and anthro",
+    "Скрывать furry и anthro",
+    "Furry und Anthro ausblenden"
+  ],
+  [
+    "Only explicit furry and anthro tags are used, including grouped copies. Ears, tails and fur clothing alone are not hidden.",
+    "Учитываются только явные теги furry и anthro, в том числе у объединённых копий. Уши, хвосты и одежда с мехом сами по себе не скрываются.",
+    "Berücksichtigt nur ausdrückliche Furry- und Anthro-Tags, auch bei zusammengeführten Kopien. Ohren, Schwänze und Fellkleidung allein werden nicht ausgeblendet."
+  ],
+  [
+    "Primary attribution",
+    "Основная подпись автора",
+    "Vorrangige Urheberangabe"
+  ],
+  [
+    "The artist, original publication and uploader are shown separately in the artwork. Choose the primary attribution here.",
+    "Художник, исходная публикация и загрузчик показаны отдельно в работе. Здесь выбирается основная подпись.",
+    "Künstler, Originalveröffentlichung und Uploader werden beim Werk getrennt angezeigt. Wähle hier die vorrangige Angabe."
+  ],
+  [
+    "Following uses the artist's tag. The original link opens the publication; the uploader may be a different person.",
+    "Подписка создаётся на тег художника. Исходная ссылка открывает публикацию; загрузчик может быть другим человеком.",
+    "Du folgst dem Künstler-Tag. Der Originallink öffnet die Veröffentlichung; der Uploader kann eine andere Person sein."
+  ],
+  [
+    "Save attribution preference",
+    "Сохранить приоритет",
+    "Vorrangige Angabe speichern"
+  ],
+  [
+    "Opening illustrations",
+    "Открытие иллюстраций",
+    "Illustrationen öffnen"
+  ],
+  [
+    "One temporary preview",
+    "Один временный просмотр",
+    "Eine temporäre Vorschau"
+  ],
+  [
+    "The temporary work is replaced by the next one. Open works are available from the viewer or My page. Pin a work with the star to keep it open; pinned works are not replaced or closed.",
+    "Временная работа заменяется следующей. Открытые работы доступны через кнопку в просмотре или на моей странице. Закрепите работу звёздочкой, чтобы сохранить её среди открытых; закреплённая работа не заменяется и не закрывается.",
+    "Das temporäre Werk wird durch das nächste ersetzt. Offene Werke findest du im Betrachter oder auf Meine Seite. Fixiere ein Werk mit dem Stern, um es offen zu halten; fixierte Werke werden nicht ersetzt oder geschlossen."
+  ],
+  [
+    "Save mode",
+    "Сохранить режим",
+    "Modus speichern"
+  ],
+  [
+    "Mode saved",
+    "Режим сохранён",
+    "Modus gespeichert"
+  ],
+  [
+    "Search works on this phone without a running PC. API keys are stored in Android Keystore and excluded from exports.",
+    "Поиск работает на этом телефоне без включённого ПК. API-ключи хранятся в Android Keystore и не попадают в экспорт.",
+    "Die Suche läuft auf diesem Smartphone ohne eingeschalteten PC. API-Schlüssel werden mit Android Keystore gespeichert und nicht exportiert."
+  ],
+  [
+    "Public search is available without an API key.",
+    "Публичный поиск доступен без API key.",
+    "Die öffentliche Suche ist ohne API-Schlüssel verfügbar."
+  ],
+  [
+    "Source connected",
+    "Источник подключён",
+    "Quelle verbunden"
+  ],
+  [
+    "Source not connected",
+    "Источник не подключён",
+    "Quelle nicht verbunden"
+  ],
+  [
+    "API key · leave empty to keep the current key",
+    "API key · оставить пустым для сохранения текущего",
+    "API-Schlüssel · leer lassen, um den bisherigen zu behalten"
+  ],
+  [
+    "Could not read the connection. Existing keys have been kept.",
+    "Не удалось прочитать подключение. Существующие ключи сохранены.",
+    "Die Verbindung konnte nicht gelesen werden. Vorhandene Schlüssel wurden behalten."
+  ],
+  [
+    "An empty API key keeps the current key. Clear User ID and save to disconnect the source.",
+    "Пустой API key сохраняет существующий ключ. Очистите User ID и сохраните, чтобы отключить источник.",
+    "Ein leeres API-Schlüsselfeld behält den bisherigen Schlüssel. Leere die User ID und speichere, um die Quelle zu trennen."
+  ],
+  [
+    "Wait for connection settings to load",
+    "Подождите загрузки настроек подключения",
+    "Warte, bis die Verbindungseinstellungen geladen sind"
+  ],
+  [
+    "Check User ID and API key",
+    "Проверьте User ID и API key",
+    "Prüfe User ID und API-Schlüssel"
+  ],
+  [
+    "Enter an API key for the first connection",
+    "Введите API key для первого подключения",
+    "Gib für die erste Verbindung einen API-Schlüssel ein"
+  ],
+  [
+    "Source disconnected",
+    "Источник отключён",
+    "Quelle getrennt"
+  ],
+  [
+    "Source settings saved",
+    "Настройки источника сохранены",
+    "Quelleneinstellungen gespeichert"
+  ],
+  [
+    "Could not save the keys",
+    "Не удалось сохранить ключи",
+    "Schlüssel konnten nicht gespeichert werden"
+  ],
+  [
+    "This work is hidden by content filters",
+    "Эта работа скрыта фильтрами содержимого",
+    "Dieses Werk wird durch Inhaltsfilter ausgeblendet"
+  ],
+  [
+    "Open image fullscreen",
+    "Открыть изображение на весь экран",
+    "Bild im Vollbild öffnen"
+  ],
+  [
+    "Share",
+    "Поделиться",
+    "Teilen"
+  ],
+  [
+    "Open source",
+    "Открыть источник",
+    "Quelle öffnen"
+  ],
+  [
+    "▣ Saved",
+    "▣ Сохранено",
+    "▣ Gespeichert"
+  ],
+  [
+    "▣ Bookmark",
+    "▣ Закладка",
+    "▣ Lesezeichen"
+  ],
+  [
+    "♥ Liked",
+    "♥ Нравится",
+    "♥ Gefällt mir"
+  ],
+  [
+    "♡ Like",
+    "♡ Нравится",
+    "♡ Gefällt mir"
+  ],
+  [
+    "Search selected tags",
+    "Искать выбранные теги",
+    "Nach ausgewählten Tags suchen"
+  ],
+  [
+    "Related illustrations",
+    "Похожие иллюстрации",
+    "Ähnliche Illustrationen"
+  ],
+  [
+    "Could not refresh the Sankaku work. Open it again to retry.",
+    "Не удалось обновить работу Sankaku. Повторите открытие.",
+    "Das Sankaku-Werk konnte nicht aktualisiert werden. Öffne es zum Wiederholen erneut."
+  ],
+  [
+    "Error · retry →",
+    "Ошибка · повторить →",
+    "Fehler · erneut versuchen →"
+  ],
+  [
+    "Loading error · retry →",
+    "Ошибка загрузки · повторить →",
+    "Ladefehler · erneut versuchen →"
+  ],
+  [
+    "Could not load more. Tap right to retry.",
+    "Не удалось загрузить продолжение. Нажмите вправо, чтобы повторить.",
+    "Weitere Werke konnten nicht geladen werden. Tippe rechts, um es erneut zu versuchen."
+  ],
+  [
+    "Preparing the next illustration",
+    "Подготовка следующей иллюстрации",
+    "Nächste Illustration wird vorbereitet"
+  ],
+  [
+    "Image error · retry →",
+    "Ошибка изображения · повторить →",
+    "Bildfehler · erneut versuchen →"
+  ],
+  [
+    "Could not prepare the image. Swipe again to retry.",
+    "Не удалось подготовить изображение. Повторите перелистывание.",
+    "Das Bild konnte nicht vorbereitet werden. Wische erneut, um es zu versuchen."
+  ],
+  [
+    "Artist · open profile",
+    "Художник · открыть профиль",
+    "Künstler · Profil öffnen"
+  ],
+  [
+    "Original publication",
+    "Исходная публикация",
+    "Originalveröffentlichung"
+  ],
+  [
+    "This work has no uploader name",
+    "У этой работы нет имени загрузчика",
+    "Für dieses Werk ist kein Uploadername angegeben"
+  ],
+  [
+    "SFW works",
+    "Обычные работы",
+    "SFW-Werke"
+  ],
+  [
+    "NSFW works",
+    "Работы 18+",
+    "NSFW-Werke"
+  ],
+  [
+    "All ratings",
+    "Все рейтинги",
+    "Alle Inhaltsbewertungen"
+  ],
+  [
+    "Show artist",
+    "Показывать автора",
+    "Künstler anzeigen"
+  ],
+  [
+    "Uploader profile unavailable",
+    "Профиль загрузчика недоступен",
+    "Uploaderprofil nicht verfügbar"
+  ],
+  [
+    "Show uploader",
+    "Показывать загрузчика",
+    "Uploader anzeigen"
+  ],
+  [
+    "Hide uploader",
+    "Скрыть загрузчика",
+    "Uploader ausblenden"
+  ],
+  [
+    "Find an open work",
+    "Найти открытую работу",
+    "Offenes Werk finden"
+  ],
+  [
+    "Checking Sankaku access…",
+    "Проверка доступа Sankaku…",
+    "Sankaku-Zugriff wird geprüft…"
+  ],
+  [
+    "Could not load the Sankaku work. Try again later.",
+    "Не удалось загрузить работу Sankaku. Повторите позже.",
+    "Das Sankaku-Werk konnte nicht geladen werden. Versuche es später erneut."
+  ],
+  [
+    "Close preview",
+    "Закрыть просмотр",
+    "Vorschau schließen"
+  ],
+  [
+    "Video unavailable",
+    "Видео недоступно",
+    "Video nicht verfügbar"
+  ],
+  [
+    "This device does not support this video format",
+    "Этот формат видео не поддерживается устройством",
+    "Dieses Gerät unterstützt das Videoformat nicht"
+  ],
+  [
+    "Close video",
+    "Закрыть видео",
+    "Video schließen"
+  ],
+  [
+    "Could not read the profile",
+    "Не удалось прочитать профиль",
+    "Das Profil konnte nicht gelesen werden"
+  ],
+  [
+    "Records are added to your profile. Repeated imports do not create copies. Likes and bookmarks stay separate. API keys are not transferred.",
+    "Записи добавятся к вашему профилю. Повторный импорт не создаёт копии. Лайки и закладки остаются отдельными. Ключи API не переносятся.",
+    "Einträge werden zu deinem Profil hinzugefügt. Wiederholte Importe erzeugen keine Kopien. Likes und Lesezeichen bleiben getrennt. API-Schlüssel werden nicht übertragen."
+  ],
+  [
+    "Also transfer filter and curation settings",
+    "Перенести также настройки фильтров и отбора",
+    "Filter- und Auswahleinstellungen ebenfalls übertragen"
+  ],
+  [
+    "Import DART profile",
+    "Импорт профиля DART",
+    "DART-Profil importieren"
+  ],
+  [
+    "Merge",
+    "Объединить",
+    "Zusammenführen"
+  ],
+  [
+    "Profiles merged",
+    "Профили объединены",
+    "Profile zusammengeführt"
+  ],
+  [
+    "Import failed",
+    "Импорт не выполнен",
+    "Import fehlgeschlagen"
+  ],
+  [
+    "Please try again.",
+    "Попробуйте ещё раз.",
+    "Bitte versuche es erneut."
+  ],
+  [
+    "Share illustration",
+    "Поделиться иллюстрацией",
+    "Illustration teilen"
+  ],
+  [
+    "Unsupported link",
+    "Неподдерживаемая ссылка",
+    "Nicht unterstützter Link"
+  ],
+  [
+    "No browser is installed on this device",
+    "На устройстве не установлен браузер",
+    "Auf diesem Gerät ist kein Browser installiert"
+  ],
+  [
+    "Original unavailable",
+    "Оригинал недоступен",
+    "Original nicht verfügbar"
+  ],
+  [
+    "Original saved",
+    "Оригинал сохранён",
+    "Original gespeichert"
+  ],
+  [
+    "Action failed",
+    "Действие не выполнено",
+    "Aktion fehlgeschlagen"
+  ],
+  [
+    "Could not complete the action. Your profile is safe; check the file and try again.",
+    "Не удалось выполнить действие. Профиль сохранён; проверьте файл и попробуйте ещё раз.",
+    "Die Aktion konnte nicht abgeschlossen werden. Dein Profil wurde behalten; prüfe die Datei und versuche es erneut."
+  ],
+  [
+    "\nTap to retry.",
+    "\nНажмите, чтобы повторить.",
+    "\nTippe zum Wiederholen."
+  ],
+  [
+    "Bookmarks will appear here.\nSave a work using the button inside its illustration.",
+    "Закладки появятся здесь.\nСохраните работу кнопкой внутри иллюстрации.",
+    "Hier erscheinen deine Lesezeichen.\nSpeichere ein Werk mit der Schaltfläche in seiner Ansicht."
+  ],
+  [
+    "No works here yet.\nChange filters or tap to refresh.",
+    "Здесь пока нет работ.\nИзмените фильтры или нажмите, чтобы обновить.",
+    "Hier sind noch keine Werke.\nÄndere die Filter oder tippe zum Aktualisieren."
+  ],
+  [
+    "\nTap to sign in.",
+    "\nНажмите, чтобы авторизоваться.",
+    "\nTippe zum Anmelden."
+  ],
+  [
+    "Find ",
+    "Найти ",
+    "Finden: "
+  ],
+  [
+    "Find your inspiration\n",
+    "Найдите своё вдохновение\n",
+    "Finde deine Inspiration\n"
+  ],
+  [
+    "Topic ",
+    "Тема ",
+    "Thema "
+  ],
+  [
+    "Open illustration ",
+    "Открыть иллюстрацию ",
+    "Illustration öffnen: "
+  ],
+  [
+    " · New",
+    " · Новое",
+    " · Neu"
+  ],
+  [
+    " liked · ",
+    " нравится · ",
+    " Likes · "
+  ],
+  [
+    " bookmarks",
+    " закладок",
+    " Lesezeichen"
+  ],
+  [
+    " followed artists",
+    " подписок",
+    " gefolgte Künstler"
+  ],
+  [
+    "\nData is stored on this phone",
+    "\nДанные хранятся на этом телефоне",
+    "\nDaten werden auf diesem Smartphone gespeichert"
+  ],
+  [
+    "Open an illustration and follow its artist.\nYou can also add an artist tag here.",
+    "Откройте иллюстрацию и подпишитесь на художника.\nЗдесь можно добавить его тег вручную.",
+    "Öffne eine Illustration und folge ihrem Künstler.\nHier kannst du auch einen Künstler-Tag hinzufügen."
+  ],
+  [
+    " · API key required",
+    " · нужен API key",
+    " · API-Schlüssel erforderlich"
+  ],
+  [
+    "Saved sign-in: ",
+    "Вход сохранён: ",
+    "Gespeicherte Anmeldung: "
+  ],
+  [
+    "Signed in: ",
+    "Вход выполнен: ",
+    "Angemeldet: "
+  ],
+  [
+    "Save ",
+    "Сохранить ",
+    "Speichern: "
+  ],
+  [
+    "Open website ",
+    "Открыть сайт ",
+    "Website öffnen: "
+  ],
+  [
+    "Image 1 of ",
+    "Изображение 1 из ",
+    "Bild 1 von "
+  ],
+  [
+    ". Open fullscreen",
+    ". Открыть на весь экран",
+    ". Im Vollbild öffnen"
+  ],
+  [
+    "More ",
+    "Ещё ",
+    "Weitere "
+  ],
+  [
+    " tags",
+    " тегов",
+    " Tags"
+  ],
+  [
+    "Search selected · ",
+    "Искать выбранные · ",
+    "Ausgewählte suchen · "
+  ],
+  [
+    "Image ",
+    "Изображение ",
+    "Bild "
+  ],
+  [
+    " of ",
+    " из ",
+    " von "
+  ],
+  [
+    "Original publication · ",
+    "Исходная публикация · ",
+    "Originalveröffentlichung · "
+  ],
+  [
+    "Uploader · ",
+    "Загрузчик · ",
+    "Uploader · "
+  ],
+  [
+    "Artist profile ",
+    "Профиль художника ",
+    "Künstlerprofil "
+  ],
+  [
+    "Artist · ",
+    "Художник · ",
+    "Künstler · "
+  ],
+  [
+    "\nAcross all connected sources",
+    "\nВо всех подключённых источниках",
+    "\nIn allen verbundenen Quellen"
+  ],
+  [
+    "\nWorks from this source",
+    "\nРаботы из этого источника",
+    "\nWerke aus dieser Quelle"
+  ],
+  [
+    "Illustration #",
+    "Иллюстрация #",
+    "Illustration #"
+  ],
+  [
+    " · image ",
+    " · изображение ",
+    " · Bild "
+  ],
+  [
+    ". Swipe to browse works, double-tap to like, pinch to zoom.",
+    ". Свайп листает работы, двойное нажатие ставит лайк, два пальца масштабируют.",
+    ". Wische zum Blättern, tippe doppelt für ein Like und zoome mit zwei Fingern."
+  ],
+  [
+    "Likes: ",
+    "Лайки: ",
+    "Likes: "
+  ],
+  [
+    "\nBookmarks: ",
+    "\nЗакладки: ",
+    "\nLesezeichen: "
+  ],
+  [
+    "\nFollowing: ",
+    "\nПодписки: ",
+    "\nGefolgte Künstler: "
+  ],
+  [
+    "\nViewed: ",
+    "\nПросмотренное: ",
+    "\nGesehen: "
+  ],
+  [
+    "\nHistory: ",
+    "\nИстория: ",
+    "\nVerlauf: "
+  ],
+  [
+    "\nFavorite tags: ",
+    "\nИзбранные теги: ",
+    "\nLieblings-Tags: "
+  ],
+  [
+    "\n\nExisting entries have been kept. A local backup was created before importing.",
+    "\n\nСуществующие записи сохранены. Перед импортом создана локальная резервная копия.",
+    "\n\nVorhandene Einträge wurden behalten. Vor dem Import wurde eine lokale Sicherung erstellt."
+  ],
+  [
+    "Your existing profile is safe. ",
+    "Существующий профиль сохранён. ",
+    "Dein vorhandenes Profil wurde behalten. "
+  ],
+  [
+    "All entries are already in this profile. No changes were made.",
+    "Все записи уже есть в профиле. Изменений нет.",
+    "Alle Eintraege sind bereits in diesem Profil. Keine Aenderungen."
+  ],
+  [
+    "Existing entries were kept.",
+    "Существующие записи сохранены.",
+    "Vorhandene Eintraege bleiben erhalten."
+  ]
+]
