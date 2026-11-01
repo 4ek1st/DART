@@ -5,7 +5,7 @@
 
 ## Установка
 
-Готовый подписанный APK: `outputs/ArtCatalog-Mobile-0.1.12.apk`.
+Готовый подписанный APK: `outputs/ArtCatalog-Mobile-0.1.13.apk`.
 Перенесите его на телефон, откройте и разрешите установку из приложения,
 которым открыли файл. Последующие APK устанавливайте поверх существующего
 приложения, чтобы сохранить его локальный профиль.
@@ -152,3 +152,7 @@ Android не разрешит установку обновления повер
 Use **My → Settings → Profile transfer** (or **Моё → Настройки → Перенос профиля**) to export a DART-profile JSON file. Transfer this file to the other device, open Settings → Profile transfer there, preview the counts and choose Merge. Import adds likes, bookmarks, subscriptions, viewed identities and tags; it never replaces the other profile. Content and curation settings are optional. Credentials and account sessions are not transferred. Windows support starts with DART 0.2.54.
 
 See `docs/release-notes-0.1.11.md` for the shared logic and Android-specific controls. Install updates over the existing app; do not uninstall or clear its data.
+
+## Phone settings in 0.1.13
+
+The settings index follows the desktop sections with native phone cards, full-row switches and separate source connection pages. Settings route, scroll and the non-secret excluded-tag draft survive recreation. See `docs/release-notes-0.1.13.md` and `docs/verification-0.1.13.md`.

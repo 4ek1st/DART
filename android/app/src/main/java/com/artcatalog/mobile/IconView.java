@@ -35,6 +35,16 @@ final class IconView extends View {
             case "download":p.moveTo(12,2);p.lineTo(12,16);p.moveTo(6,10);p.lineTo(12,16);p.lineTo(18,10);p.moveTo(3,17);p.lineTo(3,22);p.lineTo(21,22);p.lineTo(21,17);break;
             case "settings":canvas.drawCircle(12,12,4,paint);canvas.drawCircle(12,12,8,paint);for(int i=0;i<8;i++){double a=i*Math.PI/4;canvas.drawLine(12+(float)Math.cos(a)*8,12+(float)Math.sin(a)*8,12+(float)Math.cos(a)*11,12+(float)Math.sin(a)*11,paint);}break;
             case "spark":p.moveTo(12,2);p.lineTo(15,9);p.lineTo(22,12);p.lineTo(15,15);p.lineTo(12,22);p.lineTo(9,15);p.lineTo(2,12);p.lineTo(9,9);p.close();break;
+            case "image":canvas.drawRoundRect(2,3,22,21,2,2,paint);canvas.drawCircle(16.5f,8,2,paint);p.moveTo(3,18);p.lineTo(9,11);p.lineTo(14,16);p.lineTo(17,13);p.lineTo(22,18);break;
+            case "curation":for(int i=0;i<3;i++){float x=5+i*7;canvas.drawLine(x,3,x,21,paint);float y=i==1?15:8;canvas.drawRoundRect(x-2,y-2,x+2,y+2,1,1,paint);}break;
+            case "plug":p.moveTo(8,2);p.lineTo(8,8);p.moveTo(16,2);p.lineTo(16,8);p.moveTo(5,8);p.lineTo(19,8);p.lineTo(19,11);p.cubicTo(19,15,16,18,12,18);p.cubicTo(8,18,5,15,5,11);p.close();p.moveTo(12,18);p.lineTo(12,22);break;
+            case "panels":canvas.drawRoundRect(2,4,22,21,2,2,paint);p.moveTo(2,9);p.lineTo(22,9);p.moveTo(9,9);p.lineTo(9,21);p.moveTo(5,6.5f);p.lineTo(6,6.5f);p.moveTo(9,6.5f);p.lineTo(10,6.5f);break;
+            case "palette":p.moveTo(12,2);p.cubicTo(6,2,2,6,2,12);p.cubicTo(2,18,7,22,12,22);p.cubicTo(16,22,17,19,14,17);p.cubicTo(12,15,14,13,17,13);p.lineTo(19,13);p.cubicTo(24,13,23,2,12,2);p.close();canvas.drawCircle(7,9,1,paint);canvas.drawCircle(12,6,1,paint);canvas.drawCircle(17,7,1,paint);canvas.drawCircle(6,14,1,paint);break;
+            case "shield":p.moveTo(12,2);p.lineTo(21,6);p.lineTo(20,13);p.cubicTo(19,18,15,21,12,23);p.cubicTo(9,21,5,18,4,13);p.lineTo(3,6);p.close();p.moveTo(8,12);p.lineTo(11,15);p.lineTo(17,9);break;
+            case "copy":canvas.drawRoundRect(8,8,22,22,2,2,paint);p.moveTo(16,5);p.lineTo(16,2);p.lineTo(2,2);p.lineTo(2,16);p.lineTo(5,16);break;
+            case "language":canvas.drawCircle(12,12,10,paint);canvas.drawOval(7,2,17,22,paint);p.moveTo(2,12);p.lineTo(22,12);p.moveTo(4,6);p.quadTo(12,10,20,6);p.moveTo(4,18);p.quadTo(12,14,20,18);break;
+            case "info":canvas.drawCircle(12,12,9,paint);canvas.drawCircle(12,7,0.65f,paint);p.moveTo(12,11);p.lineTo(12,17);break;
+            case "check":p.moveTo(4,12);p.lineTo(9,17);p.lineTo(20,6);break;
             default:p.moveTo(9,4);p.lineTo(17,12);p.lineTo(9,20);
         }
         canvas.drawPath(p,paint);canvas.restore();

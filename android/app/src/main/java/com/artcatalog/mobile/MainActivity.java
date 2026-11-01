@@ -22,7 +22,7 @@ public final class MainActivity extends Activity {
     private int BG=Color.rgb(18,18,18),PANEL=Color.rgb(32,32,32),RAISED=Color.rgb(48,48,48),
         LINE=Color.rgb(58,58,58),TEXT=Color.rgb(243,243,243),MUTED=Color.rgb(161,161,161),
         BLUE=Color.rgb(50,156,255),PINK=Color.rgb(250,142,154);
-    private boolean lightPalette;
+    private boolean lightPalette,keyboardVisible;
     private void applyAppearance(String choice){
         boolean systemLight=(getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)!=android.content.res.Configuration.UI_MODE_NIGHT_YES;
         lightPalette=choice.equals("light")||choice.equals("system")&&systemLight;
@@ -173,7 +173,7 @@ public final class MainActivity extends Activity {
             int top=insets.getSystemWindowInsetTop(),below=insets.getSystemWindowInsetBottom();
             if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;below=bars.bottom;
                 boolean keyboard=insets.isVisible(WindowInsets.Type.ime());if(keyboard)below=Math.max(below,insets.getInsets(WindowInsets.Type.ime()).bottom);
-                bottom.setVisibility(keyboard?View.GONE:View.VISIBLE);
+                keyboardVisible=keyboard;updateBottomVisibility(currentView);
             }
             root.setPadding(0,top,0,below);return insets;
         });
@@ -193,6 +193,7 @@ public final class MainActivity extends Activity {
             if(saved!=null&&saved.containsKey("detail"))try{Gallery gallery=retainedState!=null?restoreGallery(retainedState.gallery):galleryFromBundle(saved.getBundle("galleryRoute"));renderDetail(Post.fromJson(new JSONObject(saved.getString("detail"))),false,saved.getInt("detailScroll"),saved.getInt("detailTop"),retainedState==null?null:retainedState.detail,gallery);if(activePost!=null&&saved.getInt("mediaIndex")<activePost.media.size())activeMediaIndex=Math.max(0,saved.getInt("mediaIndex"));}catch(Exception ignored){}
             else if(saved!=null&&!saved.getString("author","").isBlank())renderAuthor(saved.getString("author"),false,retainedState==null?null:retainedState.author,saved.getInt("authorFirst"),saved.getInt("authorTop"));
             if(saved!=null)restoreBackStack(saved);
+            if(saved!=null&&saved.containsKey("settingsPage"))display(restoreSettingsState(saved.getBundle("settingsPage")));
             if(pendingDocument!=null){Uri document=pendingDocument;int request=pendingDocumentRequest;pendingDocument=null;processDocument(request,document);}
             if(!store.warning.isBlank())new AlertDialog.Builder(this).setTitle(tr("Профиль")).setMessage(store.warning).setPositiveButton(tr("Понятно"),null).show();
         });});
@@ -217,6 +218,8 @@ public final class MainActivity extends Activity {
     private FrameLayout iconButton(String icon,String label,Runnable action){FrameLayout box=new FrameLayout(this);box.setContentDescription(tr(label));box.setFocusable(true);touchBackground(box,Color.TRANSPARENT,8);box.addView(new IconView(this,icon,TEXT),new FrameLayout.LayoutParams(-1,-1));box.setOnClickListener(v->action.run());return box;}
     private FrameLayout artIconButton(String icon,String label,Runnable action){FrameLayout box=iconButton(icon,label,action);((IconView)box.getChildAt(0)).color(Color.WHITE);return box;}
     private void display(View view){
+        updateBottomVisibility(view);
+        refreshSettingsStatus(view);
         if(transitionDirection!=0&&currentView!=null&&currentView!=view){displayTransition(view,transitionDirection);return;}
         if(!navigationRendering)cancelNavigation();
         if(currentView==view&&view.getParent()==content){restoreCards(view);view.post(this::prepareVisibleContent);return;}
@@ -225,6 +228,7 @@ public final class MainActivity extends Activity {
         content.removeAllViews();content.addView(view,new FrameLayout.LayoutParams(-1,-1));currentView=view;
         restoreCards(view);view.post(this::prepareVisibleContent);
     }
+    private void updateBottomVisibility(View page){if(bottom!=null)bottom.setVisibility(keyboardVisible||!settingsRoute(page).isBlank()?View.GONE:View.VISIBLE);}
     private void displayTransition(View view,int direction){
         View previous=currentView;outgoingPage=previous;
         if(images!=null)images.cancelPrefetch();prefetchScreen=null;
@@ -288,7 +292,7 @@ public final class MainActivity extends Activity {
     private Future<?> submitNetwork(Runnable runnable){CatalogClient.NetworkTask<Void> task=new CatalogClient.NetworkTask<>(runnable);try{work.execute(task);}catch(RejectedExecutionException error){task.cancel(false);main.post(()->{if(destroyed)return;List<Screen> active=new ArrayList<>(Arrays.asList(screens));active.add(activeRelated);active.add(activeAuthor);for(Screen screen:active)if(screen!=null&&screen.task==task){screen.loading=false;screen.failed=true;updateStatus(screen);}});}return task;}
     private Future<?> submitForeground(Runnable runnable){CatalogClient.NetworkTask<Void> task=new CatalogClient.NetworkTask<>(runnable);foreground.execute(task);return task;}
     private void invalidateScreens(){for(Screen s:screens)if(s!=null){s.generation++;cancel(s.task);cancel(s.rankTask);}Arrays.fill(screens,null);retainedScreens=null;restored=null;}
-    private void restoreBackStack(Bundle saved){ArrayList<Bundle> entries=saved.getParcelableArrayList("backStack");if(entries==null)return;backStack.clear();for(int i=entries.size()-1;i>=0;i--){Bundle item=entries.get(i);BackEntry entry=new BackEntry();entry.nav=item.getInt("nav");entry.scroll=item.getInt("scroll");entry.top=item.getInt("top");entry.mediaIndex=item.getInt("mediaIndex");entry.gallery=galleryFromBundle(item.getBundle("galleryRoute"));if(retainedState!=null&&i<retainedState.backs.size()){entry.related=retainedState.backs.get(i);entry.gallery=restoreGallery(retainedState.backGalleries.get(i));}try{if(item.containsKey("detail"))entry.detail=Post.fromJson(new JSONObject(item.getString("detail")));else if(item.containsKey("author"))entry.author=item.getString("author");else{int tab=item.getInt("tab",entry.nav);if(tab==4)entry.view=profile();else{Screen s=screens[tab];if(s==null){s=new Screen(tab);screens[tab]=s;initializeScreen(s);}entry.view=s.view;}}backStack.push(entry);}catch(Exception ignored){}}retainedState=null;}
+    private void restoreBackStack(Bundle saved){ArrayList<Bundle> entries=saved.getParcelableArrayList("backStack");if(entries==null)return;backStack.clear();for(int i=entries.size()-1;i>=0;i--){Bundle item=entries.get(i);BackEntry entry=new BackEntry();entry.nav=item.getInt("nav");entry.scroll=item.getInt("scroll");entry.top=item.getInt("top");entry.mediaIndex=item.getInt("mediaIndex");entry.gallery=galleryFromBundle(item.getBundle("galleryRoute"));if(retainedState!=null&&i<retainedState.backs.size()){entry.related=retainedState.backs.get(i);entry.gallery=restoreGallery(retainedState.backGalleries.get(i));}try{if(item.containsKey("detail"))entry.detail=Post.fromJson(new JSONObject(item.getString("detail")));else if(item.containsKey("author"))entry.author=item.getString("author");else if(item.containsKey("settingsPage"))entry.view=restoreSettingsState(item.getBundle("settingsPage"));else{int tab=item.getInt("tab",entry.nav);if(tab==4)entry.view=profile();else{Screen s=screens[tab];if(s==null){s=new Screen(tab);screens[tab]=s;initializeScreen(s);}entry.view=s.view;}}backStack.push(entry);}catch(Exception ignored){}}retainedState=null;}
     private LinearLayout toolbar(String title,Runnable back){
         LinearLayout bar=row();bar.setBackgroundColor(PANEL);bar.setPadding(dp(8),0,dp(8),0);bar.setMinimumHeight(dp(56));
         bar.addView(iconButton(back==null?"menu":"back",back==null?"Меню":"Назад",back==null?()->selectNav(4):back),new LinearLayout.LayoutParams(dp(48),dp(48)));
@@ -595,10 +599,10 @@ public final class MainActivity extends Activity {
         if(!TextUtils.equals(s.status.getText(),label))s.status.setText(label);s.status.setVisibility(View.VISIBLE);
     }
     private void applyAccess(Screen screen,CatalogClient.Page result){screen.authRequired.clear();screen.authRequired.addAll(result.authRequired);screen.accessNotice=String.join("\n",result.notices.values());screen.authBlocked=result.posts.isEmpty()&&!result.authRequired.isEmpty()&&!screen.more;}
-    private void statusAction(Screen screen){screen.emptyRounds=0;if(screen.more){load(screen,false);return;}if(screen.authRequired.contains("sankaku")){settings("Источники");return;}if(screen.tab==0&&screen.homeTab==0)store.rotateRecommendations();load(screen,true);}
+    private void statusAction(Screen screen){screen.emptyRounds=0;if(screen.more){load(screen,false);return;}if(screen.authRequired.contains("sankaku")){settings("source/sankaku");return;}if(screen.tab==0&&screen.homeTab==0)store.rotateRecommendations();load(screen,true);}
     private void accessPrompt(SankakuApi.AccessException error){
         AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle(tr(error.loginRequired?"Авторизуйтесь в Sankaku":"Доступ Sankaku ограничен")).setMessage(error.getMessage()).setNegativeButton(tr("Закрыть"),null);
-        if(error.loginRequired)dialog.setPositiveButton(tr("Авторизоваться"),(d,w)->settings("Источники"));else dialog.setPositiveButton(tr("Открыть Sankaku"),(d,w)->external("https://sankaku.app/"));dialog.show();
+        if(error.loginRequired)dialog.setPositiveButton(tr("Авторизоваться"),(d,w)->settings("source/sankaku"));else dialog.setPositiveButton(tr("Открыть Sankaku"),(d,w)->external("https://sankaku.app/"));dialog.show();
     }
     private void loadRankings(Screen s,int generation,String filter){
         Map<String,Integer> pages=selectedPages();s.rankTask=submitNetwork(()->{CatalogClient.Page result=client.search("",pages,filter,"popular");main.post(()->{
@@ -760,24 +764,101 @@ public final class MainActivity extends Activity {
         sheet.addView(button("Применить",BLUE,()->{sourceFilter=(String)sources.findViewById(sources.getCheckedRadioButtonId()).getTag();rating=(String)ratings.findViewById(ratings.getCheckedRadioButtonId()).getTag();sort=(String)orders.findViewById(orders.getCheckedRadioButtonId()).getTag();store.prefs.edit().putString("source",sourceFilter).putString("rating",rating).putString("sort",sort).apply();String query=screens[1]==null?"":screens[1].query;invalidateScreens();searchInput=null;suggestions=null;dialog.dismiss();selectNav(nav);if(nav==1&&!query.isBlank())runSearch(query);}),new LinearLayout.LayoutParams(-1,dp(48)));
         dialog.setContentView(sheet);Window w=dialog.getWindow();if(w!=null){w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));w.setLayout(-1,-2);w.setGravity(Gravity.BOTTOM);}dialog.show();if(w!=null)w.setLayout(-1,-2);
     }
-    private void settings(){settings("Контент");}
-    private void settings(String initial){
-        LinearLayout page=column();page.addView(toolbar("Настройки",this::goBack));LinearLayout tabs=row();page.addView(tabs);ScrollView scroll=new ScrollView(this);LinearLayout body=column();body.setPadding(dp(16),dp(16),dp(16),dp(24));scroll.addView(body);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));String[] sections={"Контент","Авторы","Источники","Вкладки"};for(String section:sections){TextView tab=button(section,BLUE,()->{body.removeAllViews();settingsSection(body,section);scroll.scrollTo(0,0);for(int i=0;i<tabs.getChildCount();i++)((TextView)tabs.getChildAt(i)).setTextColor(sections[i].equals(section)?BLUE:MUTED);});tab.setTextSize(12);tab.setPadding(dp(4),0,dp(4),0);tabs.addView(tab,new LinearLayout.LayoutParams(0,dp(46),1));}settingsSection(body,initial);for(int i=0;i<tabs.getChildCount();i++)((TextView)tabs.getChildAt(i)).setTextColor(sections[i].equals(initial)?BLUE:MUTED);push(page);if(initial.equals("Источники"))body.post(()->{View auth=body.findViewWithTag("sankaku-auth");if(auth!=null)scroll.smoothScrollTo(0,Math.max(0,auth.getTop()-dp(50)));});
+    private static final String[][] SETTINGS_SECTIONS={
+        {"content","image","Контент","AI, furry and excluded tags"},
+        {"curation","curation","Отбор работ","Ratings and personal taste"},
+        {"authors","users","Авторы","Creator, source and uploader"},
+        {"sources","plug","Источники","Connections and keys"},
+        {"tabs","panels","Вкладки","Browsing and pinning"},
+        {"appearance","palette","Оформление","Color and theme"},
+        {"privacy","shield","Приватность","Screen capture"},
+        {"transfer","copy","Перенос профиля","Windows and Android"},
+        {"language","language","Язык","English · Русский · Deutsch"},
+        {"about","info","About DART","Version and updates"}
+    };
+    private static final class SettingsRoute {final String key;SettingsRoute(String key){this.key=key;}}
+    private SettingsUi settingsUi(){return new SettingsUi(this,BG,PANEL,RAISED,TEXT,MUTED,BLUE,this::tr);}
+    private LinearLayout settingsToolbar(String title){
+        LinearLayout bar=row();bar.setBackgroundColor(PANEL);bar.setPadding(dp(8),dp(6),dp(12),dp(6));bar.setMinimumHeight(dp(60));
+        bar.addView(iconButton("back","Назад",this::goBack),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        TextView label=text(title,19,TEXT);label.setTypeface(null,Typeface.BOLD);label.setPadding(dp(7),0,0,0);if(Build.VERSION.SDK_INT>=28)label.setAccessibilityHeading(true);
+        bar.addView(label,new LinearLayout.LayoutParams(0,-2,1));return bar;
+    }
+    private String settingsRoute(View page){return page!=null&&page.getTag() instanceof SettingsRoute?((SettingsRoute)page.getTag()).key:"";}
+    private String settingsTitle(String route){
+        for(String[] item:SETTINGS_SECTIONS)if(item[0].equals(route))return item[2];
+        if(route.equals("recommendations"))return "Рекомендации";
+        if(route.equals("hidden-authors"))return "Скрытые авторы";
+        if(route.startsWith("source/"))return sourceName(route.substring(7));
+        return "Настройки";
+    }
+    private String normalizedSettingsRoute(String key){
+        if(key==null)return "index";
+        for(String[] item:SETTINGS_SECTIONS)if(item[0].equals(key)||item[2].equals(key))return item[0];
+        if(Set.of("recommendations","hidden-authors","index").contains(key))return key;
+        if(key.startsWith("source/")&&Arrays.asList(CatalogClient.SOURCES).contains(key.substring(7)))return key;
+        return "index";
+    }
+    private String settingsSourceStatus(String source){return source.equals("danbooru")?"Public search · no key required":source.equals("sankaku")?(store.sankakuAuthenticated()?"Signed in":"Public access · sign in for more"):store.configured(source)?"Источник подключён":"Источник не подключён";}
+    private void refreshSettingsStatus(View page){
+        if(!settingsRoute(page).equals("sources")||store==null)return;
+        for(String source:CatalogClient.SOURCES){View item=page.findViewWithTag("settings-source-"+source);if(!(item instanceof LinearLayout))continue;LinearLayout copy=(LinearLayout)((LinearLayout)item).getChildAt(1);((TextView)copy.getChildAt(1)).setText(tr(settingsSourceStatus(source)));item.setContentDescription(sourceName(source)+". "+tr(settingsSourceStatus(source)));}
+    }
+    private void settings(){settings("index");}
+    private void settings(String route){push(buildSettingsPage(normalizedSettingsRoute(route)));}
+    private LinearLayout buildSettingsPage(String route){
+        SettingsUi ui=settingsUi();LinearLayout page=column();page.setTag(new SettingsRoute(route));page.setBackgroundColor(BG);
+        page.addView(settingsToolbar(settingsTitle(route)));LinearLayout body=ui.body(page);((View)body.getParent()).setTag("settings-scroll");
+        if(route.equals("index")){
+            hint(body,"Manage your content, connections and app preferences.");
+            for(String[] item:SETTINGS_SECTIONS)ui.navigation(body,item[1],item[2],item[3],()->settings(item[0]));
+            TextView version=literalText("DART · "+BuildConfig.VERSION_NAME,12,MUTED);version.setGravity(Gravity.CENTER);version.setPadding(0,dp(14),0,dp(6));body.addView(version);
+        }else if(route.equals("content"))contentSettings(body,ui);
+        else if(route.equals("curation"))curationSettingsBody(body,ui);
+        else if(route.equals("authors"))authorSettingsBody(body,ui);
+        else if(route.equals("sources")){
+            hint(body,"Поиск работает на этом телефоне без включённого ПК. API-ключи хранятся в Android Keystore и не попадают в экспорт.");
+            for(String source:CatalogClient.SOURCES)ui.navigation(body,"plug",sourceName(source),settingsSourceStatus(source),()->settings("source/"+source)).setTag("settings-source-"+source);
+        }else if(route.startsWith("source/"))sourceSettingsBody(body,ui,route.substring(7),page);
+        else if(route.equals("tabs"))tabsSettingsBody(body,ui);
+        else if(route.equals("appearance"))appearanceSettingsBody(body,ui);
+        else if(route.equals("language"))languageSettingsBody(body,ui);
+        else if(route.equals("privacy"))privacySettingsBody(body,ui);
+        else if(route.equals("transfer")){
+            LinearLayout card=ui.card(body,"copy","Перенос профиля","Один JSON-файл для DART на ПК и Android. Передайте его любым удобным способом и выберите импорт на другом устройстве.");
+            hint(card,"Переносятся лайки, закладки, подписки, просмотренное, избранные теги и приоритеты рекомендаций. Импорт дополняет профиль без удаления существующих записей. Фильтры и отбор можно перенести отдельно.");
+            ui.action(card,"Экспорт профиля",true,this::exportData);ui.action(card,"Импорт профиля",false,this::importData);
+            hint(card,"Ключи API и вход в источники остаются только на своём устройстве. Доступ к источникам настройте на каждом устройстве.");
+        }else if(route.equals("hidden-authors"))hiddenAuthorsSettingsBody(body,ui);
+        else if(route.equals("recommendations"))recommendationSettingsBody(body,page,ui);
+        else if(route.equals("about")){
+            LinearLayout card=ui.card(body,"info","DART","Discover Art");TextView version=literalText(tr("Version")+" "+BuildConfig.VERSION_NAME,18,TEXT);version.setPadding(0,dp(8),0,dp(16));card.addView(version);
+            hint(card,"Install Android updates over the existing app to keep your profile.");ui.action(card,"View Android releases",true,()->external("https://github.com/4ek1st/DART/releases?q=android-v&expanded=true"));
+        }
+        return page;
+    }
+    private Bundle settingsState(View page){
+        Bundle state=new Bundle();state.putString("route",settingsRoute(page));View scroll=page.findViewWithTag("settings-scroll");if(scroll!=null)state.putInt("scroll",scroll.getScrollY());
+        View draft=page.findViewWithTag("settings-excluded-tags");if(draft instanceof EditText)state.putString("excludedDraft",((EditText)draft).getText().toString());return state;
+    }
+    private View restoreSettingsState(Bundle state){
+        LinearLayout page=buildSettingsPage(normalizedSettingsRoute(state.getString("route")));View draft=page.findViewWithTag("settings-excluded-tags");if(draft instanceof EditText&&state.containsKey("excludedDraft"))((EditText)draft).setText(state.getString("excludedDraft"));
+        View scroll=page.findViewWithTag("settings-scroll");if(scroll!=null)scroll.post(()->scroll.scrollTo(0,state.getInt("scroll")));return page;
     }
     private void hint(LinearLayout body,String value){TextView label=text(value,13,MUTED);label.setPadding(0,dp(6),0,dp(18));body.addView(label);}
     private void sankakuSettings(LinearLayout body){
-        TextView status=text(store.sankakuAuthenticated()?"Вход сохранён: "+store.loginName():"Без авторизации · доступны публичные работы",13,MUTED);status.setContentDescription(tr("Статус авторизации Sankaku"));status.setTag("sankaku-auth");body.addView(status);
+        SettingsUi ui=settingsUi();TextView status=text(store.sankakuAuthenticated()?tr("Signed in")+" · "+store.loginName():"Без авторизации · доступны публичные работы",13,MUTED);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);status.setTag("sankaku-auth");body.addView(status);
         hint(body,"Для ограниченных работ авторизуйтесь в Sankaku. Популярные загружаются в порядке сайта. Отдельные функции и работы могут требовать подписку Plus.");
-        EditText login=new EditText(this);login.setSingleLine();login.setTextColor(TEXT);login.setHintTextColor(MUTED);login.setHint(tr("Логин или email Sankaku"));login.setContentDescription(tr("Логин Sankaku"));login.setText(store.loginName());login.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);body.addView(login);
-        EditText password=new EditText(this);password.setSingleLine();password.setTextColor(TEXT);password.setHintTextColor(MUTED);password.setHint(tr("Пароль Sankaku"));password.setContentDescription(tr("Пароль Sankaku"));password.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);password.setImeOptions(EditorInfo.IME_ACTION_DONE|EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);password.setSaveEnabled(false);body.addView(password);
-        TextView signIn=button("Войти в Sankaku",BLUE,()->{}),signOut=button("Выйти из Sankaku",MUTED,()->{});body.addView(signIn);body.addView(signOut);signOut.setVisibility(store.sankakuAuthenticated()?View.VISIBLE:View.GONE);
+        EditText login=ui.input(body,"Логин Sankaku","Логин или email Sankaku",false,false);login.setText(store.loginName());login.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        EditText password=ui.input(body,"Пароль Sankaku","Пароль Sankaku",false,true);
+        TextView signIn=ui.action(body,"Войти в Sankaku",true,()->{}),signOut=ui.action(body,"Выйти из Sankaku",false,()->{});signOut.setVisibility(store.sankakuAuthenticated()?View.VISIBLE:View.GONE);
         signIn.setOnClickListener(v->{String name=login.getText().toString().trim(),secret=password.getText().toString();if(name.isBlank()||secret.isBlank()){status.setText(tr("Введите логин и пароль Sankaku"));return;}password.setText("");hideKeyboard();signIn.setEnabled(false);signOut.setEnabled(false);status.setText(tr("Авторизация в Sankaku…"));submitNetwork(()->{
-            try{client.loginSankaku(name,secret);main.post(()->{if(destroyed)return;status.setText(tr("Вход выполнен: "+store.loginName()));signIn.setEnabled(true);signOut.setEnabled(true);signOut.setVisibility(View.VISIBLE);invalidateScreens();toast("Sankaku подключён");});}
+            try{client.loginSankaku(name,secret);main.post(()->{if(destroyed)return;status.setText(tr("Signed in")+" · "+store.loginName());signIn.setEnabled(true);signOut.setEnabled(true);signOut.setVisibility(View.VISIBLE);invalidateScreens();refreshSettingsStatus(currentView);toast("Sankaku подключён");});}
             catch(Exception error){String message=error instanceof java.net.SocketTimeoutException?"Sankaku не ответил. Повторите вход.":error instanceof IOException||error instanceof org.json.JSONException?error.getMessage():"Не удалось сохранить вход. Повторите авторизацию.";main.post(()->{if(destroyed)return;status.setText(tr(message==null?"Не удалось войти в Sankaku":message));signIn.setEnabled(true);signOut.setEnabled(true);});}
         });});
-        signOut.setOnClickListener(v->{signIn.setEnabled(false);signOut.setEnabled(false);io.execute(()->{client.logoutSankaku();main.post(()->{if(destroyed)return;status.setText(tr("Вы вышли · доступны публичные работы"));signIn.setEnabled(true);signOut.setEnabled(true);signOut.setVisibility(View.GONE);password.setText("");invalidateScreens();toast("Вы вышли из Sankaku");});});});
+        signOut.setOnClickListener(v->{signIn.setEnabled(false);signOut.setEnabled(false);io.execute(()->{client.logoutSankaku();main.post(()->{if(destroyed)return;status.setText(tr("Вы вышли · доступны публичные работы"));signIn.setEnabled(true);signOut.setEnabled(true);signOut.setVisibility(View.GONE);password.setText("");invalidateScreens();refreshSettingsStatus(currentView);toast("Вы вышли из Sankaku");});});});
         hint(body,"Пароль отправляется по HTTPS только в Sankaku и не сохраняется. Токены входа зашифрованы Android Keystore и не входят в экспорт профиля.");
-        body.addView(button("Открыть сайт Sankaku",MUTED,()->external("https://sankaku.app/")));
+        ui.action(body,"Открыть сайт Sankaku",false,()->external("https://sankaku.app/"));
     }
     private CheckBox check(LinearLayout body,String label,boolean selected){CheckBox box=new CheckBox(this);box.setText(tr(label));box.setTextColor(TEXT);box.setTextSize(15);box.setChecked(selected);box.setMinHeight(dp(50));body.addView(box);return box;}
     private RadioGroup choices(LinearLayout body,String[] labels,String[] values,String current){RadioGroup group=new RadioGroup(this);for(int i=0;i<labels.length;i++){RadioButton option=new RadioButton(this);option.setId(View.generateViewId());option.setTag(values[i]);option.setText(tr(labels[i]));option.setTextColor(TEXT);option.setMinHeight(dp(48));group.addView(option);if(values[i].equals(current))group.check(option.getId());}body.addView(group);return group;}
@@ -793,95 +874,122 @@ public final class MainActivity extends Activity {
             if(changed!=null)changed.run();
         }).setNegativeButton(tr("Отмена"),null).show();
     }
-    private void recommendationSettings(){
-        LinearLayout page=column();page.setBackgroundColor(BG);page.addView(toolbar("Рекомендации",this::goBack));
-        ScrollView scroll=new ScrollView(this);LinearLayout body=column();body.setPadding(dp(16),dp(18),dp(16),dp(28));scroll.addView(body);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));push(page);
-        Runnable[] refresh={null};refresh[0]=()->{
+    private void recommendationSettings(){settings("recommendations");}
+    private void recommendationSettingsBody(LinearLayout body,LinearLayout page,SettingsUi ui){
+        int[] revision={0};Runnable[] refresh={null};refresh[0]=()->{
+            int request=++revision[0];
             body.removeAllViews();body.addView(text("Настройки по понравившимся работам",19,TEXT));
             hint(body,"Жёлтый тег получает приоритет, красный исключается из рекомендаций. Нажмите на тег, чтобы изменить его. Лайки и закладки хранятся отдельно.");
             TextView loading=text("Считаем интересы…",14,MUTED);body.addView(loading);
             List<Post> likes=store.likes();Map<String,String> prefs=store.recommendationTags();int seed=store.recommendationSeed();
             grouping.execute(()->{Recommendations.Model model=Recommendations.build(likes,prefs,seed);main.post(()->{
-                if(destroyed||currentView!=page)return;body.removeView(loading);
+                if(destroyed||request!=revision[0])return;body.removeView(loading);
                 if(likes.isEmpty())hint(body,"Отметьте несколько иллюстраций сердцем, и здесь появятся ваши интересы. До этого главная показывает общую ленту.");
                 Map<String,Double> interest=new LinkedHashMap<>(model.weights);for(String tag:prefs.keySet())interest.putIfAbsent(tag,0.);
                 List<String> tags=new ArrayList<>(interest.keySet());tags.sort(Comparator.comparingDouble((String tag)->interest.getOrDefault(tag,0.)).reversed().thenComparing(tag->tag));
                 for(String tag:tags.subList(0,Math.min(100,tags.size()))){String mode=store.recommendationTagMode(tag);
                     int color=mode.equals("priority")?Color.rgb(255,206,74):mode.equals("disabled")?Color.rgb(243,118,119):TEXT;
-                    TextView item=button((mode.equals("priority")?"★ ":mode.equals("disabled")?"✕ ":"# ")+tag.replace('_',' '),color,()->recommendationTagDialog(tag,refresh[0],null));
-                    item.setGravity(Gravity.CENTER_VERTICAL);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(48));lp.setMargins(0,0,0,dp(6));body.addView(item,lp);
+                    TextView item=ui.action(body,(mode.equals("priority")?"★ ":mode.equals("disabled")?"✕ ":"# ")+tag.replace('_',' '),false,()->recommendationTagDialog(tag,refresh[0],null));item.setTextColor(color);item.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);
                 }
             });});
         };refresh[0].run();
     }
-    private void curationSettings(){
-        LinearLayout page=column();page.setBackgroundColor(BG);page.addView(toolbar("Отбор работ",this::goBack));ScrollView scroll=new ScrollView(this);LinearLayout body=column();body.setPadding(dp(16),dp(18),dp(16),dp(28));scroll.addView(body);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        hint(body,"Общие правила отбора для поиска, иллюстраций, рекомендаций и похожих работ. Оценки сравниваются внутри своего источника и рейтинга.");
-        Map<String,Boolean> prefs=store.curation();CheckBox enabled=check(body,"Включить отбор работ",Boolean.TRUE.equals(prefs.get("enabled")));Map<String,CheckBox> options=new LinkedHashMap<>();
-        String[] keys={"popularity","personal","freshness","resolution"},labels={"Популярность в своём источнике","Ваши предпочтения по лайкам","Свежесть публикации","Размер изображения"};
-        for(int i=0;i<keys.length;i++){CheckBox box=check(body,labels[i],Boolean.TRUE.equals(prefs.get(keys[i])));box.setEnabled(enabled.isChecked());options.put(keys[i],box);}
-        enabled.setOnCheckedChangeListener((button,value)->{for(CheckBox box:options.values())box.setEnabled(value);});
-        body.addView(button("Сохранить",BLUE,()->{SharedPreferences.Editor edit=store.prefs.edit().putBoolean("curation.enabled",enabled.isChecked());for(Map.Entry<String,CheckBox> entry:options.entrySet())edit.putBoolean("curation."+entry.getKey(),entry.getValue().isChecked());edit.apply();preferencesChanged();}));push(page);
-    }
-    private void profileTransferSettings(){
-        LinearLayout page=column();page.setBackgroundColor(BG);page.addView(toolbar("Перенос профиля",this::goBack));ScrollView scroll=new ScrollView(this);LinearLayout body=column();body.setPadding(dp(16),dp(18),dp(16),dp(28));scroll.addView(body);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        hint(body,"Один JSON-файл для DART на ПК и Android. Передайте его любым удобным способом и выберите импорт на другом устройстве.");
-        hint(body,"Переносятся лайки, закладки, подписки, просмотренное, избранные теги и приоритеты рекомендаций. Импорт дополняет профиль без удаления существующих записей. Фильтры и отбор можно перенести отдельно.");
-        settingsAction(body,"Экспорт профиля",BLUE,this::exportData);settingsAction(body,"Импорт профиля",BLUE,this::importData);hint(body,"Ключи API и вход в источники остаются только на своём устройстве. Доступ к источникам настройте на каждом устройстве.");push(page);
-    }
-    private void languageSettings(){
-        LinearLayout page=column();page.setBackgroundColor(BG);page.addView(toolbar("Язык",this::goBack));LinearLayout body=column();body.setPadding(dp(16),dp(18),dp(16),dp(28));page.addView(body);
-        hint(body,"Язык интерфейса. Имена художников, названия работ и теги остаются без перевода.");
-        RadioGroup language=choices(body,new String[]{"English","Русский","Deutsch"},new String[]{"en","ru","de"},store.prefs.getString("language","en"));
-        body.addView(button("Применить",BLUE,()->{View checked=language.findViewById(language.getCheckedRadioButtonId());if(checked==null)return;store.prefs.edit().putString("language",String.valueOf(checked.getTag())).apply();recreate();}));push(page);
-    }
+    private void curationSettings(){settings("curation");}
+    private void profileTransferSettings(){settings("transfer");}
+    private void languageSettings(){settings("language");}
     @Override public void onWindowFocusChanged(boolean focused){super.onWindowFocusChanged(focused);if(focused&&store!=null)main.post(this::prepareVisibleContent);}
     @Override protected void onPause(){if(exposureWrite!=null){main.removeCallbacks(exposureWrite);exposureWrite.run();}super.onPause();}
-    private void hiddenAuthorsSettings(){
-        LinearLayout page=column();page.setBackgroundColor(BG);page.addView(toolbar("Скрытые авторы",this::goBack));
-        ScrollView scroll=new ScrollView(this);LinearLayout body=column();body.setPadding(dp(16),dp(18),dp(16),dp(28));scroll.addView(body);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));push(page);
+    private void hiddenAuthorsSettings(){settings("hidden-authors");}
+    private void hiddenAuthorsSettingsBody(LinearLayout body,SettingsUi ui){
         Runnable[] fill={null};fill[0]=()->{body.removeAllViews();List<String> keys=store.hiddenAuthors();
             if(keys.isEmpty()){hint(body,"Скрытых авторов пока нет. Откройте профиль художника и нажмите «Скрыть автора».");return;}
             hint(body,"Работы этих художников и загрузчиков скрыты в лентах, истории, закладках и похожем. Записи не удаляются.");
-            for(String key:keys){LinearLayout item=row();TextView name=text(key.replace('_',' '),14,TEXT);item.addView(name,new LinearLayout.LayoutParams(0,dp(52),1));
-                item.addView(button("Показать",BLUE,()->{int separator=key.indexOf(':');store.setHiddenAuthor(key.substring(0,separator),key.substring(separator+1),false);invalidateScreens();fill[0].run();}),new LinearLayout.LayoutParams(-2,dp(44)));
-                body.addView(item);
+            for(String key:keys){LinearLayout item=ui.card(body,"users",key.replace('_',' '),"");
+                ui.action(item,"Показать",false,()->{int separator=key.indexOf(':');if(separator<1)return;store.setHiddenAuthor(key.substring(0,separator),key.substring(separator+1),false);invalidateScreens();fill[0].run();});
             }
         };fill[0].run();
     }
-    private void appearanceSettings(){
-        LinearLayout page=column();page.setBackgroundColor(BG);page.addView(toolbar("Оформление",this::goBack));
-        ScrollView scroll=new ScrollView(this);LinearLayout body=column();body.setPadding(dp(16),dp(18),dp(16),dp(28));scroll.addView(body);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        body.addView(text("Тема оформления",20,TEXT));hint(body,"Выберите оформление для всего приложения. Системный режим следует настройке телефона.");
-        RadioGroup mode=choices(body,new String[]{"Как в системе","Тёмная","Светлая","List"},new String[]{"system","dark","light","list"},store.prefs.getString("themePreference","dark"));
-        body.addView(button("Применить тему",BLUE,()->{String choice=(String)mode.findViewById(mode.getCheckedRadioButtonId()).getTag();store.prefs.edit().putString("themePreference",choice).apply();recreate();}));
-        push(page);
+    private void appearanceSettings(){settings("appearance");}
+    private void privacySettings(){settings("privacy");}
+    private void contentSettings(LinearLayout body,SettingsUi ui){
+        String ai=store.prefs.getString("aiMode","all");
+        LinearLayout aiCard=ui.card(body,"image","AI images","Choose which AI-tagged works appear in your feeds.");
+        SettingsUi.Toggle generated=ui.switchRow(aiCard,"Скрывать AI-generated","Works tagged as generated by AI.",!ai.equals("all"));
+        SettingsUi.Toggle assisted=ui.switchRow(aiCard,"Скрывать также AI-assisted","Also hide works made with AI assistance.",ai.equals("generated-and-assisted"));assisted.enabled(generated.checked());
+        Runnable saveAi=()->{store.prefs.edit().putString("aiMode",!generated.checked()?"all":assisted.checked()?"generated-and-assisted":"generated").apply();invalidateScreens();};
+        generated.listener((button,checked)->{assisted.enabled(checked);saveAi.run();});assisted.listener((button,checked)->saveAi.run());
+        LinearLayout furryCard=ui.card(body,"image","Furry content","");SettingsUi.Toggle furry=ui.switchRow(furryCard,"Скрывать furry и anthro","Учитываются только явные теги furry и anthro, в том числе у объединённых копий. Уши, хвосты и одежда с мехом сами по себе не скрываются.",store.prefs.getBoolean("hideFurry",false));
+        furry.listener((button,checked)->{store.prefs.edit().putBoolean("hideFurry",checked).apply();invalidateScreens();});
+        LinearLayout feed=ui.card(body,"filter","Feed personalization","Control which works appear in your feeds. Likes, bookmarks and history remain available in their own tabs.");
+        SettingsUi.Toggle viewed=ui.switchRow(feed,"Скрывать просмотренные и сохранённые работы","Скрывает работы из поиска, рекомендаций и похожих, включая копии с тем же MD5. Закладки, история и профили авторов остаются доступны.",store.prefs.getBoolean("hideViewedAndSaved",false));
+        viewed.listener((button,checked)->{store.prefs.edit().putBoolean("hideViewedAndSaved",checked).apply();invalidateScreens();});
+        SettingsUi.Toggle followed=ui.switchRow(feed,"Скрывать подписанных авторов вне Following","Только в поиске, иллюстрациях, рекомендациях и похожих работах. Подписки, лайки, закладки, история и профили сохраняются.",store.prefs.getBoolean("hideFollowedArtists",false));
+        followed.listener((button,checked)->{store.prefs.edit().putBoolean("hideFollowedArtists",checked).apply();invalidateScreens();});
+        LinearLayout tags=ui.card(body,"filter","Исключённые теги","Можно указать несколько тегов через запятую. Совпадение точное: latex не исключает latex_gloves.");
+        EditText excluded=ui.input(tags,"Исключённые теги","Например, 3d, ai_generated_background",true,false);excluded.setTag("settings-excluded-tags");excluded.setText(store.prefs.getString("excludedTags",""));
+        ui.action(tags,"Сохранить фильтры",true,()->{store.prefs.edit().putString("excludedTags",String.join(", ",CatalogLogic.excludedTags(excluded.getText().toString()))).apply();hideKeyboard();preferencesChanged();});
+        excluded.setMaxLines(6);excluded.setMinLines(2);
     }
-    private void privacySettings(){
-        LinearLayout page=column();page.setBackgroundColor(BG);page.addView(toolbar("Приватность",this::goBack));
-        ScrollView scroll=new ScrollView(this);LinearLayout body=column();body.setPadding(dp(16),dp(18),dp(16),dp(28));scroll.addView(body);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        body.addView(text("Защита экрана",20,TEXT));CheckBox secure=check(body,"Скрывать приложение на снимках экрана",store.prefs.getBoolean("secureCapture",false));
-        hint(body,"Android блокирует снимки и запись окна приложения, пока переключатель включён. Содержимое остаётся видно на самом телефоне.");
-        secure.setOnCheckedChangeListener((button,enabled)->{store.prefs.edit().putBoolean("secureCapture",enabled).apply();if(enabled)getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);});
-        push(page);
+    private void curationSettingsBody(LinearLayout body,SettingsUi ui){
+        LinearLayout card=ui.card(body,"curation","Отбор работ","Общие правила отбора для поиска, иллюстраций, рекомендаций и похожих работ. Оценки сравниваются внутри своего источника и рейтинга.");
+        Map<String,Boolean> prefs=store.curation();SettingsUi.Toggle enabled=ui.switchRow(card,"Включить отбор работ","Use the factors below across your feeds.",Boolean.TRUE.equals(prefs.get("enabled")));
+        Map<String,SettingsUi.Toggle> options=new LinkedHashMap<>();String[] keys={"popularity","personal","freshness","resolution"},labels={"Популярность в своём источнике","Ваши предпочтения по лайкам","Свежесть публикации","Размер изображения"};
+        for(int i=0;i<keys.length;i++){String key=keys[i];SettingsUi.Toggle toggle=ui.switchRow(card,labels[i],"",Boolean.TRUE.equals(prefs.get(key)));toggle.enabled(enabled.checked());toggle.listener((button,checked)->{store.prefs.edit().putBoolean("curation."+key,checked).apply();invalidateScreens();});options.put(key,toggle);}
+        enabled.listener((button,checked)->{for(SettingsUi.Toggle toggle:options.values())toggle.enabled(checked);store.prefs.edit().putBoolean("curation.enabled",checked).apply();invalidateScreens();});
+        ui.navigation(body,"spark","Настроить рекомендации","Favorite topics and recommendation priorities",this::recommendationSettings);
     }
-    private void settingsSection(LinearLayout body,String section){
-        if(section.equals("Контент")){
-            TextView title=text("Фильтры содержимого",20,TEXT);title.setTypeface(null,Typeface.BOLD);body.addView(title);settingsAction(body,"Настроить рекомендации",BLUE,this::recommendationSettings);settingsAction(body,"Отбор работ",BLUE,this::curationSettings);settingsAction(body,"Перенос профиля · ПК ↔ Android",BLUE,this::profileTransferSettings);settingsAction(body,"Язык",BLUE,this::languageSettings);String ai=store.prefs.getString("aiMode","all");CheckBox generated=check(body,"Скрывать AI-generated",!ai.equals("all"));CheckBox assisted=check(body,"Скрывать также AI-assisted",ai.equals("generated-and-assisted"));assisted.setEnabled(generated.isChecked());hint(body,"Учитываются метки AI-generated, AI-art, Stable Diffusion, NovelAI и AI-assisted. Работы без этих тегов не определяются автоматически как AI.");CheckBox viewed=check(body,"Скрывать просмотренные и сохранённые работы",store.prefs.getBoolean("hideViewedAndSaved",false));hint(body,"Скрывает работы из поиска, рекомендаций и похожих, включая копии с тем же MD5. Закладки, история и профили авторов остаются доступны.");CheckBox followed=check(body,"Скрывать подписанных авторов вне Following",store.prefs.getBoolean("hideFollowedArtists",false));hint(body,"Только в поиске, иллюстрациях, рекомендациях и похожих работах. Подписки, лайки, закладки, история и профили сохраняются.");body.addView(text("Исключённые теги",17,TEXT));EditText excluded=new EditText(this);excluded.setTextColor(TEXT);excluded.setHintTextColor(MUTED);excluded.setHint(tr("Например, 3d, ai_generated_background"));excluded.setMaxLines(5);excluded.setText(store.prefs.getString("excludedTags",""));body.addView(excluded);hint(body,"Можно указать несколько тегов через запятую. Совпадение точное: latex не исключает latex_gloves.");generated.setOnCheckedChangeListener((b,checked)->assisted.setEnabled(checked));body.addView(button("Сохранить фильтры",BLUE,()->{store.prefs.edit().putString("aiMode",!generated.isChecked()?"all":assisted.isChecked()?"generated-and-assisted":"generated").putBoolean("hideViewedAndSaved",viewed.isChecked()).putBoolean("hideFollowedArtists",followed.isChecked()).putString("excludedTags",String.join(", ",CatalogLogic.excludedTags(excluded.getText().toString()))).apply();preferencesChanged();}));
-            CheckBox furry=check(body,"Скрывать furry и anthro",store.prefs.getBoolean("hideFurry",false));
-            hint(body,"Учитываются только явные теги furry и anthro, в том числе у объединённых копий. Уши, хвосты и одежда с мехом сами по себе не скрываются.");
-            furry.setOnCheckedChangeListener((view,checked)->{store.prefs.edit().putBoolean("hideFurry",checked).apply();preferencesChanged();});
-            settingsAction(body,"Оформление",MUTED,this::appearanceSettings);
-            settingsAction(body,"Приватность",MUTED,this::privacySettings);
-        }else if(section.equals("Авторы")){
-            body.addView(text("Основная подпись автора",20,TEXT));hint(body,"Художник, исходная публикация и загрузчик показаны отдельно в работе. Здесь выбирается основная подпись.");RadioGroup priority=choices(body,new String[]{"Художник","Исходная ссылка","Загрузчик"},new String[]{"creator","original","uploader"},store.prefs.getString("attributionPriority","creator"));hint(body,"Подписка создаётся на тег художника. Исходная ссылка открывает публикацию; загрузчик может быть другим человеком.");body.addView(button("Сохранить приоритет",BLUE,()->{store.prefs.edit().putString("attributionPriority",(String)priority.findViewById(priority.getCheckedRadioButtonId()).getTag()).apply();preferencesChanged();}));
-            settingsAction(body,"Скрытые авторы",MUTED,this::hiddenAuthorsSettings);
-        }else if(section.equals("Вкладки")){
-            body.addView(text("Открытие иллюстраций",20,TEXT));RadioGroup mode=choices(body,new String[]{"Один временный просмотр","Каждая работа в отдельной вкладке"},new String[]{"preview","new"},store.prefs.getString("artworkTabs","preview"));hint(body,"Временная работа заменяется следующей. Открытые работы доступны через кнопку в просмотре или на моей странице. Закрепите работу звёздочкой, чтобы сохранить её среди открытых; закреплённая работа не заменяется и не закрывается.");body.addView(button("Сохранить режим",BLUE,()->{store.prefs.edit().putString("artworkTabs",(String)mode.findViewById(mode.getCheckedRadioButtonId()).getTag()).apply();toast("Режим сохранён");}));body.addView(button("Открытые работы",MUTED,this::openWorks));
-        }else{
-            hint(body,"Поиск работает на этом телефоне без включённого ПК. API-ключи хранятся в Android Keystore и не попадают в экспорт.");for(String source:CatalogClient.SOURCES){TextView name=text(sourceName(source),18,TEXT);name.setTypeface(null,Typeface.BOLD);name.setPadding(0,dp(18),0,dp(8));body.addView(name);if(source.equals("danbooru")){hint(body,"Публичный поиск доступен без API key.");continue;}if(source.equals("sankaku")){sankakuSettings(body);continue;}TextView status=text(store.configured(source)?"Источник подключён":"Источник не подключён",13,MUTED);body.addView(status);EditText user=new EditText(this);user.setSingleLine();user.setHint("User ID");user.setTextColor(TEXT);user.setHintTextColor(MUTED);user.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);body.addView(user);EditText key=new EditText(this);key.setSingleLine();key.setHint(tr("API key · оставить пустым для сохранения текущего"));key.setTextColor(TEXT);key.setHintTextColor(MUTED);key.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);body.addView(key);boolean[] credentialsReady={false};user.setEnabled(false);key.setEnabled(false);io.execute(()->{try{String id=store.credential(source,"user");main.post(()->{if(!destroyed){user.setText(id);credentialsReady[0]=true;user.setEnabled(true);key.setEnabled(true);}});}catch(Exception ignored){main.post(()->status.setText(tr("Не удалось прочитать подключение. Существующие ключи сохранены.")));}});hint(body,"Пустой API key сохраняет существующий ключ. Очистите User ID и сохраните, чтобы отключить источник.");body.addView(button("Сохранить "+sourceName(source),BLUE,()->{if(!credentialsReady[0]){toast("Подождите загрузки настроек подключения");return;}String id=user.getText().toString().trim(),token=key.getText().toString().trim();if(!id.isBlank()&&!id.matches("[0-9]{1,20}")||!token.isBlank()&&(token.length()<8||token.length()>300)){toast("Проверьте User ID и API key");return;}io.execute(()->{try{String savedToken=id.isBlank()?"":token.isBlank()?store.credential(source,"key"):token;if(!id.isBlank()&&savedToken.isBlank()){main.post(()->toast("Введите API key для первого подключения"));return;}store.credentials(source,id,savedToken);main.post(()->{if(destroyed)return;key.setText("");status.setText(tr(id.isBlank()?"Источник отключён":"Источник подключён"));invalidateScreens();toast("Настройки источника сохранены");});}catch(Exception e){main.post(()->toast("Не удалось сохранить ключи"));}});}));body.addView(button("Открыть сайт "+sourceName(source),MUTED,()->external(source.equals("gelbooru")?"https://gelbooru.com/index.php?page=account&s=options":"https://rule34.xxx/index.php?page=account&s=options")));}body.addView(button("Импорт профиля",BLUE,this::importData));body.addView(button("Экспорт профиля",MUTED,this::exportData));
-        }
+    private void authorSettingsBody(LinearLayout body,SettingsUi ui){
+        LinearLayout card=ui.card(body,"users","Основная подпись автора","Художник, исходная публикация и загрузчик показаны отдельно в работе. Здесь выбирается основная подпись.");
+        RadioGroup priority=ui.choices(card,new String[]{"Художник","Исходная ссылка","Загрузчик"},new String[]{"creator","original","uploader"},store.prefs.getString("attributionPriority","creator"));
+        priority.setOnCheckedChangeListener((group,id)->{View selected=group.findViewById(id);if(selected!=null){store.prefs.edit().putString("attributionPriority",String.valueOf(selected.getTag())).apply();invalidateScreens();}});
+        hint(card,"Подписка создаётся на тег художника. Исходная ссылка открывает публикацию; загрузчик может быть другим человеком.");
+        ui.navigation(body,"users","Скрытые авторы","Manage creators hidden from your feeds",this::hiddenAuthorsSettings);
     }
+    private void tabsSettingsBody(LinearLayout body,SettingsUi ui){
+        LinearLayout card=ui.card(body,"panels","Открытие иллюстраций","Временная работа заменяется следующей. Открытые работы доступны через кнопку в просмотре или на моей странице. Закрепите работу звёздочкой, чтобы сохранить её среди открытых; закреплённая работа не заменяется и не закрывается.");
+        RadioGroup mode=ui.choices(card,new String[]{"Один временный просмотр","Каждая работа в отдельной вкладке"},new String[]{"preview","new"},store.prefs.getString("artworkTabs","preview"));
+        mode.setOnCheckedChangeListener((group,id)->{View selected=group.findViewById(id);if(selected!=null)store.prefs.edit().putString("artworkTabs",String.valueOf(selected.getTag())).apply();});
+        ui.action(card,"Открытые работы",false,this::openWorks);
+    }
+    private void appearanceSettingsBody(LinearLayout body,SettingsUi ui){
+        LinearLayout card=ui.card(body,"palette","Тема оформления","Выберите оформление для всего приложения. Системный режим следует настройке телефона.");
+        RadioGroup mode=ui.choices(card,new String[]{"Как в системе","Тёмная","Светлая","List"},new String[]{"system","dark","light","list"},store.prefs.getString("themePreference","dark"));
+        ui.action(card,"Применить тему",true,()->{View checked=mode.findViewById(mode.getCheckedRadioButtonId());if(checked==null)return;store.prefs.edit().putString("themePreference",String.valueOf(checked.getTag())).apply();recreate();});
+    }
+    private void languageSettingsBody(LinearLayout body,SettingsUi ui){
+        LinearLayout card=ui.card(body,"language","Язык","Язык интерфейса. Имена художников, названия работ и теги остаются без перевода.");
+        RadioGroup language=ui.choices(card,new String[]{"English","Русский","Deutsch"},new String[]{"en","ru","de"},store.prefs.getString("language","en"));
+        ui.action(card,"Применить",true,()->{View checked=language.findViewById(language.getCheckedRadioButtonId());if(checked==null)return;store.prefs.edit().putString("language",String.valueOf(checked.getTag())).apply();recreate();});
+    }
+    private void privacySettingsBody(LinearLayout body,SettingsUi ui){
+        LinearLayout card=ui.card(body,"shield","Защита экрана","");
+        SettingsUi.Toggle secure=ui.switchRow(card,"Скрывать приложение на снимках экрана","Android блокирует снимки и запись окна приложения, пока переключатель включён. Содержимое остаётся видно на самом телефоне.",store.prefs.getBoolean("secureCapture",false));
+        TextView status=text(secure.checked()?"Protection is active.":"Protection is off.",13,MUTED);status.setPadding(0,dp(12),0,dp(4));status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);card.addView(status);
+        secure.listener((button,checked)->{store.prefs.edit().putBoolean("secureCapture",checked).apply();if(checked)getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);status.setText(tr(checked?"Protection is active.":"Protection is off."));});
+    }
+    private void sourceSettingsBody(LinearLayout body,SettingsUi ui,String source,LinearLayout page){
+        LinearLayout card=ui.card(body,"plug",sourceName(source),"");
+        if(source.equals("danbooru")){hint(card,"Публичный поиск доступен без API key.");ui.action(card,tr("Открыть на сайте")+" · Danbooru",false,()->external("https://danbooru.donmai.us/"));return;}
+        if(source.equals("sankaku")){sankakuSettings(card);return;}
+        TextView status=text(store.configured(source)?"Источник подключён":"Источник не подключён",14,MUTED);status.setPadding(0,0,0,dp(14));status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);card.addView(status);
+        EditText user=ui.input(card,"User ID","User ID",false,false);user.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        EditText key=ui.input(card,"API key","API key · оставить пустым для сохранения текущего",false,true);
+        boolean[] ready={false};user.setEnabled(false);key.setEnabled(false);
+        io.execute(()->{try{String id=store.credential(source,"user");main.post(()->{if(!destroyed){user.setText(id);ready[0]=true;user.setEnabled(true);key.setEnabled(true);}});}catch(Exception error){main.post(()->{if(!destroyed)status.setText(tr("Не удалось прочитать подключение. Существующие ключи сохранены."));});}});
+        hint(card,"Пустой API key сохраняет существующий ключ. Очистите User ID и сохраните, чтобы отключить источник.");
+        TextView save=ui.action(card,tr("Сохранить")+" · "+sourceName(source),true,()->{});
+        save.setOnClickListener(v->{
+            if(!ready[0]){status.setText(tr("Подождите загрузки настроек подключения"));return;}
+            String id=user.getText().toString().trim(),token=key.getText().toString().trim();
+            if(!id.isBlank()&&!id.matches("[0-9]{1,20}")||!token.isBlank()&&(token.length()<8||token.length()>300)){status.setText(tr("Проверьте User ID и API key"));return;}
+            save.setEnabled(false);user.setEnabled(false);key.setEnabled(false);hideKeyboard();
+            io.execute(()->{try{String savedToken=id.isBlank()?"":token.isBlank()?store.credential(source,"key"):token;if(!id.isBlank()&&savedToken.isBlank()){main.post(()->{if(!destroyed){status.setText(tr("Введите API key для первого подключения"));save.setEnabled(true);user.setEnabled(true);key.setEnabled(true);}});return;}
+                store.credentials(source,id,savedToken);main.post(()->{if(destroyed)return;key.setText("");status.setText(tr(id.isBlank()?"Источник отключён":"Источник подключён"));save.setEnabled(true);user.setEnabled(true);key.setEnabled(true);invalidateScreens();refreshSettingsStatus(currentView);toast("Настройки источника сохранены");});
+            }catch(Exception error){main.post(()->{if(!destroyed){status.setText(tr("Не удалось сохранить ключи"));save.setEnabled(true);user.setEnabled(true);key.setEnabled(true);}});}});
+        });
+        ui.action(card,tr("Открыть на сайте")+" · "+sourceName(source),false,()->external(source.equals("gelbooru")?"https://gelbooru.com/index.php?page=account&s=options":"https://rule34.xxx/index.php?page=account&s=options"));
+    }
+
     private void openDetail(Post p){openDetail(p,true,0);}
     private void openArtwork(Post p,Gallery gallery){
         if(gallery!=null&&gallery.posts.stream().noneMatch(item->item.key().equals(p.key())||item.memberKeys.contains(p.key()))){List<Post> sequence=new ArrayList<>();sequence.add(p);sequence.addAll(gallery.posts);gallery=new Gallery(sequence,gallery.source);}
@@ -1305,7 +1413,8 @@ public final class MainActivity extends Activity {
         for(int i=0;i<screens.length;i++){Screen s=screens[i];if(s==null)continue;Bundle state=new Bundle();state.putString("query",s.query);state.putString("order",s.order);state.putInt("homeTab",s.homeTab);state.putBoolean("following",s.followingMode);state.putInt("first",s.list.getFirstVisiblePosition());View first=s.list.getChildAt(0);state.putInt("top",first==null?0:first.getTop());if(i==1&&searchInput!=null)state.putString("input",searchInput.getText().toString());out.putBundle("screen"+i,state);}
         if(activePost!=null){out.putString("detail",activePost.toJson().toString());out.putBundle("galleryRoute",galleryBundle(activeGallery,activePost));out.putInt("mediaIndex",activeMediaIndex);if(detailList!=null){out.putInt("detailScroll",detailList.getFirstVisiblePosition());View first=detailList.getChildAt(0);out.putInt("detailTop",first==null?0:first.getTop());}}
         if(!authorTag.isBlank()&&activeAuthor!=null&&activeAuthor.list!=null){out.putString("author",authorTag);out.putInt("authorFirst",activeAuthor.list.getFirstVisiblePosition());View first=activeAuthor.list.getChildAt(0);out.putInt("authorTop",first==null?0:first.getTop());}
-        ArrayList<Bundle> entries=new ArrayList<>();for(BackEntry entry:backStack){Bundle item=new Bundle();item.putInt("nav",entry.nav);item.putInt("scroll",entry.scroll);item.putInt("top",entry.top);item.putInt("mediaIndex",entry.mediaIndex);if(entry.gallery!=null)item.putBundle("galleryRoute",galleryBundle(entry.gallery,entry.detail));if(entry.detail!=null)item.putString("detail",entry.detail.toJson().toString());else if(entry.author!=null)item.putString("author",entry.author);else{for(Screen s:screens)if(s!=null&&s.view==entry.view)item.putInt("tab",s.tab);}entries.add(item);}out.putParcelableArrayList("backStack",entries);
+        ArrayList<Bundle> entries=new ArrayList<>();for(BackEntry entry:backStack){Bundle item=new Bundle();item.putInt("nav",entry.nav);item.putInt("scroll",entry.scroll);item.putInt("top",entry.top);item.putInt("mediaIndex",entry.mediaIndex);if(entry.gallery!=null)item.putBundle("galleryRoute",galleryBundle(entry.gallery,entry.detail));if(entry.detail!=null)item.putString("detail",entry.detail.toJson().toString());else if(entry.author!=null)item.putString("author",entry.author);else if(!settingsRoute(entry.view).isBlank())item.putBundle("settingsPage",settingsState(entry.view));else{for(Screen s:screens)if(s!=null&&s.view==entry.view)item.putInt("tab",s.tab);}entries.add(item);}out.putParcelableArrayList("backStack",entries);
+        if(!settingsRoute(currentView).isBlank())out.putBundle("settingsPage",settingsState(currentView));
         if(pendingDownload!=null)out.putString("download",pendingDownload);if(pendingDocument!=null){out.putString("pendingDocument",pendingDocument.toString());out.putInt("pendingDocumentRequest",pendingDocumentRequest);}
         writeNavigationState(out);
     }
