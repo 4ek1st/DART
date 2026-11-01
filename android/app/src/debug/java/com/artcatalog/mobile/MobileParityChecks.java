@@ -19,6 +19,8 @@ final class MobileParityChecks {
     static void run(Activity activity,ImageLoader images){new Handler(Looper.getMainLooper()).postDelayed(()->{
         try{if(!activity.getIntent().getBooleanExtra("qaFixtures",false))throw new IllegalStateException("Neutral fixtures required");
             String mode=activity.getIntent().getStringExtra("qaParityMode");if(mode==null)mode="state";
+            if(mode.startsWith("reliability-")){MobileMediaReliabilityChecks.run(activity,images,mode);return;}
+            if(mode.equals("following-fairness")){MobileFollowingReliabilityChecks.run(activity,images);return;}
             Store store=(Store)field(activity,"store");
             if(mode.equals("import")){String json;try(InputStream in=new FileInputStream(new File(activity.getExternalFilesDir(null),"dart-qa-profile.json"))){json=new String(in.readAllBytes(),StandardCharsets.UTF_8);}JSONObject document=ProfileTransfer.parse(json);method(activity,"showImportPreview",JSONObject.class).invoke(activity,document);Log.i(TAG,"IMPORT PREVIEW opened counts="+ProfileTransfer.counts(document));}
             else if(mode.equals("verify")){JSONObject exported=ProfileTransfer.export(store.export());boolean like=has(exported.optJSONArray("likes"),"danbooru:9000999"),bookmark=has(exported.optJSONArray("bookmarks"),"danbooru:9000998"),follow=store.following("artcatalog_test_artist");boolean viewed=false;JSONArray seen=exported.optJSONArray("viewedIdentities");if(seen!=null)for(int i=0;i<seen.length();i++)if(seen.optString(i).equals("key:danbooru:9000997"))viewed=true;

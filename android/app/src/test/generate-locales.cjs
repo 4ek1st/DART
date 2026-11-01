@@ -46,6 +46,10 @@ Open on website|Открыть на сайте|Auf Website öffnen
 Original source|Первоисточник|Originalquelle
 View|Смотреть|Ansehen
 Play video|Смотреть видео|Video abspielen
+Loading video…|Загрузка видео…|Video wird geladen…
+Video could not load. Tap to retry.|Не удалось загрузить видео. Нажмите, чтобы повторить.|Video konnte nicht geladen werden. Zum Wiederholen antippen.
+Video preview unavailable|Превью видео недоступно|Videovorschau nicht verfügbar
+Video paused|Видео на паузе|Video pausiert
 Video|Видео|Video
 Animation|Анимация|Animation
 Voice|Озвучка|Sprecher

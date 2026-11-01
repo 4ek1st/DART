@@ -173,7 +173,7 @@ final class Store implements SankakuApi.Session {
         String key="artist:"+tag;
         if(follows.remove(key)==null){
             JSONObject entry=new JSONObject();
-            try{entry.put("key",key).put("tag",tag).put("name",tag.replace('_',' ')).put("initialized",false).put("seen",new JSONArray());}catch(JSONException ignored){}
+            try{entry.put("key",key).put("tag",tag).put("name",tag.replace('_',' ')).put("followedAt",java.time.Instant.now().toString()).put("initialized",false).put("seen",new JSONArray());}catch(JSONException ignored){}
             follows.put(key,entry);
         }
         persist();
@@ -183,20 +183,28 @@ final class Store implements SankakuApi.Session {
         if(normalized.isBlank()||normalized.length()>100||!Arrays.asList(CatalogClient.SOURCES).contains(source))return;
         if(follows.remove(key)==null){JSONObject entry=new JSONObject();try{
             entry.put("key",key).put("tag","user:"+id.replace(' ','_')).put("source",source)
-                .put("name",displayName.isBlank()?id:displayName).put("initialized",false).put("seen",new JSONArray());
+                .put("name",displayName.isBlank()?id:displayName).put("followedAt",java.time.Instant.now().toString()).put("initialized",false).put("seen",new JSONArray());
         }catch(JSONException ignored){}follows.put(key,entry);}
         persist();
     }
     synchronized void removeFollow(String key){if(follows.remove(key)!=null)persist();}
+    synchronized Map<String,FollowingOrder.NewSnapshot> followingSnapshots(String rating,long startedAt){
+        Set<String> known=new HashSet<>(viewedIdentities);known.addAll(bookmarkTokens);known.addAll(likedTokens);
+        Set<String> configured=new LinkedHashSet<>(),selected=new LinkedHashSet<>();String filter=prefs.getString("source","all");for(String source:CatalogClient.SOURCES)if(configured(source)){configured.add(source);if(filter.equals("all")||filter.equals(source))selected.add(source);}
+        if(selected.isEmpty()&&!filter.equals("all")&&Arrays.asList(CatalogClient.SOURCES).contains(filter))selected.add(filter);
+        // A filtered visit advances that provider only. Its portable all-provider timestamp
+        // must not make an unselected or failed provider's unseen works look old later.
+        return FollowingOrder.snapshots(follows.values(),rating,startedAt,follow->{String scope=follow.optString("source");return scope.isBlank()?selected:Set.of(scope);},follow->{String scope=follow.optString("source");return scope.isBlank()?configured:Set.of(scope);},known);
+    }
+    synchronized void recordFollowingSuccess(FollowingOrder.NewSnapshot snapshot,String source,List<Post> posts){
+        JSONObject follow=follows.get(snapshot.key);if(follow!=null&&FollowingOrder.recordSuccess(follow,snapshot,source,posts))persist();
+    }
+    synchronized boolean knownForFollowing(Post post){Set<String> identities=FollowingOrder.knownTokens(post);return !Collections.disjoint(identities,viewedIdentities)||!Collections.disjoint(identities,likedTokens)||!Collections.disjoint(identities,bookmarkTokens);}
     synchronized Set<String> unread(List<Post> posts,String tag,String source){
-        JSONObject follow=follows.get(source.isBlank()?"artist:"+tag:source+":"+CatalogLogic.normalizeTag(tag.replaceFirst("^user:","")));Set<String> unread=new HashSet<>();
-        if(follow==null)return unread;
-        JSONArray seen=follow.optJSONArray("seen");Set<String> keys=new HashSet<>();
-        if(seen!=null)for(int i=0;i<seen.length();i++)keys.add(seen.optString(i));
-        boolean initialized=follow.optBoolean("initialized");
-        for(Post p:posts){if(source.isBlank()||p.source.equals(source)){if(initialized&&!keys.contains(p.key()))unread.add(p.key());if(!initialized)keys.add(p.key());}}
-        if(!initialized){try{follow.put("initialized",true).put("seen",new JSONArray(keys));}catch(JSONException ignored){}persist();}
-        return unread;
+        JSONObject follow=follows.get(source.isBlank()?"artist:"+tag:source+":"+CatalogLogic.normalizeTag(tag.replaceFirst("^user:","")));if(follow==null)return Set.of();
+        FollowingOrder.NewSnapshot snapshot=followingSnapshots(prefs.getString("rating","general"),System.currentTimeMillis()).get(FollowingOrder.followKey(follow));if(snapshot==null)return Set.of();
+        Set<String> unread=FollowingOrder.unread(posts,snapshot),successful=new LinkedHashSet<>();for(Post post:posts)if(source.isBlank()||source.equals(post.source))successful.add(post.source);
+        boolean changed=false;for(String provider:successful)changed|=FollowingOrder.recordSuccess(follow,snapshot,provider,posts);if(changed)persist();return unread;
     }
     synchronized void markSeen(Post p){
         Set<String> authors=authorKeys(p),works=new LinkedHashSet<>(p.memberKeys);works.add(p.key());

@@ -11,6 +11,10 @@ import java.util.function.IntConsumer;
 
 /** Native feed shared by every gallery. Data changes touch only changed rows. */
 final class FeedListView extends RecyclerView {
+    interface AnchorSource {
+        Object anchorScope();
+        List<String> anchorKeys(int position);
+    }
     interface ScrollListener {
         int SCROLL_STATE_TOUCH_SCROLL=1;
         void onScrollStateChanged(FeedListView view,int state);
@@ -58,6 +62,7 @@ final class FeedListView extends RecyclerView {
     }
     int getFirstVisiblePosition(){return Math.max(0,layout.findFirstVisibleItemPosition());}
     int getVisibleCount(){int first=layout.findFirstVisibleItemPosition(),last=layout.findLastVisibleItemPosition();return first<0?0:last-first+1;}
+    int clampPosition(int position){return Math.max(0,Math.min(position,bridge==null?0:bridge.getItemCount()-1));}
     void setSelection(int position){setSelectionFromTop(position,0);}
     void setSelectionFromTop(int position,int top){layout.scrollToPositionWithOffset(position,top-getPaddingTop());}
     void setAdapter(BaseAdapter source){bridge=new Bridge(source);super.setAdapter(bridge);}
@@ -66,20 +71,35 @@ final class FeedListView extends RecyclerView {
     void resume(){setItemViewCacheSize(12);if(header!=null&&restorer!=null)restorer.accept(header);}
     private void dispatchScroll(){if(listener!=null&&bridge!=null)listener.onScroll(this,getFirstVisiblePosition(),getVisibleCount(),bridge.getItemCount());}
     private static final class Entry {
-        final long id;final int type,index;final Object content;
-        Entry(long id,int type,int index,Object content){this.id=id;this.type=type;this.index=index;this.content=content;}
+        final long id;final int type,index;final Object content;final List<String> keys;
+        Entry(long id,int type,int index,Object content,List<String> keys){this.id=id;this.type=type;this.index=index;this.content=content;this.keys=List.copyOf(keys);}
     }
     private static final class Holder extends ViewHolder {
         final FrameLayout box;
         Holder(FrameLayout box){super(box);this.box=box;}
     }
     private final class Bridge extends Adapter<Holder> {
-        final BaseAdapter source;List<Entry> rows=new ArrayList<>();boolean scheduled;
-        Bridge(BaseAdapter source){this.source=source;setHasStableIds(true);rows=snapshot();source.registerDataSetObserver(new DataSetObserver(){@Override public void onChanged(){update();}@Override public void onInvalidated(){update();}});}
-        List<Entry> snapshot(){List<Entry> result=new ArrayList<>();if(header!=null)result.add(new Entry(Long.MIN_VALUE,100,-1,header));for(int i=0;i<source.getCount();i++)result.add(new Entry(source.getItemId(i),source.getItemViewType(i),i,source.getItem(i)));if(footer!=null)result.add(new Entry(Long.MIN_VALUE+1,101,-1,footer));return result;}
+        final BaseAdapter source;List<Entry> rows=new ArrayList<>();boolean scheduled;Object scope;
+        Bridge(BaseAdapter source){this.source=source;setHasStableIds(true);rows=snapshot();scope=anchorScope();source.registerDataSetObserver(new DataSetObserver(){@Override public void onChanged(){update();}@Override public void onInvalidated(){update();}});}
+        Object anchorScope(){return source instanceof AnchorSource?((AnchorSource)source).anchorScope():null;}
+        List<Entry> snapshot(){List<Entry> result=new ArrayList<>();if(header!=null)result.add(new Entry(Long.MIN_VALUE,100,-1,header,List.of()));for(int i=0;i<source.getCount();i++)result.add(new Entry(source.getItemId(i),source.getItemViewType(i),i,source.getItem(i),source instanceof AnchorSource?((AnchorSource)source).anchorKeys(i):List.of()));if(footer!=null)result.add(new Entry(Long.MIN_VALUE+1,101,-1,footer,List.of()));return result;}
+        FeedViewport.Anchor viewport(List<Entry> before,List<Entry> after,Object nextScope){
+            if(scope==null||!Objects.equals(scope,nextScope))return null;
+            boolean structural=before.size()!=after.size();
+            for(int i=0;!structural&&i<before.size();i++)structural=before.get(i).id!=after.get(i).id||before.get(i).type!=after.get(i).type;
+            if(!structural)return null;
+            List<FeedViewport.Anchor> visible=new ArrayList<>();
+            int first=layout.findFirstVisibleItemPosition(),last=layout.findLastVisibleItemPosition();
+            for(int i=Math.max(0,first);i<=last&&i<before.size();i++){
+                View view=layout.findViewByPosition(i);Entry entry=before.get(i);
+                if(view!=null&&!entry.keys.isEmpty())visible.add(new FeedViewport.Anchor(entry.keys,i,layout.getDecoratedTop(view)-getPaddingTop()));
+            }
+            List<List<String>> keys=new ArrayList<>();for(Entry row:after)keys.add(row.keys);
+            return FeedViewport.restore(visible,keys);
+        }
         void update(){
             if(isComputingLayout()){if(!scheduled){scheduled=true;post(()->{scheduled=false;update();});}return;}
-            List<Entry> before=rows,after=snapshot();
+            List<Entry> before=rows,after=snapshot();Object nextScope=anchorScope();FeedViewport.Anchor anchor=viewport(before,after,nextScope);scope=nextScope;
             // Prepared images and page lookahead normally append complete rows.
             // Keep the already visible holders in place instead of diffing and
             // rebinding the whole feed for each prepared preview.
@@ -99,7 +119,9 @@ final class FeedListView extends RecyclerView {
                 public int getOldListSize(){return before.size();}public int getNewListSize(){return after.size();}
                 public boolean areItemsTheSame(int old,int next){Entry a=before.get(old),b=after.get(next);return a.id==b.id&&a.type==b.type;}
                 public boolean areContentsTheSame(int old,int next){return Objects.equals(before.get(old).content,after.get(next).content);}
-            },false);rows=after;diff.dispatchUpdatesTo(this);post(FeedListView.this::dispatchScroll);
+            },false);rows=after;diff.dispatchUpdatesTo(this);
+            if(anchor!=null)layout.scrollToPositionWithOffset(anchor.position,anchor.top);
+            post(FeedListView.this::dispatchScroll);
         }
         @Override public long getItemId(int position){return rows.get(position).id;}
         @Override public int getItemViewType(int position){return rows.get(position).type;}
