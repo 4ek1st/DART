@@ -11,7 +11,7 @@ internal sealed partial class LocalStore
     public bool RefreshSavedMedia(CatalogItem item)
     {
         if (item.Source != "sankaku" || !SankakuApi.ValidId(item.Id)) return false;
-        return savedWorks.RefreshMetadata(item, UpdateMedia, includeOwnedMedia: true);
+        return savedWorks.RefreshOwnedMediaMetadata(item, UpdateMedia);
         bool UpdateMedia(JsonObject saved)
         {
             var changed = false;

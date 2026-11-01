@@ -102,7 +102,13 @@ internal sealed class SavedWorksStore
     internal static bool OwnsMediaRecord(JsonObject saved, string key) => saved["imageRecords"] is JsonArray records &&
         records.OfType<JsonObject>().Any(record => SavedText(record, "owner") == key);
 
-    public bool RefreshMetadata(CatalogItem item, Func<JsonObject, bool> update, bool includeOwnedMedia = false)
+    public bool RefreshMetadata(CatalogItem item, Func<JsonObject, bool> update) =>
+        RefreshMetadataCore(item, update, includeOwnedMedia: false);
+
+    internal bool RefreshOwnedMediaMetadata(CatalogItem item, Func<JsonObject, bool> update) =>
+        RefreshMetadataCore(item, update, includeOwnedMedia: true);
+
+    private bool RefreshMetadataCore(CatalogItem item, Func<JsonObject, bool> update, bool includeOwnedMedia)
     {
         using var fileLock = AcquireLock();
         var state = Read().DeepClone().AsObject();
