@@ -144,7 +144,7 @@ function artworkSourceFixture(kind = 'follows', preferences = {}, detached = tru
     structuredClone, nextArtworkSourceId: -2, artworkRoutes: new Set(),
     contentPreferences: preferences, recent: [], likes: [], bookmarks: [],
     viewedTokens: new Set(), viewedPending: new Set(), findTab: () => source,
-    localStorage: { setItem() {} }, recordViewedWorks() {} });
+    localStorage: { setItem() {} }, recordViewedWorks() {}, favoritesController: () => ({ record() {}, metadata() {} }) });
   vm.runInContext(app.slice(app.indexOf('function recordDetailVisit('),
     app.indexOf('\nfunction abortTab(')), context);
   vm.runInContext(app.slice(app.indexOf('function knownWorkTokens('),

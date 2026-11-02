@@ -20,6 +20,7 @@ function fixture() {
     fetch: async (url, options) => { writes.push(JSON.parse(options.body)); return {}; },
     getSearchHistory: () => [], rememberItem: item => item, retainFeedWork() {},
     ratingFilterFor: () => 'all', recordViewedWorks: async items => visits.push(...items.map(item => item.key)),
+    favoritesController: () => ({ record() {}, metadata() {} }),
     hideTabPanels() {}, closeQuickPreview() {}, pauseDetailVideos() {}, loadFollowFeed() {}, scheduleFollowRetry() {},
     renderChrome() {}, loadCreatorWorks() {}, loadRelated() {},
     clearTimeout, setTimeout, toast() {}, startTab(tab) { if (tab) tab.started = true; },

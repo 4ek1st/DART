@@ -17,6 +17,8 @@ icons.list = '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>';
 icons.bookmark = '<path d="M6 3h12v18l-6-4-6 4V3Z"/>';
 icons.hide = '<path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.8 5.2A10 10 0 0 1 12 5c6 0 10 7 10 7a18 18 0 0 1-3 3.8M6.2 6.2A20 20 0 0 0 2 12s4 7 10 7a11 11 0 0 0 5-1.3"/>';
 icons.star = '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>';
+icons.plus = '<path d="M12 5v14M5 12h14"/>';
+icons.tag = '<path d="M3 3h8l10 10-8 8L3 11V3Z"/><circle cx="7.5" cy="7.5" r="1"/>';
 icons.image = '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5-7 7-3-3-3 3"/>';
 icons.curation = '<path d="M3 6h4m6 0h8M3 12h10m6 0h2M3 18h2m6 0h10"/><circle cx="10" cy="6" r="3"/><circle cx="16" cy="12" r="3"/><circle cx="8" cy="18" r="3"/>';
 icons.plug = '<path d="M9 3v5m6-5v5M7 8h10v4a5 5 0 0 1-10 0V8Zm5 9v4"/>';
@@ -546,6 +548,8 @@ function captureClientState() {
     item: tab.kind === 'detail' ? tab.item : undefined,
     profileRef: tab.kind === 'profile' ? tab.profileRef : undefined,
     settingsSection: tab.kind === 'settings' ? tab.settingsSection || 'content' : undefined,
+    favoriteType: tab.kind === 'favorites' ? tab.favoriteType || 'character' : undefined,
+    favoriteOrigin: tab.kind === 'favorites' ? tab.favoriteOrigin || 'mine' : undefined,
     preview: !!tab.preview, pinned: !!tab.pinned, scrollTop: tab.scrollTop || 0
   }));
   const session = { tabs: descriptors, savedWorksVersion: 1, activeIndex: tabs.findIndex(tab => tab.id === activeId),
@@ -627,6 +631,7 @@ async function loadClientState() {
 }
 
 function startTab(tab) {
+  if (tab?.kind === 'favorites') { tab.started = true; void favoritesController().load(tab); return; }
   if (!tab || tab.started) return;
   tab.started = true;
   if (tab.kind === 'home' || tab.kind === 'search') loadSearch(tab);
@@ -649,7 +654,7 @@ function restoreSession() {
   if (session.tabPreferences)
     tabPreferences.artworkTabs = session.tabPreferences.artworkTabs === 'new' ? 'new' : 'preview';
   const allowed = new Set(['home', 'search', 'detail', 'profile', 'bookmarks', 'likes',
-    'recommendations', 'follows', 'recent', 'settings']);
+    'recommendations', 'follows', 'favorites', 'recent', 'settings']);
   let hasPreview = false;
   for (const saved of session.tabs) {
     if (!allowed.has(saved.kind) || saved.kind === 'detail' && !saved.item?.key) continue;
@@ -667,6 +672,8 @@ function restoreSession() {
       feed: 'illustrations',
       item: saved.item?.key ? rememberItem(saved.item) : saved.item,
       profileRef: saved.profileRef,
+      favoriteType: ['tag', 'artwork'].includes(saved.favoriteType) ? saved.favoriteType : 'character',
+      favoriteOrigin: saved.favoriteOrigin === 'system' ? 'system' : 'mine',
       settingsSection: ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer'].includes(saved.settingsSection)
         ? saved.settingsSection : 'content',
       items: [], errors: {}, page: 0,
@@ -691,7 +698,7 @@ function matchingTab(kind, extra) {
     [...(extra.selectedSources || defaultSources)].sort().join(',');
   return tabs.find(tab => {
     if (tab.kind !== kind) return false;
-    if (['home', 'bookmarks', 'likes', 'follows', 'recommendations', 'recent', 'settings'].includes(kind)) return true;
+    if (['home', 'bookmarks', 'likes', 'follows', 'recommendations', 'favorites', 'recent', 'settings'].includes(kind)) return true;
     if (kind === 'search') return (tab.query || '') === (extra.query || '') &&
       tab.rating === (extra.rating || 'general') && tab.sort === CatalogLogic.catalogSort(extra) &&
       tab.feed === (extra.feed || 'illustrations') && sameSources(tab);
@@ -736,6 +743,7 @@ function recordDetailVisit(tab) {
   recent = [tab.item, ...recent.filter(entry => entry.key !== tab.item.key)].slice(0, 40);
   localStorage.setItem('artcatalog-recent', JSON.stringify(recent));
   void recordViewedWorks([tab.item]);
+  favoritesController().record(tab.item);
 }
 
 function abortTab(tab) {
@@ -1252,7 +1260,7 @@ const groupRepairs = {
 async function loadFavoriteTags() {
   try {
     favoriteTags = await request('/api/favorite-tags');
-    if (currentTab()?.kind === 'home' || currentTab()?.kind === 'search') render();
+    if (['home', 'search', 'favorites'].includes(currentTab()?.kind)) render();
   } catch { toast('Избранные теги не удалось прочитать'); }
 }
 
@@ -1262,13 +1270,44 @@ async function toggleFavoriteTag(query, requestedFavorite) {
   favoriteTagPending.add(tag);
   try {
     const favorite = requestedFavorite ?? !favoriteTags.includes(tag);
-    favoriteTags = await request('/api/favorite-tags', { method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag, favorite }) });
-    render();
+    const character = favoritesKnownWorks().some(item => (item.characterTags || []).some(value =>
+      value.toLowerCase().replaceAll(' ', '_') === tag));
+    if (!await favoritesController().toggle(tag, character ? 'character' : null, favorite)) return;
     toast(favorite ? `Тег #${tag} добавлен в избранное` : `Тег #${tag} удалён из избранного`);
   } catch { toast('Не удалось сохранить избранный тег'); }
   finally { favoriteTagPending.delete(tag); }
+}
+
+function favoritesKnownWorks() {
+  const previous = favoritesKnownWorks.cache;
+  if (previous?.likes === likes && previous.bookmarks === bookmarks && previous.recent === recent) return previous.items;
+  const items = [...likes, ...bookmarks, ...recent];
+  favoritesKnownWorks.cache = { likes, bookmarks, recent, items }; return items;
+}
+
+function favoritesController() {
+  return favoritesController.instance ||= DartFavorites.create({ request, svg,
+    getTags: () => favoriteTags, setTags: value => { favoriteTags = value; },
+    getRecent: () => recent, getKnown: favoritesKnownWorks,
+    getPreferences: () => contentPreferences,
+    workTokens: item => CatalogLogic.workHistoryTokens(item),
+    renderArtworks: items => `<div class="grid favorites-art-grid">${items.map(item => `<div class="favorites-art-entry">${renderCard(item)}${favoritesController().artworkButton(item)}</div>`).join('')}</div>`,
+    allowed: item => !CatalogLogic.isWorkHidden(item, contentPreferences),
+    changed: () => {
+      if (['favorites', 'search', 'home'].includes(currentTab()?.kind)) render();
+      document.querySelectorAll('[data-action="favorite-artwork"]').forEach(button => {
+        const item = itemIndex.get(button.dataset.key) || (quickPreviewWork?.key === button.dataset.key ? quickPreviewWork : null);
+        if (item) {
+          const label = globalThis.DartI18n?.translate(favoritesController().isArtworkFavorite(item) ? 'Remove favorite artwork' : 'Save favorite artwork');
+          button.setAttribute('aria-pressed', String(favoritesController().isArtworkFavorite(item)));
+          button.setAttribute('aria-label', label); button.title = label;
+          button.disabled = favoritesController().isArtworkPending(item);
+        }
+      });
+    },
+    toast, save: saveSession, openSearch, openDetail,
+    t: value => globalThis.DartI18n?.translate(value) || value
+  });
 }
 
 async function loadViewedTokens() {
@@ -2418,6 +2457,7 @@ async function loadDetail(tab) {
     if (controller.signal.aborted || findTab(tab.id) !== tab) return;
     if (detail) {
       tab.item = rememberItem(CatalogLogic.mergeDetailPages(tab.item, detail));
+      favoritesController().metadata(tab.item);
       void recordViewedWorks([tab.item]);
       tab.artworkRoute?.engine.update(tab.item);
       tab.title = tab.item.title;
@@ -3340,7 +3380,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
     </div>
     <span class="quick-preview-zoom" aria-live="off">100%</span>`}
     <button type="button" class="quick-preview-close" data-preview-action="close" title="Close preview" aria-label="Close preview">×</button>
-    <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}</div>
+    <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}${favoritesController().artworkButton(item, 'detail-save-button')}</div>
   </div>`;
   if (!quickPreview.open) quickPreview.showModal();
   globalThis.DartI18n?.translateTree(quickPreview);
@@ -3634,6 +3674,7 @@ function render() {
   else if (tab.kind === 'detail') markup = renderDetail(tab);
   else if (tab.kind === 'profile') markup = renderProfile(tab);
   else if (tab.kind === 'bookmarks') markup = renderList('Закладки', 'Сохранённые работы доступны без повторного поиска.', tab);
+  else if (tab.kind === 'favorites') markup = favoritesController().render(tab);
   else if (tab.kind === 'likes') markup = renderList('Понравившиеся', 'Лайки помогают подбирать рекомендации по вашему вкусу.', tab);
   else if (tab.kind === 'recommendations') markup = renderRecommendations(tab);
   else if (tab.kind === 'follows') markup = renderFollows(tab);
@@ -3958,6 +3999,7 @@ function openContentContextMenu(context, x, y) {
   recommendationTagMenu.trigger = context.trigger;
   recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title"${context.kind === 'artwork-tags' ? '' : ' data-no-i18n'}>${escapeHtml(tag ? '#' + tag.replaceAll('_', ' ') : context.author?.name || 'Artwork tags')}</div>
     ${context.item ? `<button type="button" role="menuitem" data-context-action="copy" title="Copy all artwork tags">${svg('copy')}<span>Copy</span></button>` : ''}
+    ${context.item ? `<button type="button" role="menuitem" data-context-action="artwork-favorite">${svg('star')}<span>${favoritesController().isArtworkFavorite(context.item) ? 'Remove favorite artwork' : 'Save favorite artwork'}</span></button>` : ''}
     ${context.kind !== 'artwork-tags' ? `<button type="button" role="menuitem" data-context-action="hide"${contentPreferencesSaving ? ' disabled' : ''}>${svg('hide')}<span>${hidden ? 'Unhide' : 'Hide'}</span></button>` : ''}
     ${tag ? `<button type="button" role="menuitem" data-context-action="favorite"${favoriteTagPending.has(tag) ? ' disabled' : ''}>${svg('star')}<span>${favoriteTags.includes(tag) ? 'Unfavorite' : 'Favorite'}</span></button>` : ''}
     ${context.recommendationTag ? `<div class="recommendation-tag-menu-separator" role="separator"></div>
@@ -4573,6 +4615,7 @@ function renderDetail(tab) {
       <div class="detail-meta"><h1>${escapeHtml(item.title)}</h1>
         <div class="muted">${escapeHtml(sourceLabel)} · ${escapeHtml(formatDate(item.published))}${item.rating ? ` · <span${ratingLabel(item.rating) === 'Q' ? ' title="Questionable — пограничный контент"' : ''}>${escapeHtml(ratingLabel(item.rating))}</span>` : ''}</div>
         <div class="detail-actions">${savedWorkButton(item, 'bookmarks', true)}${savedWorkButton(item, 'likes', true)}
+          ${favoritesController().artworkButton(item, 'detail-save-button')}
           <button class="secondary-button" data-action="external" data-key="${escapeHtml(item.key)}">Открыть на сайте ↗</button></div>
         ${tags.length ? renderArtworkTags(tab, tags, visibleTags) : ''}
       </div>
@@ -5049,7 +5092,7 @@ const transferredMediaHydration = {
       for (const controller of this.active.values()) controller.abort();
       this.active.clear(); this.attempts.clear(); this.tabId = tab?.id;
     }
-    if (!tab || !['likes', 'bookmarks', 'recent'].includes(tab.kind)) return;
+    if (!tab || !['likes', 'bookmarks', 'recent', 'favorites'].includes(tab.kind)) return;
     const bounds = main.getBoundingClientRect();let retryAt = Infinity;
     for (const card of main.querySelectorAll('article.card[data-work-key]')) {
       if (this.active.size >= 2) break;
@@ -5623,6 +5666,7 @@ document.getElementById('sidebar').addEventListener('click', event => {
   else if (kind === 'recommendations') createTab('recommendations', 'Рекомендации');
   else if (kind === 'follows') createTab('follows', 'Подписки');
   else if (kind === 'bookmarks') createTab('bookmarks', 'Закладки');
+  else if (kind === 'favorites') createTab('favorites', 'Favorites', { rating: currentTab()?.rating || 'all' });
   else if (kind === 'likes') createTab('likes', 'Понравившиеся');
   else if (kind === 'recent') createTab('recent', 'Недавно открытое');
   else if (kind === 'settings') openSettings();
@@ -5777,6 +5821,7 @@ quickPreview.addEventListener('click', event => {
   if (button && quickPreviewWork) {
     if (button.dataset.action === 'like') void toggleSavedWork(quickPreviewWork, 'likes');
     if (button.dataset.action === 'bookmark') void toggleSavedWork(quickPreviewWork, 'bookmarks');
+    if (button.dataset.action === 'favorite-artwork') void favoritesController().toggleArtwork(quickPreviewWork);
   } else if (event.target === quickPreview) {
     const bounds = quickPreview.getBoundingClientRect();
     if (event.clientX < bounds.left || event.clientX > bounds.right ||
@@ -6012,6 +6057,7 @@ recommendationTagMenu.addEventListener('click', async event => {
   if (action && context) {
     closeRecommendationTagMenu(true);
     if (action === 'copy') await copyArtworkTags(context.item);
+    else if (action === 'artwork-favorite') await favoritesController().toggleArtwork(context.item);
     else if (action === 'favorite') await toggleFavoriteTag(context.tag, !context.favorite);
     else if (context.kind === 'author') await setAuthorHidden(context.author, !context.hidden);
     else {
@@ -6155,6 +6201,12 @@ main.addEventListener('change', event => {
 
 main.addEventListener('submit', async event => {
   const formNode = event.target;
+  if (formNode.classList.contains('favorites-add-form')) {
+    event.preventDefault();
+    const tab = currentTab();
+    if (tab?.kind === 'favorites') await favoritesController().add(tab, new FormData(formNode).get('tag'));
+    return;
+  }
   if (formNode.id === 'excluded-tags-form') {
     event.preventDefault();
     const input = String(new FormData(formNode).get('tags') || '');
@@ -6250,7 +6302,12 @@ main.addEventListener('click', event => {
   if (!control) return;
   const tab = currentTab();
   const action = control.dataset.action;
+  if (tab?.kind === 'favorites' && favoritesController().handle(control, tab)) {
+    if (action === 'favorites-add') main.querySelector('#favorite-new-tag')?.focus();
+    return;
+  }
   const item = itemForControl(control);
+  if (action === 'favorite-artwork' && item) { void favoritesController().toggleArtwork(item); return; }
   if (action === 'zoom-image' && tab?.kind === 'detail') {
     const artwork = quickPreviewArtworkAt(control, tab, itemIndex);
     if (artwork) openQuickPreview(artwork, 'fullscreen');
@@ -6465,6 +6522,7 @@ main.addEventListener('click', event => {
 window.addEventListener('online', () => { void clientStateWriter.flush(); });
 window.addEventListener('resize', () => { if (quickPreview.open) paintQuickPreview(true); });
 window.addEventListener('beforeunload', () => {
+  void favoritesController.instance?.flush(true);
   recommendationExposureTracker.stop();
   groupRepairs.stop(); stopQuickPreviewMedia();
   saveSession();
@@ -6477,7 +6535,7 @@ window.addEventListener('beforeunload', () => {
 
 Promise.allSettled([refreshBookmarks(), refreshLikes(), refreshFollows(), loadSettings(),
   loadContentPreferences(), loadClientState(), loadRecommendationTagPreferences(),
-  loadViewedTokens(), loadFavoriteTags()]).finally(() => {
+  loadViewedTokens(), loadFavoriteTags(), favoritesController().loadArtworks()]).finally(() => {
   void recordViewedWorks([...recent, ...likes, ...bookmarks]);
   if (!restoreSession()) createTab('home', 'Главная');
 });

@@ -30,9 +30,9 @@ internal static class CatalogState
         var legacyBookmarks = session["savedWorksVersion"] is not JsonValue version ||
             !version.TryGetValue<int>(out var savedWorksVersion) || savedWorksVersion < 1;
         string[] kinds = ["home", "search", "detail", "profile", "bookmarks", "likes",
-            "recommendations", "follows", "recent", "settings"];
+            "recommendations", "follows", "favorites", "recent", "settings"];
         string[] fields = ["kind", "title", "query", "searchQuery", "selectedSources", "rating",
-            "sort", "feed", "item", "profileRef", "settingsSection", "preview", "pinned", "scrollTop"];
+            "sort", "feed", "item", "profileRef", "settingsSection", "favoriteType", "favoriteOrigin", "preview", "pinned", "scrollTop"];
         for (var original = 0; original < tabs.Count; original++)
         {
             if (tabs[original] is not JsonObject tab) continue;
@@ -49,6 +49,11 @@ internal static class CatalogState
             var clean = new JsonObject();
             foreach (var field in fields)
                 if (tab.ContainsKey(field)) clean[field] = tab[field]?.DeepClone();
+            if (kind == "favorites")
+            {
+                clean["favoriteType"] = Text(tab, "favoriteType") is "tag" or "artwork" ? Text(tab, "favoriteType") : "character";
+                clean["favoriteOrigin"] = Text(tab, "favoriteOrigin") == "system" ? "system" : "mine";
+            }
             if (Text(tab, "sort") == "curated")
                 clean["sort"] = Text(tab, "curationBaseSort") == "popular" ? "popular" : "recent";
             if (legacyBookmarks && kind == "bookmarks")

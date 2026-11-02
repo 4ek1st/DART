@@ -20,6 +20,7 @@ function fixture() {
       setItem: (key, value) => storage.set(key, value) },
     getSearchHistory: () => [], rememberItem: item => item, retainFeedWork() {},
     ratingFilterFor: () => 'all', recordViewedWorks: async items => viewed.push(...items.map(item => item.key)),
+    favoritesController: () => ({ record() {}, metadata() {} }),
     closeQuickPreview() {}, pauseDetailVideos() {}, loadFollowFeed() {}, scheduleFollowRetry() {},
     renderChrome() {}, loadCreatorWorks() {}, loadRelated() {}, clearTimeout, setTimeout,
     startTab(tab) { if (tab) tab.started = true; }, createArtworkRoute: () => null,

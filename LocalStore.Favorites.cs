@@ -20,6 +20,9 @@ public sealed class FavoriteArtwork
     public string Title { get; set; } = "";
     public string Thumbnail { get; set; } = "";
     public string Rating { get; set; } = "";
+    public string CreatorTag { get; set; } = "";
+    public string CreatorName { get; set; } = "";
+    public List<CatalogParticipant> Participants { get; set; } = [];
     public List<string> Images { get; set; } = [];
     public List<string> Tags { get; set; } = [];
     public List<string> CharacterTags { get; set; } = [];
@@ -95,7 +98,7 @@ internal sealed partial class LocalStore
         {
             Key = item.Key, MemberKeys = (item.MemberKeys ?? []).Where(key =>
                 key is { Length: <= 200 } && CatalogState.IsSupported(key.Split(':')[0])).ToList(),
-            ContentHash = item.ContentHash ?? "", GroupKey = item.GroupKey ?? "",
+            ContentHash = item.ContentHash ?? "", ImageRecords = item.ImageRecords?.Take(32).ToList(), GroupKey = item.GroupKey ?? "",
             PixivGroupKey = item.PixivGroupKey ?? "", OriginalUrl = item.OriginalUrl ?? ""
         }, FavoriteJson)!.AsObject();
         var tokens = TransferWorkTokens(node).Where(token => !TransferWeakParent(token))
@@ -108,6 +111,10 @@ internal sealed partial class LocalStore
                 Key = item.Key, Source = item.Source, Id = item.Id,
                 Title = (item.Title ?? "")[..Math.Min(item.Title?.Length ?? 0, 200)],
                 Thumbnail = FavoriteMedia(item.Thumbnail), Rating = item.Rating ?? "",
+                CreatorTag = NormalizeFavoriteTag(item.CreatorTag), CreatorName = (item.CreatorName ?? "")[..Math.Min(item.CreatorName?.Length ?? 0, 100)],
+                Participants = (item.Participants ?? []).Where(person => person?.Tag is { Length: > 0 and <= 100 })
+                    .Take(16).Select(person => new CatalogParticipant { Tag = NormalizeFavoriteTag(person.Tag),
+                        Name = (person.Name ?? "")[..Math.Min(person.Name?.Length ?? 0, 100)], Role = person.Role }).ToList(),
                 Images = (item.Images ?? []).Select(FavoriteMedia).Where(url => url.Length > 0).Take(1).ToList(),
                 Tags = tags, CharacterTags = characters, CopyrightTags = copyrights
             }
@@ -146,7 +153,7 @@ internal sealed partial class LocalStore
             foreach (var old in Directory.EnumerateFiles(FavoriteActivityDirectory))
             {
                 var name = Path.GetFileName(old);
-                if (!(name.EndsWith(".jsonl", StringComparison.Ordinal) || name.EndsWith(".jsonl.limited", StringComparison.Ordinal)) ||
+                if (!Regex.IsMatch(name, @"^\d{4}-\d{2}-\d{2}\.jsonl(?:\.limited)?$") ||
                     name.Length < 10 || !DateOnly.TryParseExact(name[..10], "yyyy-MM-dd", CultureInfo.InvariantCulture,
                         DateTimeStyles.None, out var day) || day >= DateOnly.FromDateTime(at.UtcDateTime).AddDays(-31)) continue;
                 // Only this feature's strictly named daily files under its owned directory.
@@ -239,6 +246,9 @@ internal sealed partial class LocalStore
                     {
                         var record = JsonSerializer.Deserialize<FavoriteActivityRecord>(line, FavoriteJson);
                         if (record is null || record.Work is null || record.Tokens is not { Count: > 0 and <= 160 } ||
+                            record.Tokens.Any(token => token is null || token.Length > 1000) ||
+                            record.Work.Thumbnail is null || record.Work.Tags is null || record.Work.CharacterTags is null ||
+                            record.Work.Tags.Concat(record.Work.CharacterTags).Any(tag => !ValidFavoriteTag(tag)) ||
                             !CatalogState.IsSupported(record.Work.Source) || record.Work.Key != record.Work.Source + ":" + record.Work.Id)
                         { incomplete = true; continue; }
                         if (record.At >= cutoff && record.At <= at) records.Add(record);
@@ -265,8 +275,9 @@ internal sealed partial class LocalStore
                 if (lookup.TryGetValue(token, out var previous)) parents[Root(index)] = Root(previous);
                 else lookup[token] = index;
             }
-        var groups = records.Select((record, index) => (record, root: Root(index)))
-            .GroupBy(pair => pair.root).Select(group => group.Select(pair => pair.record).OrderByDescending(record => record.At).ToArray())
+        var groups = records.Select((record, index) => (record, index, root: Root(index)))
+            .GroupBy(pair => pair.root).Select(group => group.OrderByDescending(pair => pair.record.At)
+                .ThenByDescending(pair => pair.index).Select(pair => pair.record).ToArray())
             .Where(group => group.Any(record => !record.MetadataOnly)).ToArray();
         var characters = groups.SelectMany(group => group).SelectMany(record => record.Work.CharacterTags ?? []).ToHashSet(StringComparer.Ordinal);
         var entries = new Dictionary<string, (FavoriteActivityEntry Entry, HashSet<DateOnly> Days)>(StringComparer.Ordinal);
@@ -291,7 +302,7 @@ internal sealed partial class LocalStore
                     Kind = characters.Contains(tag) ? "character" : "tag" }, []);
                 current.Entry.Count++; current.Days.UnionWith(days);
                 current.Entry.ActiveDays = current.Days.Count;
-                if (latest > current.Entry.LastViewedAt)
+                if (latest >= current.Entry.LastViewedAt)
                 {
                     current.Entry.LastViewedAt = latest; current.Entry.LastWorkKey = cover.Key; covers[cover.Key] = cover;
                 }

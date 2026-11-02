@@ -11,8 +11,9 @@ const listing = { source: 'danbooru', id: '1', key: 'danbooru:1',
 const detail = { ...listing, contentHash: 'a'.repeat(32), images: ['https://fixture.test/original.png'] };
 
 function fixture() {
+  const favoritesController = () => ({ record() {}, metadata() {} });
   const tab = { id: 1, kind: 'detail', item: { ...listing } }, persisted = new Set(), posts = [];
-  const context = vm.createContext({ CatalogLogic, Map, Set, AbortController, URLSearchParams,
+  const context = vm.createContext({ CatalogLogic, Map, Set, AbortController, URLSearchParams, favoritesController,
     contentPreferences: { hideViewedAndSaved: true }, recent: [], likes: [], bookmarks: [],
     viewedTokens: new Set(), viewedPending: new Set(), activeId: tab.id,
     findTab: id => id === tab.id ? tab : null, rememberItem: item => item,

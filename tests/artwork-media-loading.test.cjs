@@ -62,7 +62,8 @@ function fixture(t, { transportSlots = Infinity } = {}) {
     quickPreviewZoomTimer: null, quickPreviewWork: null, quickPreviewDrag: null, quickPreviewView: null,
     currentTab: () => ({ kind: 'recommendations' }), pauseDetailVideos() {},
     retainFeedWork() {}, paintQuickPreview() {}, recordDetailVisit() {},
-    escapeHtml: value => String(value || ''), savedWorkButton: () => '' });
+    escapeHtml: value => String(value || ''), savedWorkButton: () => '',
+    favoritesController: () => ({ artworkButton: () => '' }) });
   vm.runInContext(block('function readMediaBlob(', '\nconst visualHashJobs'), context);
   const loader = vm.runInContext(block('const imageLoader = {', '\nconst autoFeed = {') + '\nimageLoader', context);
   context.imageLoader = loader;

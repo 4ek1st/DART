@@ -38,8 +38,25 @@ internal static class FavoritesFixtureTests
         try
         {
             var empty = Open(Path.Combine(root, "empty"));
+            Expect(Store.GetMethod("SetFavoriteArtwork") is not null, "Independent artwork Favorites persistence is missing");
+            var favoriteItem = Work("danbooru", "91", new string('9', 32));
+            Store.GetMethod("SetFavoriteArtwork")!.Invoke(empty, [favoriteItem, true]);
+            Store.GetMethod("SetFavoriteArtwork")!.Invoke(empty, [Work("gelbooru", "92", new string('9', 32)), true]);
+            var artworkFavorites = (List<CatalogItem>)Store.GetMethod("GetFavoriteArtworks")!.Invoke(Open(Path.Combine(root, "empty")), null)!;
+            Expect(artworkFavorites.Count == 1 && artworkFavorites[0].Key == favoriteItem.Key,
+                "Artwork Favorites must survive restart and keep a mirror/idempotent save only once");
+            Expect(((SavedWorksSnapshot)Store.GetMethod("GetSavedWorksSnapshot")!.Invoke(empty, ["likes"])!).Items.Count == 0 &&
+                ((SavedWorksSnapshot)Store.GetMethod("GetSavedWorksSnapshot")!.Invoke(empty, ["bookmarks"])!).Items.Count == 0,
+                "Artwork Favorites must not add likes or bookmarks");
+            Store.GetMethod("SetFavoriteArtwork")!.Invoke(empty, [Work("gelbooru", "92", new string('9', 32)), false]);
+            Expect(((List<CatalogItem>)Store.GetMethod("GetFavoriteArtworks")!.Invoke(empty, null)!).Count == 0,
+                "A favorite artwork can be removed through a matching mirror");
             Expect(Snapshot(empty)["totalWorks"]!.GetValue<int>() == 0 &&
                 Snapshot(empty)["trackedSince"] is null, "A fresh profile must not invent previous viewing dates");
+            var batched = Open(Path.Combine(root, "batched"));
+            Record(batched, Now, (Work("danbooru", "101"), false), (Work("danbooru", "102"), false));
+            Expect(Entry(Snapshot(batched), "fern")["lastWorkKey"]!.GetValue<string>() == "danbooru:102",
+                "The last actual open in a batch must supply the latest cover");
 
             var path = Path.Combine(root, "activity");
             var store = Open(path);
@@ -70,6 +87,8 @@ internal static class FavoritesFixtureTests
                 "Late metadata enriches the existing open without creating a new timestamp");
             Expect(summary["works"]!.AsArray().OfType<JsonObject>().Any(work =>
                 work["thumbnail"]!.GetValue<string>().EndsWith("refreshed.jpg")), "Latest available preview metadata must survive reopening");
+            Expect(summary["works"]!.AsArray().OfType<JsonObject>().All(work =>
+                work["creatorTag"]?.GetValue<string>() == "sample_artist"), "Covers must retain attribution needed by hidden-author filters");
 
             var adult = Work("sankaku", "adult1", new string('e', 32)); adult.Rating = "e";
             Record(store, Now, (adult, false));
@@ -106,6 +125,17 @@ internal static class FavoritesFixtureTests
             Store.GetMethod("SetFavoriteEntity")!.Invoke(reopened, ["fern", "character", false]);
             Expect(File.ReadAllBytes(Path.Combine(choicesPath, "favorite-tags.json")).SequenceEqual(before),
                 "Removing a character must retain every unrelated existing favorite");
+            File.WriteAllText(Path.Combine(choicesPath, "favorite-tags.json"),
+                JsonSerializer.Serialize(Enumerable.Range(0, 99).Select(index => "tag_" + index).Prepend("landscape")));
+            Expect(Store.GetMethod("SetFavoriteEntity")!.Invoke(reopened, ["over_limit", "character", true]) is null &&
+                ((List<string>)Store.GetMethod("GetFavoriteTags")!.Invoke(Open(choicesPath), null)!).Count == 100,
+                "The existing 100-favorite limit must preserve every choice on failure");
+            File.WriteAllText(Path.Combine(choicesPath, "favorite-kinds-v1.json"), "{damaged");
+            var protectedTags = File.ReadAllBytes(Path.Combine(choicesPath, "favorite-tags.json"));
+            try { Store.GetMethod("SetFavoriteEntity")!.Invoke(reopened, ["landscape", "character", true]);
+                throw new Exception("A damaged classification must reject a write"); }
+            catch (TargetInvocationException error) when (error.InnerException is IOException or JsonException) { }
+            Expect(File.ReadAllBytes(Path.Combine(choicesPath, "favorite-tags.json")).SequenceEqual(protectedTags), "Corruption must not replace existing favorites");
             Console.WriteLine("Favorites: dated views, mirrors, metadata, rating, restart, damaged-tail recovery and manual choices PASS");
         }
         finally

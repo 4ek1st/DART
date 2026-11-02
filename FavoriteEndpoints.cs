@@ -9,6 +9,24 @@ internal static class FavoriteEndpoints
 {
     internal static void Map(WebApplication app, Func<HttpRequest, bool> sameOrigin)
     {
+        app.MapGet("/api/favorite-artworks", (LocalStore store) => Results.Ok(store.GetFavoriteArtworks()));
+        app.MapPost("/api/favorite-artworks", async (HttpContext context, LocalStore store) =>
+        {
+            if (!sameOrigin(context.Request)) return Results.StatusCode(403);
+            if (context.Request.ContentLength is > 1_000_000) return Results.StatusCode(413);
+            var limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = 1_000_000;
+            try
+            {
+                var update = await context.Request.ReadFromJsonAsync<FavoriteArtworkUpdate>(context.RequestAborted);
+                if (update is null) return Results.BadRequest();
+                return Results.Ok(store.SetFavoriteArtwork(update.Item, update.Favorite));
+            }
+            catch (BadHttpRequestException error) { return Results.StatusCode(error.StatusCode); }
+            catch (Exception error) when (error is JsonException or ArgumentException) { return Results.BadRequest(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { return Results.Problem("Favorite artwork could not be saved.", statusCode: 503); }
+        });
         app.MapGet("/api/favorites", (HttpContext context, LocalStore store) =>
         {
             var rating = context.Request.Query["rating"].ToString();

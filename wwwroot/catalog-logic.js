@@ -56,9 +56,9 @@
     if (!Array.isArray(state.session?.tabs)) return state;
     const legacyBookmarks = !(state.session.savedWorksVersion >= 1);
     const kinds = ['home', 'search', 'detail', 'profile', 'bookmarks', 'likes',
-      'recommendations', 'follows', 'recent', 'settings'];
+      'recommendations', 'follows', 'favorites', 'recent', 'settings'];
     const fields = ['kind', 'title', 'query', 'searchQuery', 'selectedSources', 'rating',
-      'sort', 'feed', 'item', 'profileRef', 'settingsSection', 'preview', 'pinned', 'scrollTop'];
+      'sort', 'feed', 'item', 'profileRef', 'settingsSection', 'favoriteType', 'favoriteOrigin', 'preview', 'pinned', 'scrollTop'];
     const originalActive = Number(state.session.activeIndex) || 0;
     let activeIndex = -1;
     const tabs = [];
@@ -72,6 +72,10 @@
         ? [...new Set(tab.selectedSources.filter(source => supportedSources.includes(source)))] : [];
       if (tab.selectedSources?.length && !sources.length && ['home', 'search'].includes(tab.kind)) return;
       const clean = Object.fromEntries(fields.filter(field => field in tab).map(field => [field, tab[field]]));
+      if (tab.kind === 'favorites') {
+        clean.favoriteType = ['tag', 'artwork'].includes(tab.favoriteType) ? tab.favoriteType : 'character';
+        clean.favoriteOrigin = tab.favoriteOrigin === 'system' ? 'system' : 'mine';
+      }
       if (tab.sort === 'curated') clean.sort = catalogSort(tab);
       if (legacyBookmarks && clean.kind === 'bookmarks') {
         clean.kind = 'likes'; clean.title = 'Liked';

@@ -577,6 +577,48 @@ GitHub temporarily limited update checks.|GitHub временно огранич
 Could not check GitHub. Check the repository and access, then try again later.|Не удалось проверить GitHub. Проверьте репозиторий и доступ, затем повторите позже.|GitHub konnte nicht geprüft werden. Prüfen Sie Repository und Zugriff und versuchen Sie es später erneut.
 The update service response is too large.|Слишком большой ответ службы обновлений.|Die Antwort des Update-Dienstes ist zu groß.
 Update settings changed. Check the release again.|Настройки обновлений изменились. Проверьте выпуск заново.|Die Update-Einstellungen haben sich geändert. Prüfen Sie die Version erneut.
+Favorites|Избранное|Favoriten
+Artworks|Арты|Werke
+Favorite characters, tags and artworks|Любимые персонажи, теги и арты|Lieblingscharaktere, Tags und Werke
+Saved artworks. Use the star on an artwork to add or remove it.|Сохранённые арты. Звезда на работе добавляет или убирает её из избранного.|Gespeicherte Werke. Mit dem Stern kannst du ein Werk hinzufügen oder entfernen.
+No favorite artworks yet|Пока нет избранных артов|Noch keine Lieblingswerke
+Save an artwork with the star in its viewer or right-click menu.|Сохраните арт звездой в просмотре или через меню правой кнопки мыши.|Speichere ein Werk mit dem Stern im Betrachter oder im Rechtsklickmenü.
+Save favorite artwork|Сохранить арт в избранное|Werk als Favorit speichern
+Remove favorite artwork|Убрать арт из избранного|Werk aus Favoriten entfernen
+Could not load favorite artworks. Please try again.|Не удалось загрузить избранные арты. Попробуйте ещё раз.|Lieblingswerke konnten nicht geladen werden. Versuche es erneut.
+Favorite characters and tags|Любимые персонажи и теги|Lieblingscharaktere und Tags
+Add Favorite|Добавить в избранное|Favorit hinzufügen
+Characters|Персонажи|Charaktere
+Mine|Мои|Meine
+System picks|Выбор системы|Systemauswahl
+Favorite category|Категория избранного|Favoritenkategorie
+Collection|Коллекция|Sammlung
+Character tag|Тег персонажа|Charakter-Tag
+Content tag|Тег содержания|Inhalts-Tag
+Use one tag with underscores, as on the source website.|Укажите один тег с подчёркиваниями, как на сайте источника.|Verwende einen Tag mit Unterstrichen wie auf der Quellwebsite.
+Saved by you. System picks never change this collection.|Выбрано вами. Система не меняет эту коллекцию.|Von dir gespeichert. Die Systemauswahl verändert diese Sammlung nicht.
+Based on at least 3 different works you opened. Save any pick with the star.|На основе минимум 3 разных открытых работ. Нажмите звезду, чтобы сохранить выбор.|Basierend auf mindestens 3 verschiedenen geöffneten Werken. Speichere einen Vorschlag mit dem Stern.
+different works · Last 30 days|разных работ · Последние 30 дней|verschiedene Werke · Letzte 30 Tage
+Last 30 days|Последние 30 дней|Letzte 30 Tage
+Viewing statistics are collected from this update onward.|Статистика просмотров собирается начиная с этого обновления.|Die Betrachtungsstatistik wird ab diesem Update erfasst.
+Some activity could not be counted. Figures are partial.|Часть просмотров не удалось учесть. Статистика неполная.|Ein Teil der Aktivität konnte nicht gezählt werden. Die Angaben sind unvollständig.
+Loading Favorites…|Загружаем избранное…|Favoriten werden geladen…
+Could not load Favorites. Your choices are still saved.|Не удалось загрузить избранное. Ваш выбор сохранён.|Favoriten konnten nicht geladen werden. Deine Auswahl bleibt gespeichert.
+Could not save Favorite. Please try again.|Не удалось сохранить избранное. Попробуйте ещё раз.|Der Favorit konnte nicht gespeichert werden. Versuche es erneut.
+Enter one tag with underscores, without search commands.|Введите один тег с подчёркиваниями, без команд поиска.|Gib einen Tag mit Unterstrichen ohne Suchbefehle ein.
+No viewed preview yet|Пока нет просмотренной обложки|Noch keine betrachtete Vorschau
+Open last viewed artwork|Открыть последнюю просмотренную работу|Zuletzt betrachtetes Werk öffnen
+Last viewed artwork|Последняя просмотренная работа|Zuletzt betrachtetes Werk
+Earlier browsing history|Из прежней истории просмотров|Aus dem bisherigen Verlauf
+Remove Favorite|Убрать из избранного|Favorit entfernen
+Save Favorite|Сохранить в избранное|Als Favorit speichern
+No dated views yet|Пока нет просмотров с датой|Noch keine datierten Aufrufe
+different works|разных работ|verschiedene Werke
+Your Favorites start here|Здесь будет ваше избранное|Hier beginnen deine Favoriten
+Keep exploring|Продолжайте смотреть|Entdecke weitere Werke
+Add a character or tag, or save a System pick with the star.|Добавьте персонажа или тег либо сохраните предложение системы звездой.|Füge einen Charakter oder Tag hinzu oder speichere einen Systemvorschlag mit dem Stern.
+Open different artworks to discover your most viewed characters and tags.|Открывайте разные работы, чтобы увидеть частых персонажей и теги.|Öffne verschiedene Werke, um deine meistbetrachteten Charaktere und Tags zu entdecken.
+Counts are different artworks, not repeated opens. Copies from different sources count once.|Считаются разные работы. Повторные открытия и копии из разных источников не увеличивают счётчик.|Gezählt werden verschiedene Werke. Wiederholte Aufrufe und Kopien aus verschiedenen Quellen erhöhen den Zähler nicht.
 `; 
   root.DartMessages = rows.trim().split('\n').map(row => row.split('|'));
   if (typeof module !== 'undefined') module.exports = root.DartMessages;
