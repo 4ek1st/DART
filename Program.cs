@@ -37,14 +37,29 @@ internal static class Program
         builder.Services.AddSingleton(store);
         builder.Services.AddSingleton(captureProtection);
         builder.Services.AddSingleton<CatalogService>();
+        var upscaleRoot = string.IsNullOrWhiteSpace(dataDirectory)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DART", "Upscale")
+            : Path.Combine(Path.GetFullPath(dataDirectory), "device-upscale");
+        builder.Services.AddSingleton(new UpscaleComponent(Path.Combine(upscaleRoot, "component")));
+        builder.Services.AddSingleton(provider => new ImageUpscaleService(Path.Combine(upscaleRoot, "cache"),
+            provider.GetRequiredService<UpscaleComponent>()));
         var installationArgument = Array.IndexOf(args, "--installation-root");
         var installationRoot = installationArgument >= 0 && installationArgument + 1 < args.Length
             ? Path.GetFullPath(args[installationArgument + 1]) : null;
         builder.Services.AddSingleton(new ArtCatalog.Updates.UpdateService(installationRoot));
         var app = builder.Build();
+        app.Lifetime.ApplicationStopping.Register(() =>
+        {
+            app.Services.GetRequiredService<ImageUpscaleService>().Dispose();
+            var module = app.Services.GetRequiredService<UpscaleComponent>();
+            module.CancelInstall();
+            module.Completion.GetAwaiter().GetResult();
+            module.Dispose();
+        });
         app.UseDefaultFiles();
         UpdateEndpoints.Map(app);
         ProfileTransferEndpoints.Map(app);
+        UpscaleEndpoints.Map(app);
         app.UseStaticFiles(new StaticFileOptions
         {
             OnPrepareResponse = context =>

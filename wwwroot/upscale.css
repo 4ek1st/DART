@@ -1,0 +1,19 @@
+.upscale-defaults { border: 0; padding: 0; margin: 24px 0; }
+.upscale-defaults legend { font-weight: 600; margin-bottom: 12px; }
+.upscale-scales { display: flex; gap: 10px; }
+.upscale-scales button { min-width: 76px; padding: 10px 20px; border-radius: 9px; background: var(--theme-control, #333); color: inherit; border: 1px solid var(--theme-border, var(--line)); font-size: 18px; cursor: pointer; }
+.upscale-scales button[aria-pressed="true"] { background: #329cff22; border-color: #329cff; box-shadow: inset 0 0 0 1px #329cff; }
+.upscale-settings button:focus-visible { outline: 2px solid #329cff; outline-offset: 3px; }
+.upscale-settings button:disabled { opacity: .5; cursor: default; }
+.upscale-module-status { margin: 0 0 10px; line-height: 1.5; }
+.upscale-error { color: var(--error, #d96c6c); }
+.upscale-module-actions, .upscale-cache { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.upscale-settings button { padding: 11px 16px; border-radius: 8px; border: 1px solid var(--theme-border, var(--line)); color: inherit; cursor: pointer; text-align: center; text-decoration: none; font: inherit; background: var(--theme-control, #333); }
+.upscale-settings .primary-button { background: #187fc0; border-color: transparent; color: #fff; }
+.upscale-settings .primary-button:hover { background: #248dd0; }
+.upscale-settings progress { width: 100%; height: 7px; accent-color: #329cff; }
+.upscale-cache { margin-top: 26px; justify-content: space-between; }
+.upscale-settings .upscale-module-actions { margin: 16px 0; }
+/* Preserve original pixels, metadata and pointer targets. Follow the existing viewer zoom. */
+.detail-image > img.upscale-inline-result, .quick-preview-stage > img.upscale-inline-result { position: absolute; inset: 0; width: 100%; height: 100%; max-width: 100%; max-height: none; object-fit: contain; pointer-events: none; user-select: none; transform-origin: center center; transition: transform .22s cubic-bezier(.2,.8,.2,1); }
+@media (prefers-reduced-motion: reduce) { .quick-preview-stage > img.upscale-inline-result { transition: none; } }

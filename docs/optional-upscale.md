@@ -1,0 +1,13 @@
+# Optional image upscaling
+
+DART offers local 2× and 4× enlargement of the selected static image from the artwork context menu and the ⋮ menu below an artwork. The user chooses a default scale once in Settings. The menu action or U in the viewer starts processing immediately with that saved choice, with no separate dialog or per-image decisions. The feature is optional: opening DART or browsing never downloads models or starts upscaling.
+
+The first use offers one download, then automatically connects a pinned waifu2x-ncnn-vulkan 20250915 executable and its no-denoise CUnet model. Settings exposes the same install, cancel, repair and remove controls. The official download is 35,497,352 bytes. Its SHA-256 and the installed executable/model hashes are pinned in source. The MIT license travels with the component. No Python, CUDA installer, driver changes or manual paths are required.
+
+Processing preserves the original and runs one hidden native job at a time, with a bounded queue and cancellation. Only 2× and 4× are accepted. Input is at most 64 MiB and 40 million pixels; output is at most 160 million pixels and 32,768 pixels per side. Unsupported/animated images and oversized jobs get an actionable message. Decoding and PNG normalization happen in a browser worker. It uses the original image and existing media recovery, never a thumbnail substituted without consent.
+
+The original remains visible while processing. The enlarged result appears directly in the existing artwork/Space viewer with a short fade, preserving layout, zoom and navigation. It uses a separate visual layer so original pixels, metadata, dimensions, grouped identities and pointer targets remain unchanged. The artwork menu offers cancellation, showing the original and saving the enlarged PNG. Results are cached by image bytes, scale and engine version, in a bounded 1 GiB device cache. They do not change likes, bookmarks, recommendations or profile transfers. The module, defaults and results remain outside signed releases and the personal profile. Test data directories also isolate module storage.
+
+Use the existing theme, English/Russian/German localization, keyboard/focus conventions, reduced-motion preference and responsive settings layout. Context-menu availability is based on the selected image; video-only artwork has no upscale action. Do not run work merely because the menu was opened.
+
+Only the guarded desktop publisher may release the integrated feature. Coordinate the menu hook with the concurrent artwork-actions change; preserve all existing work. Do not activate/restart the user's installed application.

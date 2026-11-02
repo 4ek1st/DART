@@ -663,6 +663,8 @@ No matching favorite artworks.|Подходящих избранных рабо�
 This original is too large to copy safely. Open it first or download it.|Оригинал слишком большой для копирования. Сначала откройте его или скачайте.|Dieses Original ist zum Kopieren zu groß. Öffne es zuerst oder lade es herunter.
 Open this image before copying it, or download the original.|Откройте изображение перед копированием или скачайте оригинал.|Öffne das Bild vor dem Kopieren oder lade das Original herunter.
 Image copying is already in progress.|Копирование изображения уже выполняется.|Ein Bild wird bereits kopiert.
+Image upscaling|Увеличение изображений|Bilder hochskalieren
+Local 2× and 4×|Локально в 2× и 4×|Lokal auf das 2- und 4-Fache
 `; 
   root.DartMessages = rows.trim().split('\n').map(row => row.split('|'));
   if (typeof module !== 'undefined') module.exports = root.DartMessages;

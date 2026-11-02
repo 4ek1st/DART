@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Text.Json;
 using ArtCatalog;
 
+if (args.Contains("--upscale-only")) { await UpscaleFixtureTests.RunAsync(); return; }
+
 if (args.Length >= 2 && args[0] is "--frontend-extract" or "--frontend-hold-lock")
 {
     var frontendType = typeof(CatalogItem).Assembly.GetType("ArtCatalog.EmbeddedFrontend")!;
@@ -32,6 +34,7 @@ ProfileTransferFixtureTests.Run();
 ImageContentFixtureTests.Run();
 await GelbooruAliasFixtureTests.RunAsync();
 await VideoPreviewFixtureTests.RunAsync();
+await UpscaleFixtureTests.RunAsync();
 
 static CatalogItem? Map(string method, string payload)
 {

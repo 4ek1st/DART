@@ -3454,6 +3454,7 @@ function paintQuickPreview(instant = false) {
   stage.classList.toggle('panning', !!quickPreviewDrag);
   image.style.transitionDuration = instant || quickPreviewDrag ? '0s' : '';
   image.style.transform = `translate3d(${quickPreviewView.x}px, ${quickPreviewView.y}px, 0) scale(${quickPreviewView.scale})`;
+  globalThis.DartUpscale?.syncPreview(image);
   quickPreview.querySelector('.quick-preview-zoom').textContent = `${Math.round(quickPreviewView.scale * 100)}%`;
   quickPreview.querySelector('[data-preview-action="zoom-out"]').disabled = quickPreviewView.scale <= 1;
   quickPreview.querySelector('[data-preview-action="zoom-in"]').disabled = quickPreviewView.scale >= 6;
@@ -3548,6 +3549,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
   if (video) DartViewerPreferences.configureVideo(media, viewerPreferences);
   media.addEventListener(video ? 'loadedmetadata' : 'load', () => paintQuickPreview(true), { signal: controller.signal });
   paintQuickPreview(true);
+  globalThis.DartUpscale?.applyVisible();
   recordDetailVisit({ item, artworkRoute: quickPreviewRoute });
   if (quickPreviewRoute) { quickPreviewRoute.engine.select(item); warmArtworkRoute(quickPreviewRoute); }
   const generation = ++quickPreviewGeneration;
@@ -3601,6 +3603,7 @@ function closeQuickPreview() {
   quickPreviewZoomTimer = null;
   quickPreviewDrag = null;
   quickPreview.close();
+  globalThis.DartUpscale?.applyVisible();
   quickPreview.replaceChildren();
   quickPreviewWork = null;
   quickPreviewRoute?.navigationController?.abort();
@@ -3865,6 +3868,7 @@ function render() {
   if (typeof scheduleRule34Recovery === 'function') scheduleRule34Recovery(tab);
   if (typeof groupRepairs !== 'undefined') groupRepairs.scan();
   if (typeof transferredMediaHydration !== 'undefined') transferredMediaHydration.scan();
+  globalThis.DartUpscale?.mounted();
 }
 
 function workMemberKeys(node) {
@@ -5078,7 +5082,7 @@ function renderProfileTransferSettings() {
 }
 
 function renderSettings() {
-  const section = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer'].includes(currentTab()?.settingsSection)
+  const section = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer', 'upscale'].includes(currentTab()?.settingsSection)
     ? currentTab().settingsSection : 'content';
   const themePreference = globalThis.DartTheme?.preference || 'system';
   const hideGenerated = contentPreferences.aiMode !== 'all';
@@ -5092,6 +5096,7 @@ function renderSettings() {
     ['sources', 'plug', 'Источники', 'Подключения и ключи'],
     ['tabs', 'panels', 'Вкладки', 'Просмотр и закрепление'],
     ['appearance', 'palette', 'Оформление', 'Цвет и тема'],
+    ['upscale', 'image', 'Image upscaling', 'Local 2× and 4×'],
     ['privacy', 'shield', 'Privacy', 'Screen capture'],
     ['transfer', 'copy', 'Profile transfer', 'Windows and Android'],
     ['updates', 'download', 'Обновления', 'Версия и установка'],
@@ -5105,6 +5110,7 @@ function renderSettings() {
       <div class="settings-view" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${section}">
         ${section === 'curation' ? renderCurationSettings() : ''}
         ${section === 'transfer' ? renderProfileTransferSettings() : ''}
+        ${section === 'upscale' ? globalThis.DartUpscale?.settingsMarkup() || '' : ''}
         ${section === 'privacy' ? `<div class="settings-card"><h2 class="settings-heading">${svg('shield')}<span>Screen capture protection</span></h2><p>Hide the DART window from supported screenshots and screen sharing apps while it stays visible on your display.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideFromScreenCapture" ${privacyStatus.requested ? 'checked' : ''} ${privacyLoading || privacySaving || !privacyStatus.available && !privacyStatus.requested ? 'disabled' : ''}><span><strong>Hide DART from screen capture</strong><small>Applies to the entire DART window. The choice is saved for future launches.</small></span></label>
           <p class="privacy-status ${privacyStatus.error ? 'privacy-status-error' : privacyStatus.active ? 'privacy-status-active' : ''}" role="status">${privacyLoading ? 'Checking protection status…' : privacyStatus.error ? privacyErrors[privacyStatus.error] || 'Capture protection is unavailable.' : privacyStatus.active ? 'Protection is active.' : privacyStatus.available ? 'Protection is off.' : 'Open the DART desktop window to change this setting.'}</p>
@@ -6533,7 +6539,7 @@ main.addEventListener('click', event => {
   }
   else if (action === 'settings-section' && tab?.kind === 'settings') {
     profileTransferController.instance?.resetConsent();
-    tab.settingsSection = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer'].includes(control.dataset.section)
+    tab.settingsSection = ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer', 'upscale'].includes(control.dataset.section)
       ? control.dataset.section : 'content';
     saveSession(); render();
     if (tab.settingsSection === 'privacy') loadPrivacyStatus();
@@ -6751,6 +6757,23 @@ window.addEventListener('beforeunload', () => {
   globalThis.DartVideoPreview?.dispose();
   for (const entry of imageLoader.cache.values()) URL.revokeObjectURL(entry.blobUrl);
 });
+
+globalThis.DartUpscale?.configure({ readImage: DartUpscaleMedia.create({
+  logic: CatalogLogic, cached: url => imageLoader.cached(url), read: readMediaBlob,
+  renew: (id, signal) => sankakuMediaRecovery.post(id, signal), apply: detail => sankakuMediaRecovery.apply(detail)
+}), toast, openSettings, currentImage: () => {
+  if (quickPreview.open) {
+    const image = quickPreview.querySelector('img.quick-preview-image[data-image-url]');
+    return image ? { item: quickPreviewWork, url: image.dataset.imageUrl } : null;
+  }
+  if (currentTab()?.kind !== 'detail') return null;
+  const images = [...main.querySelectorAll('.detail-image:not([hidden]) > img[data-image-url]')];
+  const bounds = main.getBoundingClientRect(), center = (bounds.top + bounds.bottom) / 2;
+  const image = images.find(image => image.matches(':hover')) || images.find(image => {
+    const rect = image.getBoundingClientRect(); return rect.top <= center && rect.bottom >= center;
+  }) || images.find(image => image.getBoundingClientRect().bottom > bounds.top);
+  return image ? { item: currentTab().item, url: image.dataset.imageUrl } : null;
+} });
 
 Promise.allSettled([refreshBookmarks(), refreshLikes(), refreshFollows(), loadSettings(),
   loadContentPreferences(), loadClientState(), loadRecommendationTagPreferences(),
