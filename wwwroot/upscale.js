@@ -81,7 +81,7 @@
     return !/\.(?:mp4|webm|mov|m4v|mkv|gif)(?:[?#]|$)/i.test(url);
   }
   async function json(fetcher, url, options = {}) {
-    const response = await fetcher(url, options);
+    const response = await fetcher(url, { signal: AbortSignal.timeout(10000), ...options });
     const value = await response.json();
     if (!response.ok) throw new Error(value?.error || 'network');
     return value;
