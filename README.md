@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/dart-banner.svg" alt="DART — Discover Art" width="900">
+<img src="docs/assets/dart-banner.svg?v=489327a" alt="DART — Discover Art" width="900">
 
 Browse **Danbooru**, **Gelbooru**, **Rule34 (R34)**, and **Sankaku** on Windows or Android.
 
