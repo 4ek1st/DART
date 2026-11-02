@@ -358,7 +358,13 @@ async function rememberCardFingerprint(img) {
   Object.assign(item, update);
   // Old saved works gain evidence from thumbnails that are already visible;
   // opening Liked must not download the whole saved collection up front.
-  const lists = [likes, bookmarks, recent, ...tabs.flatMap(tab => [tab.items, tab.related, tab.creatorWorks])];
+  // Following rebuilds from provider records and a worker-result cache. Keep
+  // the evidence in those backing records too, so the next arriving page
+  // cannot split already recognized versions back into separate cards.
+  const lists = new Set([likes, bookmarks, recent, ...tabs.flatMap(tab => [
+    tab.items, tab.related, tab.creatorWorks, tab.followComputed?.feed?.items,
+    ...(tab.followGroups || []).map(group => group.items)
+  ])]);
   for (const list of lists) {
     if (!Array.isArray(list)) continue;
     const enriched = [];
@@ -380,13 +386,22 @@ async function rememberCardFingerprint(img) {
     const next = [...main.querySelectorAll('.card[data-work-key]')].find(node =>
       node.dataset.workKey === key || itemIndex.get(node.dataset.workKey)?.memberKeys?.includes(key));
     if (next && top !== undefined) main.scrollTop += next.getBoundingClientRect().top - top;
+    if (tab.kind === 'follows') saveFollowPreview(tab, tab.followVersion);
   }, 120);
 }
 
 function addCatalogVisualHashes(items, signal) {
   if (signal?.aborted) return;
   for (const item of items) {
-      const fingerprint = visualFingerprintValues.get(CatalogLogic.mediaCacheKey(item.thumbnail));
+      const key = CatalogLogic.mediaCacheKey(item.thumbnail);
+      if (key && /^[a-f0-9]{16}$/i.test(item.visualHash || '') &&
+          /^[a-f0-9]{16}$/i.test(item.visualPHash || '') && item.visualAspectRatio > 0 &&
+          Number.isFinite(item.visualAspectRatio) && !visualFingerprintValues.has(key)) {
+        visualFingerprintValues.set(key, { hash: item.visualHash, perceptualHash: item.visualPHash,
+          aspectRatio: item.visualAspectRatio });
+        while (visualFingerprintValues.size > 2000) visualFingerprintValues.delete(visualFingerprintValues.keys().next().value);
+      }
+      const fingerprint = visualFingerprintValues.get(key);
       if (fingerprint) {
         item.visualHash = fingerprint.hash;
         item.visualPHash = fingerprint.perceptualHash;
@@ -1974,6 +1989,12 @@ async function loadFollowFeed(tab) {
     tab.followGroups = follows.map(follow => ({ follow,
       items: [...(previousGroups.get(follow.key)?.items?.length
         ? previousGroups.get(follow.key).items : cached.get(follow.key) || [])] }));
+    // Cached evidence must be available before fresh provider replies replace
+    // their records; a signed URL renewal does not change the underlying image.
+    for (const group of tab.followGroups) {
+      const known = group.items.filter(item => item.visualHash && item.visualPHash);
+      if (known.length) addCatalogVisualHashes(known, controller.signal);
+    }
     const jobs = tab.followGroups.flatMap(group =>
       CatalogLogic.followFeedRequests(group.follow, tab.rating,
         settings.hasApiKey, settings.hasRule34ApiKey, 0, settings.sankakuAvailable).map(entry => ({ group, entry })));
