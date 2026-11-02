@@ -57,7 +57,11 @@ final class NavigationChecks {
         android.widget.ImageView old=(android.widget.ImageView)field(activity,"activeArt");
         for(int i=0;i<3;i++)method(activity,"navigate",int.class).invoke(activity,-1);
         Handler main=new Handler(Looper.getMainLooper());long deadline=SystemClock.uptimeMillis()+1000;Runnable[] probe={null};probe[0]=()->{
-            try{android.animation.Animator animation=(android.animation.Animator)field(activity,"pageAnimator");android.widget.ImageView art=(android.widget.ImageView)field(activity,"activeArt");boolean moving=animation!=null&&animation.isRunning()&&art!=null&&Math.abs(art.getTranslationX())>0;if(!moving&&SystemClock.uptimeMillis()<deadline){main.postDelayed(probe[0],16);return;}android.widget.ImageView snapshot=(android.widget.ImageView)field(activity,"outgoingMedia");Log.i("ArtCatalogQA","NAV real image animation retains bitmap and fixed controls="+(moving&&snapshot!=null&&snapshot.getDrawable()!=null&&((android.view.View)field(activity,"currentView")).getTranslationX()==0));}catch(Exception e){Log.e("ArtCatalogQA","Animation sampling",e);}
+            try{android.animation.Animator animation=(android.animation.Animator)field(activity,"pageAnimator");android.widget.ImageView art=(android.widget.ImageView)field(activity,"activeArt");android.view.View previous=(android.view.View)field(activity,"outgoingPage"),current=(android.view.View)field(activity,"currentView");
+                boolean moving=animation!=null&&animation.isRunning()&&previous!=null&&current!=null&&previous.getTranslationX()*current.getTranslationX()<0;
+                boolean retained=old.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&art!=null&&art.getDrawable() instanceof android.graphics.drawable.BitmapDrawable;
+                boolean passed=moving&&retained;if(!passed&&SystemClock.uptimeMillis()<deadline){main.postDelayed(probe[0],16);return;}Log.i("ArtCatalogQA","NAV page animation keeps both bitmaps and opposite movement="+passed);
+            }catch(Exception e){Log.e("ArtCatalogQA","Animation sampling",e);}
         };main.post(probe[0]);
         main.postDelayed(()->{
             try{Post actual=(Post)field(activity,"activePost");android.view.ViewGroup content=(android.view.ViewGroup)field(activity,"content");Log.i("ArtCatalogQA","NAV reverse three artworks="+actual.id.equals("9000015")+" no retained pages="+(content.getChildCount()==1&&field(activity,"outgoingMedia")==null));hiddenPage(activity,fixtures);}
