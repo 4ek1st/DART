@@ -24,7 +24,11 @@ A failed preview no longer prevents advancing: optional preparation has a bounde
 
 Large local galleries restore from Store in order. The process-death state contains at most five neighbors on each side instead of serializing thousands of saved artworks. In-memory recreation retains the complete live gallery. Remote process-death restoration keeps the nearby buffer and next-page cursors; it does not promise all earlier fetched rows.
 
+The final native navigation run passes 13/13 assertions, including rapid inputs, a slow page boundary, reverse browsing, filtered pages, retry, failed images and cancellation. Ordinary artwork transitions move the whole page; the check confirms both retained bitmaps and opposite outgoing/incoming movement. The obsolete image-only/fixed-controls oracle and a fixture that accidentally reused another work's exact URL were corrected in debug code, without changing production animation or duplicate detection.
+
 A real guest Sankaku recovery probe preserves a saved legacy numeric identity and its own exact hash, refreshes usable media in 1.82 s and decodes the actual preview in 3.44 s total. Background repairs use a separate bounded queue. Neutral native image/video checks cover selected-image priority, progressive loading, anchored regrouping and retaining a poster until the first video frame or a retryable error.
+
+On the final build, fullscreen video shows its poster at 803 ms and the first rendered frame at 4.05 s; PixelCopy confirms actual nonblack video frames. Actual video → image → video swipes resume a new video rendering session. An injected failure appears at 918 ms with the poster retained. Tapping the real Retry control recovers playback and rendered frames. Both scenarios have zero AndroidRuntime crashes or ANRs. The loopback deliberately delays media; these values validate state transitions rather than external streaming speed.
 
 ## Android updates
 
@@ -36,4 +40,14 @@ Native updater checks use a local, synthetic future debug APK signed with the sa
 
 On the actual Home screen, the update arrow appears before Settings is opened. At 360dp and 130% font size the update panel wraps without overlap; rotation preserves the Updates route and ready state. Denying the Android installation permission returns to the ready page without reopening it. Granting permission opens the real system installer; cancelling it returns without a loop. A second explicit install succeeds from code 15 to the owned synthetic code 16. The installed code is confirmed through PackageManager, the now-current update badge disappears, and saved collections, all 67 existing viewed identities, tag preferences and hidden-author settings remain equal across installation. The separate signed release smoke check below uses nonempty saved collections.
 
-Signed release, public-feed and downloaded-asset results are recorded below after completion.
+## Signed release and public feed
+
+The signed APK is built from the clean, reviewed source `b71f6326313c0ffb1049f58b7149d23dde15609f`, package `com.artcatalog.mobile`, version `0.1.14`, code `15`, minimum API `26`. APK Signature Scheme v2/v3 verification passes with the existing certificate SHA-256 `b97a808c1adcfa9b0489b04b09848f8638eb6df276d259f044d58f1fd01fcf5d`. The APK is 2,186,426 bytes; SHA-256 is `f5f5c15a4d7910651d82eac9dd3cb27a85aa894ff6a5425a368d7a84d40334ac`. Release inspection excludes debug classes, fixtures, profile files and signing material.
+
+The published `android-v0.1.14` APK and checksum are downloaded again. Their digest, bytes and signing certificate match the staged build and GitHub's asset digest. The fixed public `android/update.json` serves that exact package, code, URL, size and SHA-256. Publication uses `--latest=false`; GitHub's Windows latest remains `v0.2.56`.
+
+The downloaded signed APK installs over signed 0.1.13 in a separate owned emulator user with a neutral nonempty profile. The real My page shows one like, one bookmark and one followed artist after the update. Saved keys, viewed identity, favorite tag, normalized hidden author and priority preference remain present. The untouched primary emulator profile is byte-for-byte unchanged, as is the original desktop export.
+
+Before any Settings interaction, the release app automatically fetches and caches the live public feed; no badge is shown for its current version. The actual Settings → Updates route shows installed 0.1.14 and Up to date. Tapping Check for updates advances the persisted check timestamp and returns to Up to date. This validates the production background/manual network path in addition to the synthetic newer-version installation test.
+
+The Android source mirror contains the reviewed changes with matching file hashes. The owned hidden emulator is stopped after verification. Physical Galaxy Fold 7 / Android 17, personal provider sessions and real-account rate limits are not part of this emulator result.
