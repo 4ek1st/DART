@@ -46,16 +46,5 @@ public class I18nTest {
         JSONArray rows=messages();assertTrue("Desktop and native UI messages are bundled",rows.length()>800);
         for(int i=0;i<rows.length();i++){JSONArray row=rows.getJSONArray(i);assertEquals(3,row.length());for(int language=0;language<3;language++)assertFalse("Empty message at "+i+":"+language,row.getString(language).isBlank());}
     }
-    @Test public void androidUpdateActionsAndFailureStatesHaveAllThreeLanguages()throws Exception{
-        I18n russian=new I18n("ru",messages()),german=new I18n("de",messages());String[][] cases={
-            {"Update available","Доступно обновление","Update verfügbar"},
-            {"Check for Android updates.","Проверьте обновления для Android.","Nach Android-Updates suchen."},
-            {"Ready to install","Готово к установке","Bereit zur Installation"},
-            {"Cancel download","Отменить загрузку","Download abbrechen"},
-            {"Allow installation","Разрешить установку","Installation erlauben"},
-            {"Verifying update…","Проверяем обновление…","Update wird geprüft…"},
-            {"Update check failed. Check your connection and try again.","Не удалось проверить обновления. Проверьте подключение и повторите попытку.","Updates konnten nicht geprüft werden. Prüfe die Verbindung und versuche es erneut."},
-            {"The downloaded file did not pass verification. Download it again.","Загруженный файл не прошёл проверку. Скачайте его ещё раз.","Die heruntergeladene Datei hat die Prüfung nicht bestanden. Lade sie erneut herunter."}
-        };for(String[] row:cases){assertEquals(row[1],russian.text(row[0]));assertEquals(row[2],german.text(row[0]));}
-    }
+
 }

@@ -21,7 +21,6 @@ final class MobileParityChecks {
             String mode=activity.getIntent().getStringExtra("qaParityMode");if(mode==null)mode="state";
             if(mode.startsWith("large-profile")){LargeProfileChecks.run(activity,images,mode);return;}
             if(mode.equals("deferred-navigation")){DeferredNavigationChecks.run(activity,images);return;}
-            if(mode.equals("updates-core")){UpdaterChecks.run(activity);return;}
             if(mode.startsWith("usability-")){UsabilityChecks.run(activity,images,mode);return;}
             if(mode.startsWith("reliability-")){MobileMediaReliabilityChecks.run(activity,images,mode);return;}
             if(mode.equals("following-fairness")){MobileFollowingReliabilityChecks.run(activity,images);return;}

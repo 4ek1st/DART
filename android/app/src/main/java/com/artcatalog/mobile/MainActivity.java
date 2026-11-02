@@ -14,7 +14,6 @@ import android.view.inputmethod.*;
 import android.widget.*;
 import org.json.*;
 import java.io.*;
-import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
@@ -40,10 +39,6 @@ public final class MainActivity extends Activity {
     private final ExecutorService recommendationWork=Executors.newSingleThreadExecutor(r->backgroundThread("DART-taste-model",r));
     private final ExecutorService mediaRepairs=Executors.newFixedThreadPool(2,r->backgroundThread("DART-media-repair",r));
     private Store store;private CatalogClient client;private ImageLoader images;private I18n i18n;private final Set<VideoView> openVideoViewers=Collections.newSetFromMap(new IdentityHashMap<>());
-    private AppUpdates appUpdates;private boolean updatesListening,updatesResumed;private final UpdateInstallRequest updateInstallRequest=new UpdateInstallRequest();
-    private final List<WeakReference<View>> updateActions=new ArrayList<>();private final List<WeakReference<UpdatesUi>> updatePanels=new ArrayList<>();
-    private final java.util.function.Consumer<AppUpdates.State> updateListener=this::renderUpdates;
-    private static final int UPDATE_INSTALL_PERMISSION=41;
     private String tr(String value){if(i18n==null||value==null)return value;String exact=i18n.text(value);if(!exact.equals(value))return exact;String[] parts=value.split("(?<= · )|(?= · )|(?<=\\n)|(?=\\n)",-1);if(parts.length<2)return value;StringBuilder text=new StringBuilder();for(String part:parts)text.append(i18n.text(part));return text.toString();}
     private LinearLayout root,bottom;private FrameLayout content;
     private final Screen[] screens=new Screen[4];
@@ -186,7 +181,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle supplied){
         Bundle saved=readNavigationState(supplied);
-        super.onCreate(saved);restored=saved;appUpdates=AppUpdates.get(this);updateInstallRequest.restore(saved!=null&&saved.getBoolean("updateInstallRequested",false));Object retained=getLastNonConfigurationInstance();if(retained instanceof RetainedState){retainedState=(RetainedState)retained;retainedScreens=retainedState.screens;}
+        super.onCreate(saved);restored=saved;Object retained=getLastNonConfigurationInstance();if(retained instanceof RetainedState){retainedState=(RetainedState)retained;retainedScreens=retainedState.screens;}
         SharedPreferences appearance=getSharedPreferences("settings",MODE_PRIVATE);applyAppearance(appearance.getString("themePreference","dark"));
         if(appearance.getBoolean("secureCapture",false))getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         getWindow().setStatusBarColor(PANEL);getWindow().setNavigationBarColor(PANEL);
@@ -244,13 +239,6 @@ public final class MainActivity extends Activity {
     private TextView button(String label,int color,Runnable action){TextView v=text(label,14,color);v.setGravity(Gravity.CENTER);v.setPadding(dp(16),0,dp(16),0);v.setMinHeight(dp(44));touchBackground(v,RAISED,22);v.setOnClickListener(x->action.run());return v;}
     private void settingsAction(LinearLayout body,String label,int color,Runnable action){LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,dp(48));layout.setMargins(0,dp(7),0,dp(7));body.addView(button(label,color,action),layout);}
     private FrameLayout iconButton(String icon,String label,Runnable action){FrameLayout box=new FrameLayout(this);box.setContentDescription(tr(label));box.setFocusable(true);touchBackground(box,Color.TRANSPARENT,8);box.addView(new IconView(this,icon,TEXT),new FrameLayout.LayoutParams(-1,-1));box.setOnClickListener(v->action.run());return box;}
-    private void openUpdates(){if(store!=null&&!settingsRoute(currentView).equals("updates"))settings("updates");}
-    private void addUpdateAction(LinearLayout bar){FrameLayout action=iconButton("download","Update available",this::openUpdates);action.setTag("dart-update-action");((IconView)action.getChildAt(0)).color(BLUE);bar.addView(action,new LinearLayout.LayoutParams(dp(44),dp(48)));updateActions.add(new WeakReference<>(action));renderUpdateAction(action,appUpdates==null?null:appUpdates.state());}
-    private void renderUpdateAction(View action,AppUpdates.State state){boolean visible=store!=null&&UpdatesUi.badgeVisible(state,Build.VERSION.SDK_INT);action.setVisibility(visible?View.VISIBLE:View.GONE);if(visible)action.setContentDescription(tr("Update available")+" · "+state.update.versionName);}
-    private void renderUpdates(AppUpdates.State state){if(destroyed)return;for(Iterator<WeakReference<View>> it=updateActions.iterator();it.hasNext();){View action=it.next().get();if(action==null)it.remove();else renderUpdateAction(action,state);}boolean allowed=appUpdates.canInstall();for(Iterator<WeakReference<UpdatesUi>> it=updatePanels.iterator();it.hasNext();){UpdatesUi panel=it.next().get();if(panel==null)it.remove();else panel.render(state,allowed);}if(updatesResumed)resumeUpdateInstall();}
-    private void updatesSettingsBody(LinearLayout body,SettingsUi ui){UpdatesUi panel=new UpdatesUi(this,body,ui,TEXT,MUTED,BLUE,this::tr,i18n==null?"en":i18n.language,()->appUpdates.check(true),()->appUpdates.download(),()->{updateInstallRequest.cancel();appUpdates.cancelDownload();},this::requestUpdateInstall);updatePanels.add(new WeakReference<>(panel));panel.render(appUpdates.state(),appUpdates.canInstall());}
-    private void requestUpdateInstall(){AppUpdates.State state=appUpdates.state();if(!UpdatesUi.installVisible(state,Build.VERSION.SDK_INT))return;if(appUpdates.canInstall()){updateInstallRequest.cancel();appUpdates.openInstall(this);return;}updateInstallRequest.begin();updatesResumed=false;try{Intent permission=new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName()));startActivityForResult(permission,UPDATE_INSTALL_PERMISSION);}catch(RuntimeException unavailable){updatesResumed=true;updateInstallRequest.cancel();toast("Open Android settings to allow app updates.");}}
-    private void resumeUpdateInstall(){if(appUpdates==null||!updateInstallRequest.pending())return;AppUpdates.State state=appUpdates.state();boolean allowed=appUpdates.canInstall();if(allowed&&(state.status==AppUpdates.Status.IDLE||state.status==AppUpdates.Status.CHECKING||state.status==AppUpdates.Status.VERIFYING))return;boolean ready=UpdatesUi.installVisible(state,Build.VERSION.SDK_INT);if(updateInstallRequest.finish(allowed,ready))appUpdates.openInstall(this);}
     private FrameLayout artIconButton(String icon,String label,Runnable action){FrameLayout box=iconButton(icon,label,action);((IconView)box.getChildAt(0)).color(Color.WHITE);return box;}
     private void display(View view){
         updateBottomVisibility(view);
@@ -342,7 +330,6 @@ public final class MainActivity extends Activity {
         LinearLayout bar=row();bar.setBackgroundColor(PANEL);bar.setPadding(dp(8),0,dp(8),0);bar.setMinimumHeight(dp(56));
         bar.addView(iconButton(back==null?"menu":"back",back==null?"Меню":"Назад",back==null?()->selectNav(4):back),new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView label=text(title,19,TEXT);label.setSingleLine(true);label.setEllipsize(TextUtils.TruncateAt.END);label.setPadding(dp(6),0,dp(8),0);label.setTypeface(null,Typeface.BOLD);bar.addView(label,new LinearLayout.LayoutParams(0,dp(48),1));label.setGravity(Gravity.CENTER_VERTICAL);
-        addUpdateAction(bar);
         return bar;
     }
     private void buildBottom(){
@@ -832,7 +819,6 @@ public final class MainActivity extends Activity {
         {"appearance","palette","Оформление","Color and theme"},
         {"privacy","shield","Приватность","Screen capture"},
         {"transfer","copy","Перенос профиля","Windows and Android"},
-        {"updates","download","Updates","Updates and installation"},
         {"language","language","Язык","English · Русский · Deutsch"},
         {"about","info","About DART","Version and updates"}
     };
@@ -842,7 +828,7 @@ public final class MainActivity extends Activity {
         LinearLayout bar=row();bar.setBackgroundColor(PANEL);bar.setPadding(dp(8),dp(6),dp(12),dp(6));bar.setMinimumHeight(dp(60));
         bar.addView(iconButton("back","Назад",this::goBack),new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView label=text(title,19,TEXT);label.setTypeface(null,Typeface.BOLD);label.setPadding(dp(7),0,0,0);if(Build.VERSION.SDK_INT>=28)label.setAccessibilityHeading(true);
-        bar.addView(label,new LinearLayout.LayoutParams(0,-2,1));addUpdateAction(bar);return bar;
+        bar.addView(label,new LinearLayout.LayoutParams(0,-2,1));return bar;
     }
     private String settingsRoute(View page){return page!=null&&page.getTag() instanceof SettingsRoute?((SettingsRoute)page.getTag()).key:"";}
     private String settingsTitle(String route){
@@ -884,7 +870,6 @@ public final class MainActivity extends Activity {
         else if(route.equals("appearance"))appearanceSettingsBody(body,ui);
         else if(route.equals("language"))languageSettingsBody(body,ui);
         else if(route.equals("privacy"))privacySettingsBody(body,ui);
-        else if(route.equals("updates"))updatesSettingsBody(body,ui);
         else if(route.equals("transfer")){
             LinearLayout card=ui.card(body,"copy","Перенос профиля","Один JSON-файл для DART на ПК и Android. Передайте его любым удобным способом и выберите импорт на другом устройстве.");
             hint(card,"Переносятся лайки, закладки, подписки, просмотренное, избранные теги и приоритеты рекомендаций. Импорт дополняет профиль без удаления существующих записей. Фильтры и отбор можно перенести отдельно.");
@@ -894,7 +879,7 @@ public final class MainActivity extends Activity {
         else if(route.equals("recommendations"))recommendationSettingsBody(body,page,ui);
         else if(route.equals("about")){
             LinearLayout card=ui.card(body,"info","DART","Discover Art");TextView version=literalText(tr("Version")+" "+BuildConfig.VERSION_NAME,18,TEXT);version.setPadding(0,dp(8),0,dp(16));card.addView(version);
-            hint(card,"Install Android updates over the existing app to keep your profile.");ui.action(card,"Check for updates",true,()->settings("updates"));ui.action(card,"View Android releases",false,()->external("https://github.com/4ek1st/DART/releases?q=android-v&expanded=true"));
+            hint(card,"Install Android updates over the existing app to keep your profile.");ui.action(card,"View Android releases",false,()->external("https://github.com/4ek1st/DART/releases?q=android-v&expanded=true"));
         }
         return page;
     }
@@ -959,7 +944,7 @@ public final class MainActivity extends Activity {
     private void profileTransferSettings(){settings("transfer");}
     private void languageSettings(){settings("language");}
     @Override public void onWindowFocusChanged(boolean focused){super.onWindowFocusChanged(focused);if(focused&&store!=null)main.post(this::prepareVisibleContent);}
-    @Override protected void onPause(){updatesResumed=false;if(exposureWrite!=null){main.removeCallbacks(exposureWrite);exposureWrite.run();}super.onPause();}
+    @Override protected void onPause(){if(exposureWrite!=null){main.removeCallbacks(exposureWrite);exposureWrite.run();}super.onPause();}
     private void hiddenAuthorsSettings(){settings("hidden-authors");}
     private void hiddenAuthorsSettingsBody(LinearLayout body,SettingsUi ui){
         Runnable[] fill={null};fill[0]=()->{body.removeAllViews();List<String> keys=store.hiddenAuthors();
@@ -1065,7 +1050,7 @@ public final class MainActivity extends Activity {
         FrameLayout art=new FrameLayout(this);art.setBackgroundColor(Color.BLACK);ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setContentDescription(tr("Открыть изображение на весь экран"));art.addView(image,new FrameLayout.LayoutParams(-1,-1));
         image.setContentDescription(tr("Изображение 1 из "+Math.max(1,p.media.size())+". Открыть на весь экран"));
         if(p.isVideo()){bindVideoPoster(image,p,true);image.setOnClickListener(v->{activeMediaIndex=0;video(p);});}else{images.bindProgressive(image,p.preview,p.image.isBlank()?p.preview:p.image,2000,0,null);image.setOnClickListener(v->{activeMediaIndex=0;fullscreenMedia(p,0);});}
-        LinearLayout controls=row();FrameLayout back=artIconButton("back","Назад",this::goBack);touchBackground(back,Color.argb(110,0,0,0),24);controls.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));controls.addView(new Space(this),new LinearLayout.LayoutParams(0,1,1));addUpdateAction(controls);controls.addView(artIconButton("bookmark","Открытые работы",this::openWorks),new LinearLayout.LayoutParams(dp(48),dp(48)));FrameLayout share=artIconButton("share","Поделиться",()->share(p));controls.addView(share,new LinearLayout.LayoutParams(dp(48),dp(48)));FrameLayout.LayoutParams cl=new FrameLayout.LayoutParams(-1,dp(56),Gravity.TOP);cl.setMargins(dp(8),dp(4),dp(8),0);art.addView(controls,cl);
+        LinearLayout controls=row();FrameLayout back=artIconButton("back","Назад",this::goBack);touchBackground(back,Color.argb(110,0,0,0),24);controls.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));controls.addView(new Space(this),new LinearLayout.LayoutParams(0,1,1));controls.addView(artIconButton("bookmark","Открытые работы",this::openWorks),new LinearLayout.LayoutParams(dp(48),dp(48)));FrameLayout share=artIconButton("share","Поделиться",()->share(p));controls.addView(share,new LinearLayout.LayoutParams(dp(48),dp(48)));FrameLayout.LayoutParams cl=new FrameLayout.LayoutParams(-1,dp(56),Gravity.TOP);cl.setMargins(dp(8),dp(4),dp(8),0);art.addView(controls,cl);
         TextView mediaLabel=text("",12,Color.WHITE);mediaLabel.setGravity(Gravity.CENTER);art.addView(mediaLabel,new FrameLayout.LayoutParams(-1,dp(40),Gravity.BOTTOM));mediaStrip.addView(art,new LinearLayout.LayoutParams(-1,height));
         LinearLayout info=column();info.setPadding(dp(16),dp(16),dp(16),dp(12));header.addView(info);TextView title=literalText(p.title,20,TEXT);title.setMaxLines(3);title.setEllipsize(TextUtils.TruncateAt.END);title.setTypeface(null,Typeface.BOLD);info.addView(title);TextView provenance=text(sourceName(p.source)+" · "+(CatalogLogic.matchesRating(p.rating,"general")?"Обычное":"18+")+(p.score>0?" · ♥ "+p.score:""),12,MUTED);provenance.setPadding(0,dp(6),0,dp(12));info.addView(provenance);
         LinearLayout actions=row();
@@ -1463,7 +1448,7 @@ public final class MainActivity extends Activity {
     private void downloadReady(Post p){String url=p.original.isBlank()?p.image:p.original;if(!CatalogLogic.isMediaUrl(url)){toast("Оригинал недоступен");return;}pendingDownload=url;String path=Uri.parse(url).getPath();String ext=path!=null&&path.contains(".")?path.substring(path.lastIndexOf('.')):".jpg";if(ext.length()>6)ext=".jpg";Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType(p.isVideo()?"video/*":"image/*");intent.putExtra(Intent.EXTRA_TITLE,"ArtCatalog-"+p.source+"-"+p.id+ext);startActivityForResult(intent,3);}
     private void exportData(){Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");intent.putExtra(Intent.EXTRA_TITLE,"DART-profile.json");startActivityForResult(intent,1);}
     private void importData(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("*/*");intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain"});startActivityForResult(intent,2);}
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==UPDATE_INSTALL_PERMISSION){resumeUpdateInstall();return;}if(result!=RESULT_OK||data==null||data.getData()==null)return;if(store==null){pendingDocument=data.getData();pendingDocumentRequest=request;return;}processDocument(request,data.getData());}
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;if(store==null){pendingDocument=data.getData();pendingDocumentRequest=request;return;}processDocument(request,data.getData());}
     private void processDocument(int request,Uri uri){String url=pendingDownload;io.execute(()->{try{
         if(request==1){JSONObject document=ProfileTransfer.export(store.export());ProfileTransfer.encodedBytes(document,ProfileTransfer.MAX_BYTES);try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException();ProfileTransfer.writeJson(document,out);}main.post(()->toast("Профиль экспортирован"));}
         else if(request==2){String json;try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException();byte[] b=new byte[8192];int n,total=0;while((n=in.read(b))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("Файл слишком большой");out.write(b,0,n);}json=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(out.toByteArray())).toString();}JSONObject document=ProfileTransfer.parse(json);String filename=profileDocumentName(uri);main.post(()->showImportPreview(document,filename));}
@@ -1484,14 +1469,11 @@ public final class MainActivity extends Activity {
         ArrayList<Bundle> entries=new ArrayList<>();for(BackEntry entry:backStack){Bundle item=new Bundle();item.putInt("nav",entry.nav);item.putInt("scroll",entry.scroll);item.putInt("top",entry.top);item.putInt("mediaIndex",entry.mediaIndex);if(entry.gallery!=null)item.putBundle("galleryRoute",galleryBundle(entry.gallery,entry.detail));if(entry.detail!=null)item.putString("detail",entry.detail.toJson().toString());else if(entry.author!=null)item.putString("author",entry.author);else if(!settingsRoute(entry.view).isBlank())item.putBundle("settingsPage",settingsState(entry.view));else if(localCollectionState(entry.view)!=null)item.putBundle("localCollectionPage",localCollectionState(entry.view));else{for(Screen s:screens)if(s!=null&&s.view==entry.view)item.putInt("tab",s.tab);}entries.add(item);}out.putParcelableArrayList("backStack",entries);
         if(!settingsRoute(currentView).isBlank())out.putBundle("settingsPage",settingsState(currentView));
         Bundle localPage=localCollectionState(currentView);if(localPage!=null)out.putBundle("localCollectionPage",localPage);
-        out.putBoolean("updateInstallRequested",updateInstallRequest.pending());
         if(pendingDownload!=null)out.putString("download",pendingDownload);if(pendingDocument!=null){out.putString("pendingDocument",pendingDocument.toString());out.putInt("pendingDocumentRequest",pendingDocumentRequest);}
         writeNavigationState(out);
     }
     @Override public Object onRetainNonConfigurationInstance(){RetainedState state=new RetainedState();state.screens=new ScreenState[4];for(int i=0;i<screens.length;i++)state.screens[i]=snapshot(screens[i]);state.detail=snapshot(activeRelated);state.author=snapshot(activeAuthor);state.gallery=snapshotGallery(activeGallery);for(BackEntry entry:backStack){state.backs.add(entry.related);state.backGalleries.add(snapshotGallery(entry.gallery));}return state;}
     @Override public void onTrimMemory(int level){super.onTrimMemory(level);if(images!=null&&level>=TRIM_MEMORY_RUNNING_LOW){images.clearMemory();prefetchScreen=null;}}
-    @Override protected void onStart(){super.onStart();if(appUpdates!=null&&!updatesListening){updatesListening=true;appUpdates.addListener(updateListener);}}
-    @Override protected void onResume(){super.onResume();updatesResumed=true;if(appUpdates!=null)appUpdates.foreground();resumeUpdateInstall();}
-    @Override protected void onStop(){if(appUpdates!=null&&updatesListening){appUpdates.removeListener(updateListener);updatesListening=false;}if(store!=null)store.flushPending();super.onStop();}
-    @Override public void onDestroy(){destroyed=true;if(appUpdates!=null)appUpdates.removeListener(updateListener);updatesListening=false;updateActions.clear();updatePanels.clear();cancelNavigation();main.removeCallbacksAndMessages(null);work.shutdownNow();foreground.shutdownNow();grouping.shutdownNow();recommendationWork.shutdownNow();mediaRepairs.shutdownNow();io.shutdown();if(client!=null)client.close();if(images!=null)images.close();super.onDestroy();}
+    @Override protected void onStop(){if(store!=null)store.flushPending();super.onStop();}
+    @Override public void onDestroy(){destroyed=true;cancelNavigation();main.removeCallbacksAndMessages(null);work.shutdownNow();foreground.shutdownNow();grouping.shutdownNow();recommendationWork.shutdownNow();mediaRepairs.shutdownNow();io.shutdown();if(client!=null)client.close();if(images!=null)images.close();super.onDestroy();}
 }

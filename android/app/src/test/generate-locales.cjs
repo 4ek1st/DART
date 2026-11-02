@@ -405,38 +405,7 @@ const settingsMessages=[
   ["API key","Ключ API","API-Schlüssel"],
 ];
 const exactRows=new Set(rows.map(row=>JSON.stringify(row)));
-const updateMessages=[
-  ["Update available","Доступно обновление","Update verfügbar"],
-  ["Updates and installation","Обновления и установка","Updates und Installation"],
-  ["Download and install the latest Android version.","Скачайте и установите последнюю версию для Android.","Lade die neueste Android-Version herunter und installiere sie."],
-  ["Check for Android updates.","Проверьте обновления для Android.","Nach Android-Updates suchen."],
-  ["Your app is up to date.","У вас последняя версия приложения.","Deine App ist auf dem neuesten Stand."],
-  ["Checking for updates…","Проверяем обновления…","Updates werden geprüft…"],
-  ["Installed version","Установленная версия","Installierte Version"],
-  ["Available version","Доступная версия","Verfügbare Version"],
-  ["Release notes","Что нового","Neuerungen"],
-  ["No release notes provided.","Описание изменений не указано.","Keine Versionshinweise vorhanden."],
-  ["Download update","Скачать обновление","Update herunterladen"],
-  ["Downloading update…","Скачиваем обновление…","Update wird heruntergeladen…"],
-  ["Verifying update…","Проверяем обновление…","Update wird geprüft…"],
-  ["Ready to install","Готово к установке","Bereit zur Installation"],
-  ["Cancel download","Отменить загрузку","Download abbrechen"],
-  ["Download canceled","Загрузка отменена","Download abgebrochen"],
-  ["Allow installation","Разрешить установку","Installation erlauben"],
-  ["Allow DART to install this update in Android settings, then return.","Разрешите DART установить обновление в настройках Android, затем вернитесь в приложение.","Erlaube DART in den Android-Einstellungen, dieses Update zu installieren, und kehre danach zurück."],
-  ["Open Android settings to allow app updates.","Откройте настройки Android, чтобы разрешить установку обновлений.","Öffne die Android-Einstellungen, um App-Updates zu erlauben."],
-  ["Update check failed. Check your connection and try again.","Не удалось проверить обновления. Проверьте подключение и повторите попытку.","Updates konnten nicht geprüft werden. Prüfe die Verbindung und versuche es erneut."],
-  ["The update information could not be verified. Try again later.","Не удалось проверить сведения об обновлении. Повторите попытку позже.","Die Update-Informationen konnten nicht geprüft werden. Versuche es später erneut."],
-  ["This update requires a newer Android version.","Для этого обновления нужна более новая версия Android.","Dieses Update benötigt eine neuere Android-Version."],
-  ["There is not enough free storage to download the update.","Недостаточно свободного места для загрузки обновления.","Es ist nicht genug freier Speicher für das Update vorhanden."],
-  ["The update download failed. Try again.","Не удалось загрузить обновление. Повторите попытку.","Das Update konnte nicht heruntergeladen werden. Versuche es erneut."],
-  ["The downloaded file did not pass verification. Download it again.","Загруженный файл не прошёл проверку. Скачайте его ещё раз.","Die heruntergeladene Datei hat die Prüfung nicht bestanden. Lade sie erneut herunter."],
-  ["The downloaded update does not match this app. Download it again.","Загруженное обновление не подходит для этого приложения. Скачайте его ещё раз.","Das heruntergeladene Update passt nicht zu dieser App. Lade es erneut herunter."],
-  ["Android could not open the installer. Try again.","Android не удалось открыть установщик. Повторите попытку.","Android konnte das Installationsprogramm nicht öffnen. Versuche es erneut."],
-  ["Unknown update error. Try again.","Не удалось выполнить обновление. Повторите попытку.","Beim Update ist ein Fehler aufgetreten. Versuche es erneut."],
-  ["%s of %s","%s из %s","%s von %s"],
-];
-for(const row of [...nativeAliases,...settingsMessages,...updateMessages]){
+for(const row of [...nativeAliases,...settingsMessages]){
   const key=JSON.stringify(row);if(exactRows.has(key))continue;
   rows.push(row);exactRows.add(key);
 }
