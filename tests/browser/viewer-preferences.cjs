@@ -141,6 +141,91 @@ const server = http.createServer(async (req, res) => {
     await page.keyboard.press('Space'); await page.locator('#quick-preview[open]').waitFor();
     assert.equal(await page.evaluate(() => currentTab().kind), 'search');
     await page.keyboard.press('Escape');
+    const blankArea = page.locator('#main h1').first();
+    await blankArea.hover();
+    assert.equal(await previewCard.evaluate(card => document.activeElement === card), true);
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator('#quick-preview').evaluate(dialog => dialog.open), false,
+      'Space over a non-artwork heading must not reopen the last focused artwork');
+    assert.equal(await page.evaluate(() => currentTab().kind), 'search',
+      'Space over a non-artwork heading must not activate the stale focused card');
+    const sidebarBlank = page.locator('#sidebar .sidebar-footer');
+    await sidebarBlank.hover();
+    assert.equal(await sidebarBlank.evaluate(element => element.matches(':hover') && !element.closest('button, a, input')), true);
+    assert.equal(await previewCard.evaluate(card => document.activeElement === card), true);
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator('#quick-preview').evaluate(dialog => dialog.open), false,
+      'Leaving the artwork area for sidebar text must not reopen the stale focused artwork');
+    assert.equal(await page.evaluate(() => currentTab().kind), 'search',
+      'Space over sidebar text must not activate Home or the stale focused card');
+    await page.locator('.card-art[data-key="gelbooru:2q"]').hover(); await page.keyboard.press('Space');
+    await page.locator('#quick-preview[open]').waitFor();
+    assert.equal(await page.evaluate(() => quickPreviewWork.key), 'gelbooru:2q',
+      'Returning from the sidebar selects the newly hovered artwork');
+    await page.keyboard.press('Escape'); await page.waitForFunction(() => !quickPreview.open);
+    const pointerTargets = ['danbooru:1e', 'gelbooru:2q', 'sankaku:4e', 'danbooru:1q'];
+    const closeModes = ['Space', 'Escape', 'backdrop', 'Space'];
+    const pointerResults = [];
+    for (const [index, target] of pointerTargets.entries()) {
+      const card = page.locator(`.card-art[data-key="${target}"]`);
+      await card.hover();
+      assert.equal(await card.evaluate(element => element.matches(':hover')), true,
+        `The pointer must actually be over ${target} before Space`);
+      const focusedBefore = await page.evaluate(() => document.activeElement?.getAttribute('data-key'));
+      await page.keyboard.press('Space');
+      await page.waitForFunction(() => quickPreview.open && !!quickPreviewWork?.key);
+      const opened = await page.evaluate(() => quickPreviewWork.key);
+      pointerResults.push({ target, focusedBefore, opened, close: closeModes[index] });
+      assert.equal(await page.evaluate(() => currentTab().kind), 'search',
+        'Pointer-target Space must not activate the underlying artwork or navigation');
+      if (closeModes[index] === 'backdrop') {
+        const outside = await page.locator('#quick-preview').evaluate(dialog => {
+          const rect = dialog.getBoundingClientRect();
+          return [
+            { room: rect.left, x: rect.left / 2, y: innerHeight / 2 },
+            { room: innerWidth - rect.right, x: (rect.right + innerWidth) / 2, y: innerHeight / 2 },
+            { room: rect.top, x: innerWidth / 2, y: rect.top / 2 },
+            { room: innerHeight - rect.bottom, x: innerWidth / 2, y: (rect.bottom + innerHeight) / 2 }
+          ].sort((a, b) => b.room - a.room)[0];
+        });
+        assert(outside.room > 0, 'Compact preview must expose a real backdrop area');
+        await page.mouse.click(outside.x, outside.y);
+      } else await page.keyboard.press(closeModes[index]);
+      await page.waitForFunction(() => !quickPreview.open);
+    }
+    console.log('Pointer-target Space sequence: ' + JSON.stringify(pointerResults));
+    assert.deepEqual(pointerResults.map(result => result.opened), pointerTargets,
+      'After closing each preview, Space must open the artwork under the pointer instead of the last focused artwork');
+    await blankArea.hover();
+    await previewCard.focus();
+    const focusCardUsingTab = async (key, direction) => {
+      for (let attempt = 0; attempt < 64; attempt++) {
+        await page.keyboard.press(direction);
+        if (await page.evaluate(target => document.activeElement?.matches('button.card-art') &&
+            document.activeElement.dataset.key === target, key)) return;
+      }
+      assert.fail(`${direction} must reach artwork ${key} through the real tab order`);
+    };
+    await focusCardUsingTab('gelbooru:2q', 'Tab');
+    await page.keyboard.press('Space'); await page.locator('#quick-preview[open]').waitFor();
+    assert.equal(await page.evaluate(() => quickPreviewWork.key), 'gelbooru:2q',
+      'Tab hands artwork selection to the focused card while the pointer remains over a heading');
+    await page.keyboard.press('Space'); await page.waitForFunction(() => !quickPreview.open);
+    await focusCardUsingTab('danbooru:1e', 'Shift+Tab');
+    await page.keyboard.press('Space'); await page.locator('#quick-preview[open]').waitFor();
+    assert.equal(await page.evaluate(() => quickPreviewWork.key), 'danbooru:1e',
+      'Shift+Tab also hands artwork selection to keyboard focus');
+    await page.keyboard.press('Escape'); await page.waitForFunction(() => !quickPreview.open);
+    await page.locator('.card-art[data-key="rule34:3e"]').hover(); await page.keyboard.press('Space');
+    await page.waitForFunction(() => quickPreview.open && document.querySelector('.quick-preview-video')?.readyState >= 2);
+    assert.equal(await page.evaluate(() => quickPreviewWork.key), 'rule34:3e');
+    await page.keyboard.press('Escape'); await page.waitForFunction(() => !quickPreview.open);
+    await page.locator('.card-art[data-key="gelbooru:2e"]').hover(); await page.keyboard.press('Space');
+    await page.locator('#quick-preview[open] .quick-preview-image:not(video)').waitFor();
+    assert.equal(await page.evaluate(() => quickPreviewWork.key), 'gelbooru:2e',
+      'Moving from a closed video preview to an image selects the hovered image');
+    assert.equal(await page.locator('#quick-preview .quick-preview-video').count(), 0);
+    await page.keyboard.press('Escape'); await page.waitForFunction(() => !quickPreview.open);
     await page.mouse.move(5, 5);
     await page.locator('#search-input').focus(); await page.keyboard.press('Space');
     assert.equal(await page.locator('#search-input').inputValue(), ' ');
@@ -242,7 +327,7 @@ const server = http.createServer(async (req, res) => {
     assert.equal(await page.locator('.quick-preview-video').evaluate(video => video.muted), true);
     await context.close();
     assert.deepEqual(errors, []);
-    console.log('PASS: 1440p right-click, keyboard, Q/E filtering, All images, both-off, profile restore, Space focus after backdrop/close from Home/Back, held Space, card Enter, native buttons/text fields, audible video defaults, manual mute preservation and native fullscreen/Space video mouse controls without double-click likes.');
+    console.log('PASS: 1440p right-click, keyboard, Q/E filtering, All images, both-off, profile restore, Space focus after backdrop/close from Home/Back, repeated pointer-target Space with mixed closes, main/sidebar blank-area suppression and pointer reentry, Tab/Shift+Tab selection, video-to-image selection, held Space, card Enter, native buttons/text fields, audible video defaults, manual mute preservation and native fullscreen/Space video mouse controls without double-click likes.');
   } finally {
     await browser?.close(); await new Promise(resolve => server.close(resolve));
   }

@@ -11,19 +11,22 @@ function fixture() {
   const element = kind => ({ kind,
     matches: selector => kind === 'artwork' && selector.includes('button.card-art'),
     closest: selector => selector.split(',').some(part => part.trim() === kind) ? {} : null });
-  const card = element('artwork'), button = element('button'), video = element('video');
+  const card = element('artwork'), otherCard = element('artwork'), button = element('button'), video = element('video');
   const doc = { activeElement: card, addEventListener: (type, callback) => { handlers[type] = callback; },
-    querySelector: () => null };
+    querySelector: () => null, elementFromPoint: () => doc.pointerTarget };
   const context = vm.createContext({ document: doc, window: { addEventListener() {} },
     quickPreview: { open: false }, quickPreviewPointer: null, quickPreviewSpaceHeld: false,
     recommendationTagMenu: { hidden: true }, tabListPanel: { hidden: true }, tabContextMenu: { hidden: true },
     quickPreviewView: { scale: 1 }, currentTab: () => ({ kind: 'search' }), itemIndex: new Map(),
-    quickPreviewArtworkAt: target => target === card ? { item: { key: 'danbooru:1' }, url: 'https://fixture.test/1.png' } : null,
-    main: { contains: () => true }, zoomQuickPreviewFromCenter() {},
+    quickPreviewArtworkAt: target => target === card || target === otherCard ?
+      { item: { key: target === card ? 'danbooru:1' : 'gelbooru:2' }, url: 'https://fixture.test/1.png' } : null,
+    main: { contains: () => true, addEventListener: (type, callback) => { handlers[type] = callback; } }, zoomQuickPreviewFromCenter() {},
     closeQuickPreview: () => { actions.push('close'); context.quickPreview.open = false; },
-    openQuickPreview: (_artwork, mode) => { actions.push(mode || 'window'); context.quickPreview.open = true; } });
+    openQuickPreview: (artwork, mode) => { context.openedKey = artwork.item.key; actions.push(mode || 'window'); context.quickPreview.open = true; } });
   vm.runInContext(app.slice(app.indexOf('function quickPreviewShortcutAllowed('),
     app.indexOf('\nfunction quickPreviewArtworkAt(')), context);
+  vm.runInContext(app.slice(app.indexOf("main.addEventListener('pointermove', event => {"),
+    app.indexOf('\nlet artworkLikeFeedback')), context);
   vm.runInContext(app.slice(start, end), context);
   const press = (type = 'keydown', target = doc.activeElement, extra = {}) => {
     doc.activeElement = target;
@@ -32,8 +35,39 @@ function fixture() {
     handlers[type]?.(event);
     return event;
   };
-  return { context, card, button, video, element, actions, press };
+  return { context, doc, card, otherCard, button, video, element, actions, press };
 }
+
+test('Space follows the current pointer artwork instead of the card focused by preview closing', () => {
+  const f = fixture();
+  f.context.quickPreviewPointer = { x: 200, y: 100 }; f.doc.pointerTarget = f.otherCard;
+  assert.equal(f.press().prevented, true);
+  assert.equal(f.context.openedKey, 'gelbooru:2');
+});
+
+test('a pointer over empty space cannot reopen or natively activate the stale focused card', () => {
+  const f = fixture();
+  f.context.quickPreviewPointer = { x: 200, y: 100 }; f.doc.pointerTarget = f.element('div');
+  assert.equal(f.press().prevented, true);
+  assert.deepEqual(f.actions, []);
+});
+
+test('Tab hands Space back to keyboard focus until another pointer movement', () => {
+  const f = fixture();
+  f.context.quickPreviewPointer = { x: 200, y: 100 }; f.doc.pointerTarget = f.otherCard;
+  f.press('keydown', f.card, { key: 'Tab', code: 'Tab' });
+  assert.equal(f.context.quickPreviewPointer, null);
+  assert.equal(f.press().prevented, true);
+  assert.equal(f.context.openedKey, 'danbooru:1');
+});
+
+test('moving into the surrounding interface cannot reactivate the old focused artwork', () => {
+  const f = fixture();
+  f.press('pointerleave', f.card, { pointerType: 'mouse', clientX: 10, clientY: 80 });
+  f.doc.pointerTarget = f.button;
+  assert.equal(f.press().prevented, true);
+  assert.deepEqual(f.actions, []);
+});
 
 test('a focused artwork reopens its Space preview without requiring another pointer movement', () => {
   const f = fixture();

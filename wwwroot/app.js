@@ -67,6 +67,7 @@ document.body.append(quickPreview);
 let quickPreviewWork = null;
 let quickPreviewPointer = null;
 let quickPreviewReturnFocus = null, quickPreviewSpaceHeld = false;
+let quickPreviewRenderPending = false;
 let quickPreviewGeneration = 0;
 let quickPreviewMediaController;
 let quickPreviewView = { scale: 1, x: 0, y: 0 };
@@ -2126,13 +2127,38 @@ function orderFollowFeedItems(tab, items, newKeys = new Set()) {
 }
 
 async function setFollowOrder(tab, value) {
-  if (!['date', 'random'].includes(value) || (tab.followOrder || 'date') === value) return;
+  if (!['date', 'random'].includes(value)) return;
+  const unchanged = (tab.followOrder || 'date') === value;
+  const generation = `${tab.rating}:${value}:${value === 'random' ? tab.followRandomSeed >>> 0 : 0}`;
+  if (unchanged && (value !== 'random' || tab.followPresentationKey === generation)) return;
   tab.followOrder = value;
-  if (value === 'random') nextFollowRandomSeed(tab);
+  if (value === 'random' && (!unchanged || !Number.isInteger(tab.followRandomSeed) ||
+      tab.followRandomSeed <= 0 || tab.followRandomSeed > 0xffffffff)) nextFollowRandomSeed(tab);
   tab.virtualState = {}; tab.artworkLists?.clear();
   tab.scrollTop = 0;
   if (activeId === tab.id) main.scrollTop = 0;
-  await updateFollowFeed(tab);
+  let loaded = tab.items || [];
+  if (value === 'date') {
+    const cache = tab.followComputed;
+    const canonical = cache?.version === tab.followVersion && cache.rating === tab.rating
+      ? cache.feed.items : [];
+    const positions = new Map();
+    canonical.forEach((item, index) => {
+      for (const key of [item.key, ...(item.memberKeys || [])]) positions.set(key, index);
+    });
+    loaded = loaded.map((item, index) => {
+      const keys = [item.key, ...(item.memberKeys || [])];
+      return { item, index, isNew: keys.some(key => tab.newKeys?.has(key)),
+        position: Math.min(...keys.map(key => positions.get(key) ?? Infinity)),
+        published: Date.parse(item.published || '') || 0 };
+    }).sort((a, b) => Number(b.isNew) - Number(a.isNew) || a.position - b.position ||
+      b.published - a.published || a.index - b.index).map(entry => entry.item);
+  }
+  // A mode change only reorders the already loaded cards. Waiting for grouping
+  // lets fingerprint/provider revisions cancel the requested presentation while
+  // leaving the selected mode above the old rows. Evidence can publish later;
+  // orderFollowFeedItems keeps this mode's prefix when that worker completes.
+  tab.items = orderFollowFeedItems(tab, loaded, tab.newKeys || new Set());
   if (activeId === tab.id) render();
   saveSession();
 }
@@ -3681,6 +3707,7 @@ function closeQuickPreview(retainedRoute = null) {
   quickPreviewZoomTimer = null;
   quickPreviewDrag = null;
   quickPreview.close();
+  if (quickPreviewRenderPending) render();
   globalThis.DartUpscale?.applyVisible();
   quickPreview.replaceChildren();
   quickPreviewWork = null;
@@ -3909,6 +3936,10 @@ function pauseDetailVideos() {
 }
 
 function render() {
+  // Feed publications keep advancing behind the modal. Paint their newest
+  // snapshot once it closes instead of interrupting image zoom and panning.
+  if (quickPreview.open) { quickPreviewRenderPending = true; return; }
+  quickPreviewRenderPending = false;
   const tab = currentTab();
   const sameTab = tab && main.dataset.tabId === String(tab.id);
   const scrollTop = sameTab
@@ -5996,7 +6027,12 @@ searchInput.addEventListener('input', showPopover);
 main.addEventListener('pointermove', event => {
   if (event.pointerType === 'mouse') quickPreviewPointer = { x: event.clientX, y: event.clientY };
 });
-main.addEventListener('pointerleave', () => { quickPreviewPointer = null; });
+main.addEventListener('pointerleave', event => {
+  // Opening a modal makes the underlying main inert without a mouse action.
+  // A real move into the sidebar still owns Space and must not revive old focus.
+  quickPreviewPointer = !quickPreview.open && event.pointerType === 'mouse'
+    ? { x: event.clientX, y: event.clientY } : null;
+});
 let artworkLikeFeedback = null;
 let artworkLikeFeedbackTimer = null;
 function showArtworkLikeFeedback(event) {
@@ -6169,6 +6205,9 @@ document.addEventListener('keydown', event => {
 }, true);
 
 document.addEventListener('keydown', event => {
+  // Tab explicitly hands selection to keyboard focus. A later mouse movement
+  // hands it back to the artwork currently under the pointer.
+  if (event.key === 'Tab') quickPreviewPointer = null;
   const space = event.code === 'Space' || event.key === ' ';
   if (space && quickPreviewSpaceHeld) {
     event.preventDefault(); event.stopImmediatePropagation(); return;
@@ -6198,30 +6237,33 @@ document.addEventListener('keydown', event => {
     return;
   }
   const focusedImage = document.activeElement;
-  if ((event.key === 'Enter' || space) && !event.repeat &&
-      (focusedImage?.matches?.('.detail-image img[data-image-url]') ||
-       space && focusedImage?.matches?.('button.card-art[data-action="open"]')) &&
-      (!space || quickPreviewShortcutAllowed(event, focusedImage))) {
-    const artwork = quickPreviewArtworkAt(focusedImage, currentTab(), itemIndex);
-    if (artwork) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (space) quickPreviewSpaceHeld = true;
-      openQuickPreview(artwork, event.key === 'Enter' ? 'fullscreen' : 'window');
+  if (space) {
+    if (!quickPreviewShortcutAllowed(event, focusedImage) || document.querySelector('dialog[open]') ||
+        !tabListPanel.hidden || !tabContextMenu.hidden || !recommendationTagMenu.hidden) return;
+    const target = quickPreviewPointer
+      ? document.elementFromPoint(quickPreviewPointer.x, quickPreviewPointer.y) : focusedImage;
+    const artwork = target && main.contains(target)
+      ? quickPreviewArtworkAt(target, currentTab(), itemIndex) : null;
+    if (!artwork) {
+      // Moving off an artwork must not activate the old card merely because
+      // closing its preview restored focus there.
+      if (quickPreviewPointer && focusedImage?.matches?.('button.card-art[data-action="open"]')) {
+        event.preventDefault(); event.stopImmediatePropagation();
+      }
+      return;
     }
+    event.preventDefault(); event.stopImmediatePropagation();
+    quickPreviewSpaceHeld = true;
+    openQuickPreview(artwork);
     return;
   }
-  if (!quickPreviewPointer || !quickPreviewShortcutAllowed(event, document.activeElement) ||
-      document.querySelector('dialog[open]') || !tabListPanel.hidden || !tabContextMenu.hidden ||
-      !recommendationTagMenu.hidden) return;
-  const hovered = document.elementFromPoint(quickPreviewPointer.x, quickPreviewPointer.y);
-  if (!hovered || !main.contains(hovered)) return;
-  const artwork = quickPreviewArtworkAt(hovered, currentTab(), itemIndex);
-  if (!artwork) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  quickPreviewSpaceHeld = true;
-  openQuickPreview(artwork);
+  if (event.key === 'Enter' && !event.repeat && focusedImage?.matches?.('.detail-image img[data-image-url]')) {
+    const artwork = quickPreviewArtworkAt(focusedImage, currentTab(), itemIndex);
+    if (artwork) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      openQuickPreview(artwork, 'fullscreen');
+    }
+  }
 }, true);
 document.addEventListener('keyup', event => {
   if (!quickPreviewSpaceHeld || event.code !== 'Space' && event.key !== ' ') return;

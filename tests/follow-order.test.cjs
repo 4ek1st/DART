@@ -149,3 +149,80 @@ test('Random startup preserves its restored seed while explicit refresh initiali
   await context.loadFollowFeed(tab);
   assert(tab.followRandomSeed > 0, 'An older session without an initialized seed gets one');
 });
+
+async function busyLargeFeed() {
+  const frames = [], jobs = [];
+  const groups = Array.from({ length: 128 }, (_, artist) => ({ follow: {
+    key: `danbooru::artist_${artist}`, followedAt: '2026-11-01T00:00:00Z' },
+    items: artist < 64 ? Array.from({ length: 16 }, (_, index) => work(`artist_${artist}`,
+      artist * 1000 + index + 1, index < 8 ? '2026-11-02T12:00:00Z' : '2025-01-01T12:00:00Z')) : [] }));
+  const tab = { id: 1, kind: 'follows', rating: 'general', followVersion: 1, followUpdateRevision: 1,
+    followStreams: [], followGroups: groups, items: [], started: true };
+  const context = vm.createContext({ CatalogLogic: logic, structuredClone, clearTimeout,
+    Math: Object.assign(Object.create(Math), { random: () => .123456789 }),
+    contentPreferences: {}, activeId: 1, main: { scrollTop: 0 }, rememberItems() {}, saveSession() {},
+    render: () => frames.push({ mode: tab.followOrder || 'date', items: [...tab.items] }) });
+  vm.runInContext(block('async function updateFollowFeed(', '\nfunction queueFollowUpdate('), context);
+  await context.updateFollowFeed(tab);
+  const chronological = keys(tab.items);
+  context.DartCatalogJobs = { run(operation, args) {
+    const snapshot = structuredClone(args);
+    return new Promise(resolve => jobs.push(() => resolve(logic.groupFollowFeed(...snapshot))));
+  } };
+  frames.length = 0;
+  return { tab, context, frames, jobs, chronological, async settle() {
+    while (jobs.length) { jobs.splice(0).forEach(finish => finish()); await new Promise(resolve => setImmediate(resolve)); }
+  } };
+}
+
+test('one Random click immediately mixes all 1024 loaded works while a 128-follow worker is pending', async () => {
+  const f = await busyLargeFeed();
+  f.tab.followUpdateRevision++;
+  const publication = f.context.flushFollowUpdate(f.tab);
+  const changing = f.context.setFollowOrder(f.tab, 'random');
+  try {
+    assert.equal(f.frames.length, 1, 'Mode selection must paint its new order before an outstanding worker settles');
+    const shown = f.frames[0].items;
+    assert.equal(shown.length, 1024);
+    assert(new Set(shown.slice(0, 16).map(item => item.creatorTag)).size >= 12,
+      'The first click must replace the held Date author rows with the full loaded artist mix');
+    assert.equal(new Set(shown.slice(0, 32).map(item => item.published)).size, 2);
+    assert.notDeepEqual(keys(shown), f.chronological);
+  } finally { await f.settle(); await publication; await changing; }
+});
+
+test('fingerprint revision churn cannot leave Random selected above the old Date rows', async () => {
+  const f = await busyLargeFeed();
+  f.tab.followUpdateRevision++;
+  const publication = f.context.flushFollowUpdate(f.tab);
+  const changing = f.context.setFollowOrder(f.tab, 'random');
+  f.tab.followUpdateRevision++;
+  await f.settle(); await publication; await changing;
+  assert.equal(f.tab.followOrder, 'random');
+  assert.notDeepEqual(keys(f.tab.items), f.chronological,
+    'A discarded grouping publication must not discard the already requested presentation change');
+  assert(new Set(f.tab.items.slice(0, 16).map(item => item.creatorTag)).size >= 12);
+});
+
+test('a pending Date evidence publication preserves the immediate Random prefix and a later Date switch', async () => {
+  const f = await busyLargeFeed();
+  f.tab.followUpdateRevision++;
+  const publication = f.context.flushFollowUpdate(f.tab);
+  const changing = f.context.setFollowOrder(f.tab, 'random');
+  const immediate = keys(f.tab.items);
+  await f.settle(); await publication; await changing;
+  assert.deepEqual(keys(f.tab.items), immediate, 'A late Date grouping result must not replace the selected Random order');
+  const returning = f.context.setFollowOrder(f.tab, 'date');
+  assert.deepEqual(keys(f.tab.items), f.chronological, 'Returning to Date also applies immediately');
+  await f.settle(); await returning;
+});
+
+test('clicking an already selected Random control repairs an interrupted Date presentation without reseeding', async () => {
+  const f = await busyLargeFeed();
+  f.tab.followOrder = 'random'; f.tab.followRandomSeed = 12345;
+  await f.context.setFollowOrder(f.tab, 'random');
+  assert.equal(f.tab.followRandomSeed, 12345);
+  assert.equal(f.frames.length, 1);
+  assert.notDeepEqual(keys(f.tab.items), f.chronological);
+  assert(new Set(f.tab.items.slice(0, 16).map(item => item.creatorTag)).size >= 12);
+});

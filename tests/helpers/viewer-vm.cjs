@@ -15,7 +15,7 @@ function createContext(sandbox = {}, options) {
   const actions=DartArtworkActions.create({request:async()=>[]});
   const defaults={artworkActionsController:()=>actions,favoriteGroupFor:()=>null,
     renderHiddenArtworksSettings:()=>'',svg:()=>'',recommendationTagMenu:{},closeRecommendationTagMenu(){},pruneArtworkRoutes(){},
-    quickPreviewReturnFocus:null,quickPreviewSpaceHeld:false};
+    quickPreviewReturnFocus:null,quickPreviewSpaceHeld:false,quickPreviewRenderPending:false};
   for(const [key,value]of Object.entries(defaults))if(!Object.hasOwn(sandbox,key))sandbox[key]=value;
   const context = vm.createContext(sandbox, options);
   vm.runInContext(helpers, context);

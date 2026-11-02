@@ -1,0 +1,5 @@
+# Preview selection and Following responsiveness
+
+- Fixed the 0.2.64 regression where Space repeatedly opened the previously focused artwork after the mouse moved to another card. Mouse movement selects the artwork under the pointer; Tab selects by keyboard focus. Moving onto blank space or the surrounding interface does not activate the old artwork. Home/Back, native video controls, text input and held-Space protections remain available.
+- Date / Random now reorders already loaded Following works on the first click, without waiting for background grouping. Delayed or cancelled evidence jobs cannot leave Random selected above the old Date rows. Date restores cached chronology; Random retains its current prefix when more evidence arrives.
+- Background feed updates no longer redraw the covered page during artwork preview. Data continues loading; closing the preview reconciles the latest page once, preserving its position. This removes a measured source of interruptions while panning enlarged images.
