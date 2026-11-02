@@ -157,3 +157,29 @@ test('fast browsing is bounded before original downloads and decoding workers st
   assert.equal(notices.filter(value => value.includes('queue is full')).length, 6);
   window.DartUpscale.dispose();
 });
+
+test('starting immediately after choosing a default waits for that choice to save', async () => {
+  let click, completeSave, uploaded = '', reads = 0;
+  class Worker {
+    postMessage({ blob }) { queueMicrotask(() => this.onmessage({ data: { result: { blob, width: 80, height: 60 } } })); }
+    terminate() {}
+  }
+  const response = value => ({ ok: true, json: async () => value });
+  const window = { Worker, addEventListener: () => {}, document: { querySelector: () => null, querySelectorAll: () => [],
+    addEventListener: (type, handler) => { if (type === 'click') click = handler; } }, fetch: async url => {
+      if (url === '/api/upscale') return response({ component: { installed: true, state: 'ready' }, preferences: { scale: 4 }, cacheBytes: 0 });
+      if (url.endsWith('/preferences')) return new Promise(resolve => { completeSave = () => resolve(response({ scale: 2 })); });
+      uploaded = url; return response({ id: 'saved-choice', state: 'completed', scale: 2, resultUrl: '/result.png' });
+    } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../wwwroot/upscale.js'),'utf8'),
+    { window, Blob, AbortController, AbortSignal, DOMException, setTimeout, clearTimeout, URL });
+  window.DartUpscale.configure({ readImage: async () => { reads++; return new Blob(['pixels']); } });
+  await window.DartUpscale.refresh();
+  click({ target: { closest: () => ({ dataset: { upscaleScale: '2' } }) }, preventDefault() {} });
+  const running = window.DartUpscale.open({ item: { key: 'danbooru:fixture' }, url: 'https://example.test/original.png' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 0); assert.equal(uploaded, '', 'previous 4x default must not start while 2x is saving');
+  completeSave(); await running;
+  assert.equal(uploaded, '/api/upscale/jobs?scale=2');
+  window.DartUpscale.dispose();
+});

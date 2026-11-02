@@ -66,10 +66,10 @@
       }
       offset += size;
     }
-    if (type === 'image/webp' && bytes.length >= 30) {
+    if (type === 'image/webp' && bytes.length >= 25) {
       const chunk = text(bytes,12,4), uint24 = offset => bytes[offset] | bytes[offset+1] << 8 | bytes[offset+2] << 16;
-      if (chunk === 'VP8X') check(uint24(24) + 1, uint24(27) + 1);
-      else if (chunk === 'VP8 ' && text(bytes,23,3) === '\x9d\x01\x2a') check(view.getUint16(26,true) & 16383, view.getUint16(28,true) & 16383);
+      if (chunk === 'VP8X' && bytes.length >= 30) check(uint24(24) + 1, uint24(27) + 1);
+      else if (chunk === 'VP8 ' && bytes.length >= 30 && text(bytes,23,3) === '\x9d\x01\x2a') check(view.getUint16(26,true) & 16383, view.getUint16(28,true) & 16383);
       else if (chunk === 'VP8L' && bytes[20] === 47) {
         const bits = view.getUint32(21,true); check((bits & 16383) + 1, (bits >>> 14 & 16383) + 1);
       }

@@ -139,6 +139,7 @@
 
   let dependencies = {}, moduleState = null, preferences = { scale: 2 }, cacheBytes = 0;
   let moduleError = '', pollTimer = null, statusRequest = null, savingScale = false;
+  let scaleSave = Promise.resolve();
   const records = new Map(), overlays = new Map();
   const request = (url, options) => json(root.fetch.bind(root), url, options);
   const mediaKey = url => root.CatalogLogic?.mediaCacheKey(url) || url;
@@ -201,7 +202,8 @@
   async function setScale(scale) {
     if (savingScale || ![2,4].includes(scale)) return;
     savingScale = true; paintModule();
-    try { preferences = await request('/api/upscale/preferences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scale }) }); }
+    scaleSave = request('/api/upscale/preferences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scale }) });
+    try { preferences = await scaleSave; }
     catch (error) { dependencies.toast?.(t(error.message in messages.en ? error.message : 'storage')); }
     finally { savingScale = false; paintModule(); }
   }
@@ -216,6 +218,7 @@
   }
   async function open({ item, url }) {
     if (!canUpscaleImage(item, url)) return false;
+    if (savingScale) { try { await scaleSave; } catch { return false; } }
     if (!moduleState) await refresh();
     if (!moduleState?.installed || moduleState.error || installing(moduleState.state)) {
       dependencies.openSettings?.('upscale'); dependencies.toast?.(t(moduleError || 'not-installed')); return false;
