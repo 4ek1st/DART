@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.text.Normalizer;
 import java.util.regex.Pattern;
+import java.io.*;
 
 /** Portable, additive profile exchange. This class has no Android or file-system side effects. */
 final class ProfileTransfer {
@@ -22,7 +23,37 @@ final class ProfileTransfer {
     private static JSONArray reversed(JSONArray array){JSONArray result=new JSONArray();for(int i=array.length()-1;i>=0;i--)result.put(array.opt(i));return result;}
     private static List<String> keys(JSONObject object){List<String> result=new ArrayList<>();Iterator<String> keys=object.keys();while(keys.hasNext())result.add(keys.next());return result;}
     private static IllegalArgumentException invalid(String field){return new IllegalArgumentException("Некорректный профиль: "+field);}
-    private static JSONObject copy(JSONObject value) throws JSONException {return new JSONObject(value.toString());}
+    /** Copy mutable containers while reusing immutable strings instead of encoding the whole profile twice. */
+    static JSONObject copy(JSONObject value) throws JSONException {return (JSONObject)copyValue(value,0);}
+    private static Object copyValue(Object value,int level) throws JSONException {
+        if(level>32)throw invalid("слишком большая вложенность");
+        if(value instanceof JSONObject){JSONObject result=new JSONObject(),source=(JSONObject)value;Iterator<String> names=source.keys();while(names.hasNext()){String key=names.next();result.put(key,copyValue(source.get(key),level+1));}return result;}
+        if(value instanceof JSONArray){JSONArray source=(JSONArray)value,result=new JSONArray();for(int i=0;i<source.length();i++)result.put(copyValue(source.get(i),level+1));return result;}
+        return value;
+    }
+    /** Stream to an AtomicFile/staging stream; its caller owns sync, commit and close. */
+    static void writeJson(JSONObject value,OutputStream stream) throws IOException {
+        Writer output=new BufferedWriter(new OutputStreamWriter(stream,StandardCharsets.UTF_8),8192);
+        try{writeValue(value,output,0);output.flush();}catch(JSONException error){throw new IOException("Не удалось записать профиль",error);}
+    }
+    /** Validate export size before opening the user's destination, without a document-sized byte array. */
+    static int encodedBytes(JSONObject value,int maxBytes) throws IOException {
+        if(maxBytes<0)throw new IllegalArgumentException("Negative profile size limit");
+        class Counter extends OutputStream {
+            int count;
+            private void add(int length) throws IOException {if(length>maxBytes-count)throw new IOException("Profile file exceeds 20 MB.");count+=length;}
+            @Override public void write(int value) throws IOException {add(1);}
+            @Override public void write(byte[] values,int offset,int length) throws IOException {add(length);}
+        }
+        Counter counter=new Counter();writeJson(value,counter);return counter.count;
+    }
+    private static void writeValue(Object value,Writer output,int level) throws IOException,JSONException {
+        if(level>32)throw new IOException("Слишком большая вложенность профиля");
+        if(value==null||value==JSONObject.NULL){output.write("null");return;}
+        if(value instanceof JSONObject){output.write('{');Iterator<String> names=((JSONObject)value).keys();boolean first=true;while(names.hasNext()){String key=names.next();if(!first)output.write(',');first=false;output.write(JSONObject.quote(key));output.write(':');writeValue(((JSONObject)value).get(key),output,level+1);}output.write('}');return;}
+        if(value instanceof JSONArray){JSONArray array=(JSONArray)value;output.write('[');for(int i=0;i<array.length();i++){if(i>0)output.write(',');writeValue(array.get(i),output,level+1);}output.write(']');return;}
+        if(value instanceof String)output.write(JSONObject.quote((String)value));else if(value instanceof Number)output.write(JSONObject.numberToString((Number)value));else if(value instanceof Boolean)output.write(value.toString());else throw new IOException("Неподдерживаемое значение профиля");
+    }
     private static boolean equal(Object first,Object second){
         if(first==second)return true;if(first==null||second==null)return false;
         if(first instanceof JSONObject&&second instanceof JSONObject){JSONObject a=(JSONObject)first,b=(JSONObject)second;if(a.length()!=b.length())return false;for(String key:keys(a))if(!b.has(key)||!equal(a.opt(key),b.opt(key)))return false;return true;}

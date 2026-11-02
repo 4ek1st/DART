@@ -40,14 +40,31 @@ final class SankakuApi {
         throw new IOException("Sankaku не вернул список работ. Проверьте теги.");
     }
     JSONObject post(String id) throws Exception {
+        return post(id,"");
+    }
+    /** Legacy numeric saved IDs require the exact member's retained content hash. */
+    JSONObject post(String id,String ownedHash) throws Exception {
         if(!CatalogLogic.validId("sankaku",id))throw new IOException("Некорректный ID Sankaku.");
-        JSONObject post=object(request("/posts/"+id+"?lang=en").body);
-        if(!id.equals(string(post,"id")))throw new IOException("Работа Sankaku недоступна или удалена.");
+        boolean byHash=id.matches("[0-9]+")&&ownedHash!=null&&ownedHash.matches("[a-fA-F0-9]{32}");
+        JSONObject post;
+        if(byHash){
+            String hash=ownedHash.toLowerCase(java.util.Locale.ROOT);
+            Object response=new JSONTokener(request("/v2/posts?lang=en&limit=2&page=1&tags="+CatalogClient.encode("md5:"+hash)).body).nextValue();
+            JSONArray data=response instanceof JSONArray?(JSONArray)response:response instanceof JSONObject?((JSONObject)response).optJSONArray("data"):null;
+            post=data!=null&&data.length()==1?data.optJSONObject(0):null;
+            if(post==null||!hash.equalsIgnoreCase(string(post,"md5"))||!CatalogLogic.validId("sankaku",string(post,"id")))
+                throw new IOException("Работа Sankaku недоступна или удалена.");
+        }else{
+            post=object(request("/posts/"+id+"?lang=en").body);
+            if(!id.equals(string(post,"id")))throw new IOException("Работа Sankaku недоступна или удалена.");
+        }
         if(CatalogLogic.map("sankaku",post).media.isEmpty()){
             if(post.optBoolean("redirect_to_signup")||post.optBoolean("is_premium")||CatalogLogic.isMediaUrl(post.optString("preview_url")))throw new AccessException(session.accessToken().isBlank());
             throw new IOException("У этой работы Sankaku нет доступного изображения.");
         }
-        return post;
+        // Preserve saved keys and ownership; the resolved modern post is a media lookup,
+        // not a new member to append to the user's collection.
+        return byHash?new JSONObject(post.toString()).put("id",id):post;
     }
     private Response request(String path) throws Exception {
         String token=session.accessToken();Response response=transport.request("GET",path,null,token);

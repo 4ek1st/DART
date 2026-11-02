@@ -57,4 +57,44 @@ public class SankakuApiTest {
         SankakuApi api=new SankakuApi(new MemorySession(),(method,path,body,token)->new SankakuApi.Response(429,"{\"code\":\"_tags-explicit-limit\"}"));
         try{api.posts("landscape sky ocean",0,"all","latest",24);fail();}catch(SankakuApi.AccessException e){assertTrue(e.loginRequired);}catch(Exception e){fail("Must offer login for the guest tag limit");}
     }
+    private static final String HASH="112233445566778899aabbccddeeff00";
+    private static JSONObject resolved(String hash,String id) throws Exception {
+        return new JSONObject().put("id",id).put("md5",hash)
+            .put("file_url","https://s.sankakucomplex.com/data/"+hash+".png?e=4102444800&m=fresh")
+            .put("preview_url","https://s.sankakucomplex.com/preview/"+hash+".jpg?e=4102444800&m=fresh");
+    }
+    @Test public void importedNumericIdUsesOneExactOwnedHashLookupAndRetainsRequestedIdentity() throws Exception {
+        List<String> paths=new ArrayList<>();SankakuApi api=new SankakuApi(new MemorySession(),(method,path,body,token)->{
+            paths.add(path);assertEquals("GET",method);assertTrue(path.contains("limit=2"));assertTrue(path.contains("page=1"));
+            assertTrue(path.contains("tags=md5%3A"+HASH));return new SankakuApi.Response(200,new JSONArray().put(resolved(HASH,"ModernABC123")).toString());
+        });
+        JSONObject post=api.post("1234567",HASH.toUpperCase(Locale.ROOT));
+        assertEquals("1234567",post.getString("id"));assertEquals(HASH,post.getString("md5"));assertEquals(1,paths.size());
+        assertEquals("sankaku:1234567",CatalogLogic.map("sankaku",post).key());assertTrue(CatalogLogic.map("sankaku",post).preview.contains(HASH));
+    }
+    @Test public void exactLegacyHashLookupAcceptsTheDataEnvelope() throws Exception {
+        SankakuApi api=new SankakuApi(new MemorySession(),(method,path,body,token)->new SankakuApi.Response(200,
+            new JSONObject().put("data",new JSONArray().put(resolved(HASH,"ModernABC123"))).toString()));
+        assertEquals("1234567",api.post("1234567",HASH).getString("id"));
+    }
+    @Test public void legacyHashLookupRejectsMissingAmbiguousMismatchedAndUnusableRecordsWithoutRetry() throws Exception {
+        JSONObject valid=resolved(HASH,"ModernABC123");
+        List<String> bodies=List.of("[]",new JSONArray().put(valid).put(valid).toString(),
+            new JSONArray().put(resolved("ffeeddccbbaa99887766554433221100","ModernABC123")).toString(),
+            new JSONArray().put(resolved(HASH,"../invalid")).toString(),
+            new JSONArray().put(new JSONObject().put("id","ModernABC123").put("md5",HASH)).toString(),"{}");
+        for(String response:bodies){int[] calls={0};SankakuApi api=new SankakuApi(new MemorySession(),(method,path,body,token)->{calls[0]++;return new SankakuApi.Response(200,response);});
+            try{api.post("1234567",HASH);fail("Unconfirmed hash result must not become saved media");}catch(java.io.IOException expected){}
+            assertEquals("The exact lookup must not start broad fallback requests",1,calls[0]);
+        }
+    }
+    @Test public void numericIdWithoutAnOwnedHashDoesNotSearchByOtherMetadata() throws Exception {
+        List<String> paths=new ArrayList<>();SankakuApi api=new SankakuApi(new MemorySession(),(method,path,body,token)->{paths.add(path);return new SankakuApi.Response(404,"{}");});
+        for(String invalid:List.of("","not-a-hash",HASH+" extra"))try{api.post("1234567",invalid);fail();}catch(java.io.IOException expected){}
+        assertEquals(List.of("/posts/1234567?lang=en","/posts/1234567?lang=en","/posts/1234567?lang=en"),paths);
+    }
+    @Test public void modernOpaqueIdDoesNotUseAnotherSavedMembersHash() throws Exception {
+        List<String> paths=new ArrayList<>();SankakuApi api=new SankakuApi(new MemorySession(),(method,path,body,token)->{paths.add(path);return new SankakuApi.Response(200,resolved(HASH,"ModernABC123").toString());});
+        assertEquals("ModernABC123",api.post("ModernABC123",HASH).getString("id"));assertEquals(List.of("/posts/ModernABC123?lang=en"),paths);
+    }
 }

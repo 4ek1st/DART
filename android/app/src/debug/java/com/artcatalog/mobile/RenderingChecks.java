@@ -32,7 +32,9 @@ final class RenderingChecks {
             Bundle route=(Bundle)save.invoke(activity,full,posts.get(0));
             Method restore=activity.getClass().getDeclaredMethod("galleryFromBundle",Bundle.class);restore.setAccessible(true);
             Object restored=restore.invoke(activity,route);
-            Log.i("ArtCatalogQA","GALLERY saved buffer complete="+(((List<?>)field(restored,"posts")).size()==posts.size())+" count="+posts.size());
+            List<Post> nearby=(List<Post>)field(restored,"posts");Post selected=(Post)posts.get(0);boolean selectedRetained=nearby.stream().anyMatch(post->FeedSession.keys(post).contains(selected.key()));
+            boolean cursorRetained=field(field(restored,"source"),"pages").equals(field(screen,"pages"));
+            Log.i("ArtCatalogQA","GALLERY saved nearby buffer bounded="+(nearby.size()<=11)+" selected="+selectedRetained+" cursor="+cursorRetained+" savedCount="+nearby.size());GalleryRestoreChecks.run(activity);
         }catch(Exception error){Log.e("ArtCatalogQA","Rendering regression setup",error);}},2500);
         if(activity.getIntent().getBooleanExtra("qaGalleryChecks",false))main.postDelayed(()->{try{
             Object client=field(activity,"client");List<?> fixtures=(List<?>)field(client,"fixtures");Object[] screens=(Object[])field(activity,"screens");Object screen=screens[0];

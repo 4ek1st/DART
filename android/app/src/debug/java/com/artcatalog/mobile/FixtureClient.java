@@ -6,7 +6,7 @@ import org.json.*;
 
 /** Deterministic QA data. This source set is excluded from release APKs. */
 final class FixtureClient extends CatalogClient {
-    final ArrayList<Post> fixtures=new ArrayList<>();final List<String> pageCalls=Collections.synchronizedList(new ArrayList<>());private int navigationRetryFailures;
+    final ArrayList<Post> fixtures=new ArrayList<>(),navigationFixtures=new ArrayList<>();final List<String> pageCalls=Collections.synchronizedList(new ArrayList<>());private int navigationRetryFailures;
     FixtureClient(Store store,ImageLoader images) throws Exception {
         super(store);
         String[] titles={"Тихое утро","За горизонтом","Лунная долина","Тёплый вечер","Небо над морем","Зелёные холмы","Дальний берег","Звёздный свет"};
@@ -22,16 +22,18 @@ final class FixtureClient extends CatalogClient {
             for(int copy=0;copy<8;copy++){
                 String copyUrl="https://cdn.donmai.us/artcatalog-qa/landscape-"+(copy*8+i)+".jpg";images.seed(copyUrl,bitmap);
                 Post p=new Post();p.source="danbooru";p.id=String.valueOf(9000000+copy*8+i);p.title=titles[i];p.artist=copy<4?"Test artist":"Second artist";p.artistTag=copy<4?"artcatalog_test_artist":"artcatalog_second_artist";p.artistTags=List.of(p.artistTag);p.rating="g";p.preview=copyUrl;p.image=copyUrl;p.original=copyUrl;p.sourceUrl="https://danbooru.donmai.us/posts/"+p.id;p.hash="fixture-"+p.id;p.width=720;p.height=900;p.score=100-i*7+copy;p.tags=new ArrayList<>(List.of("landscape","sky",i%2==0?"ocean":"nature",p.artistTag,"original","qa_character"));p.characterTags=List.of("qa_character");for(int t=0;t<15;t++)p.tags.add("qa_tag_"+t);p.media=List.of(copyUrl);if(i==0)p.media=List.of(copyUrl,"https://cdn.donmai.us/artcatalog-qa/landscape-1.jpg");fixtures.add(p);
+                Post navigation=p.copy();String navUrl="https://cdn.donmai.us/artcatalog-qa/navigation-"+p.id+".jpg";images.seed(navUrl,bitmap);navigation.preview=navUrl;navigation.smallPreview=navUrl;navigation.image=navUrl;navigation.original=navUrl;navigation.media=List.of(navUrl);navigation.imageRecords=new JSONArray();navigation.identityKeys=List.of();navigation.groupMembers=List.of();
+                if(i==0){String variant="https://cdn.donmai.us/artcatalog-qa/navigation-variant-"+p.id+".jpg";images.seed(variant,bitmap);navigation.media=List.of(navUrl,variant);}navigationFixtures.add(navigation);
             }bitmap.recycle();
         }
-        fixtures.sort(Comparator.comparingInt(p->Integer.parseInt(p.id)));
+        fixtures.sort(Comparator.comparingInt(p->Integer.parseInt(p.id)));navigationFixtures.sort(Comparator.comparingInt(p->Integer.parseInt(p.id)));
     }
     @Override Page search(String query,Map<String,Integer> pages,String rating,String sort){
         pageCalls.add(query+":"+new LinkedHashMap<>(pages));
         if(query.equals("qa_slow_navigation"))try{Thread.sleep(650);}catch(InterruptedException e){Thread.currentThread().interrupt();}
         Page page=new Page();int offset=pages.values().stream().mapToInt(Integer::intValue).min().orElse(0)*16;
         if(query.equals("qa_navigation_retry")&&navigationRetryFailures++==0){page.errors.put("danbooru","QA transient failure");return page;}
-        List<Post> matches=new ArrayList<>();if(query.equals("qa_hidden_pages")||query.equals("qa_hidden_first")){boolean first=query.equals("qa_hidden_first");for(int i=0;i<(first?32:48);i++){Post p=Post.fromJson(fixtures.get(i).toJson());p.media=List.of(p.image);p.imageRecords=new JSONArray();p.artistTag="artcatalog_paging_artist_"+i;p.artistTags=List.of(p.artistTag);try{p.participants=new JSONArray().put(new JSONObject().put("tag",p.artistTag).put("role","artist"));}catch(JSONException impossible){throw new IllegalStateException(impossible);}if(first?i<16:i>=16&&i<32)p.tags.add("qa_hidden");matches.add(p);}}else for(Post p:fixtures)if(CatalogLogic.matchesRating(p.rating,rating)&&(query.isBlank()||query.contains("order:")||query.equals("qa_slow_navigation")||query.equals("qa_navigation_retry")||p.tags.contains(query)))matches.add(p);
+        List<Post> matches=new ArrayList<>();if(query.equals("qa_hidden_pages")||query.equals("qa_hidden_first")){boolean first=query.equals("qa_hidden_first");for(int i=0;i<(first?32:48);i++){Post p=Post.fromJson(fixtures.get(i).toJson());p.media=List.of(p.image);p.imageRecords=new JSONArray();p.artistTag="artcatalog_paging_artist_"+i;p.artistTags=List.of(p.artistTag);try{p.participants=new JSONArray().put(new JSONObject().put("tag",p.artistTag).put("role","artist"));}catch(JSONException impossible){throw new IllegalStateException(impossible);}if(first?i<16:i>=16&&i<32)p.tags.add("qa_hidden");matches.add(p);}}else if(query.equals("qa_slow_navigation")||query.equals("qa_navigation_retry")){for(Post p:navigationFixtures)if(CatalogLogic.matchesRating(p.rating,rating))matches.add(p.copy());}else for(Post p:fixtures)if(CatalogLogic.matchesRating(p.rating,rating)&&(query.isBlank()||query.contains("order:")||p.tags.contains(query)))matches.add(p);
         for(int i=offset;i<Math.min(offset+16,matches.size());i++)page.posts.add(matches.get(i));
         if(offset+16<matches.size())page.more.addAll(pages.keySet());return page;
     }

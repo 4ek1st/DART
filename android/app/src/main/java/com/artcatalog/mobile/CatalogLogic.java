@@ -6,6 +6,7 @@ import java.net.URI;
 import java.text.Normalizer;
 
 public final class CatalogLogic {
+    private static final Map<String,String> NORMALIZED_TAGS=new LinkedHashMap<>(256,.75f,true);
     private static final Set<String> GENERIC=Set.of("1girl","1boy","solo","2girls","multiple_girls","rating:safe","highres","absurdres","commentary","commentary_request","translated","translation_request","tagme","artist_request","source_request");
     public static String normalizeRating(String r){
         return switch(r.toLowerCase(Locale.ROOT)){
@@ -125,12 +126,13 @@ public final class CatalogLogic {
         .thenComparing(Comparator.comparingLong((Post p)->{long date=-1;for(Post member:p.groupMembers.isEmpty()?List.of(p):p.groupMembers)date=Math.max(date,Curation.published(member.published));return date;}).reversed()));return result;}
     private static List<String> union(List<String> a,List<String> b){LinkedHashSet<String> values=new LinkedHashSet<>(a);values.addAll(b);return new ArrayList<>(values);}
     public static String normalizeTag(String tag){
+        if(tag.length()<=200)synchronized(NORMALIZED_TAGS){String cached=NORMALIZED_TAGS.get(tag);if(cached!=null)return cached;}
         boolean ascii=true;for(int i=0;i<tag.length();i++)if(tag.charAt(i)>127){ascii=false;break;}
         String normal=(ascii?tag:Normalizer.normalize(tag,Normalizer.Form.NFKC)).toLowerCase(Locale.ROOT).trim();
         int start=0;while(start<normal.length()&&normal.charAt(start)=='#')start++;
         StringBuilder result=new StringBuilder(normal.length());boolean space=false;
         for(int i=start;i<normal.length();i++){char c=normal.charAt(i);if(c=='_'||c=='-'||c==' '||c>='\t'&&c<='\r')space=true;else{if(space&&result.length()>0)result.append(' ');result.append(c);space=false;}}
-        return result.toString().trim();
+        String value=result.toString().trim();if(tag.length()<=200)synchronized(NORMALIZED_TAGS){NORMALIZED_TAGS.put(tag,value);if(NORMALIZED_TAGS.size()>8192)NORMALIZED_TAGS.remove(NORMALIZED_TAGS.keySet().iterator().next());}return value;
     }
     public static List<String> excludedTags(String raw){LinkedHashSet<String> result=new LinkedHashSet<>();for(String tag:raw.split(",")){String clean=normalizeTag(tag);if(!clean.isBlank()&&clean.length()<=100&&result.size()<1000)result.add(clean);}return new ArrayList<>(result);}
     private static final Set<String> GENERATED=Set.of("ai generated","ai created","ai art","ai artwork","ai image","ai illustration","stable diffusion","nai diffusion","novelai","midjourney","dall e","dall e 2","dall e 3","comfyui","automatic1111","thisanimedoesnotexist","generated with ai","made with ai");
@@ -158,7 +160,13 @@ public final class CatalogLogic {
     public static String tagKind(Post p,String tag){String normalized=normalizeTag(tag);if(!normalized.equals("original character"))for(String character:p.characterTags)if(normalizeTag(character).equals(normalized))return "character";for(String copyright:p.copyrightTags)if(normalizeTag(copyright).equals(normalized))return "copyright";return normalized.equals("original")?"original":"";}
     public static List<String> artworkTags(Post p){List<String> sorted=union(union(p.tags,p.characterTags),p.copyrightTags);Set<String> characters=new HashSet<>(),copyrights=new HashSet<>();for(String tag:p.characterTags)characters.add(normalizeTag(tag));for(String tag:p.copyrightTags)copyrights.add(normalizeTag(tag));Map<String,Integer> kinds=new HashMap<>();for(String tag:sorted){String normal=normalizeTag(tag);kinds.put(tag,!normal.equals("original character")&&characters.contains(normal)?0:copyrights.contains(normal)?1:normal.equals("original")?2:3);}sorted.sort(Comparator.comparingInt(kinds::get));return sorted;}
     public static List<String> relatedQueries(Post p){List<String> result=new ArrayList<>();for(String tag:p.characterTags)if(!normalizeTag(tag).equals("original character"))result.add(tag);for(String tag:recommendationTags(List.of(p)))if(!tag.equals(p.artistTag)&&!p.artistTags.contains(tag)&&!Set.of("artist_name","signature","watermark","original").contains(tag)&&!result.contains(tag))result.add(tag);return result;}
-    public static Post neighbor(List<Post> posts,Post current,int delta){for(int i=0;i<posts.size();i++)if(posts.get(i).key().equals(current.key())||posts.get(i).memberKeys.contains(current.key())){int next=i+delta;return next>=0&&next<posts.size()?posts.get(next):null;}return null;}
+    public static Post neighbor(List<Post> posts,Post current,int delta){return neighbor(posts,current,delta,p->true);}
+    static Post neighbor(List<Post> posts,Post current,int delta,java.util.function.Predicate<Post> allowed){
+        if(delta==0)return null;
+        for(int i=0;i<posts.size();i++)if(posts.get(i).key().equals(current.key())||posts.get(i).memberKeys.contains(current.key())){
+            int remaining=Math.abs(delta),direction=delta>0?1:-1;for(int next=i+direction;next>=0&&next<posts.size();next+=direction)if(allowed.test(posts.get(next))&&--remaining==0)return posts.get(next);return null;
+        }return null;
+    }
     public static List<String> recommendationTags(List<Post> bookmarks){
         Map<String,Integer> counts=new HashMap<>();
         for(Post p:bookmarks)for(String tag:new HashSet<>(p.tags))

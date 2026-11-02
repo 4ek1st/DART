@@ -43,24 +43,24 @@ final class NavigationChecks {
     }
     private static void pageBoundary(Activity activity,List<Post> fixtures)throws Exception {
         method(activity,"selectNav",int.class).invoke(activity,0);
-        List<Post> posts=new ArrayList<>();for(int i=0;i<16;i++){Post p=Post.fromJson(fixtures.get(i).toJson());p.media=new ArrayList<>(List.of(p.image));posts.add(p);}
+        List<Post> posts=new ArrayList<>();for(int i=0;i<16;i++){Post p=navigationFixtures(activity).get(i).copy();p.media=new ArrayList<>(List.of(p.image));posts.add(p);}
         Object source=screen(activity,posts,true);set(source,"query","qa_slow_navigation");((Map<String,Integer>)field(source,"pages")).put("danbooru",1);
         Object gallery=gallery(activity,posts,source);set(gallery,"syncedRevision",(int)field(source,"revision"));
         method(activity,"openArtwork",Post.class,gallery.getClass()).invoke(activity,posts.get(15),gallery);
         for(int i=0;i<3;i++)method(activity,"navigate",int.class).invoke(activity,1);
         new Handler(Looper.getMainLooper()).postDelayed(()->{
-            try {Post actual=(Post)field(activity,"activePost");Log.i("ArtCatalogQA","NAV three inputs across slow page including variant="+(actual.id.equals("9000017")&&(int)field(activity,"activeMediaIndex")==0)+" expected=9000017 actual="+actual.id);reverseVariants(activity,fixtures);}
+            try {Post actual=(Post)field(activity,"activePost");Log.i("ArtCatalogQA","NAV three artwork inputs across slow page="+(actual.id.equals("9000018")&&(int)field(activity,"activeMediaIndex")==0)+" expected=9000018 actual="+actual.id);reverseVariants(activity,fixtures);}
             catch(Exception e){Log.e("ArtCatalogQA","Page navigation result",e);}
         },4000);
     }
     private static void reverseVariants(Activity activity,List<Post> fixtures)throws Exception {
         android.widget.ImageView old=(android.widget.ImageView)field(activity,"activeArt");
         for(int i=0;i<3;i++)method(activity,"navigate",int.class).invoke(activity,-1);
-        Handler main=new Handler(Looper.getMainLooper());main.postDelayed(()->{
-            try{android.widget.ImageView art=(android.widget.ImageView)field(activity,"activeArt"),snapshot=(android.widget.ImageView)field(activity,"outgoingMedia");boolean moving=Math.abs(art.getTranslationX())>0;Log.i("ArtCatalogQA","NAV real image animation retains bitmap and fixed controls="+(moving&&snapshot!=null&&snapshot.getDrawable()!=null&&((android.view.View)field(activity,"currentView")).getTranslationX()==0));}catch(Exception e){Log.e("ArtCatalogQA","Animation sampling",e);}
-        },70);
+        Handler main=new Handler(Looper.getMainLooper());long deadline=SystemClock.uptimeMillis()+1000;Runnable[] probe={null};probe[0]=()->{
+            try{android.animation.Animator animation=(android.animation.Animator)field(activity,"pageAnimator");android.widget.ImageView art=(android.widget.ImageView)field(activity,"activeArt");boolean moving=animation!=null&&animation.isRunning()&&art!=null&&Math.abs(art.getTranslationX())>0;if(!moving&&SystemClock.uptimeMillis()<deadline){main.postDelayed(probe[0],16);return;}android.widget.ImageView snapshot=(android.widget.ImageView)field(activity,"outgoingMedia");Log.i("ArtCatalogQA","NAV real image animation retains bitmap and fixed controls="+(moving&&snapshot!=null&&snapshot.getDrawable()!=null&&((android.view.View)field(activity,"currentView")).getTranslationX()==0));}catch(Exception e){Log.e("ArtCatalogQA","Animation sampling",e);}
+        };main.post(probe[0]);
         main.postDelayed(()->{
-            try{Post actual=(Post)field(activity,"activePost");android.view.ViewGroup content=(android.view.ViewGroup)field(activity,"content");Log.i("ArtCatalogQA","NAV reverse three includes variant="+actual.id.equals("9000015")+" no retained pages="+(content.getChildCount()==1&&field(activity,"outgoingMedia")==null));hiddenPage(activity,fixtures);}
+            try{Post actual=(Post)field(activity,"activePost");android.view.ViewGroup content=(android.view.ViewGroup)field(activity,"content");Log.i("ArtCatalogQA","NAV reverse three artworks="+actual.id.equals("9000015")+" no retained pages="+(content.getChildCount()==1&&field(activity,"outgoingMedia")==null));hiddenPage(activity,fixtures);}
             catch(Exception e){Log.e("ArtCatalogQA","Reverse result",e);}
         },1500);
     }
@@ -74,7 +74,7 @@ final class NavigationChecks {
         },2000);
     }
     private static void retry(Activity activity,List<Post> fixtures)throws Exception {
-        method(activity,"selectNav",int.class).invoke(activity,0);List<Post> posts=new ArrayList<>(fixtures.subList(0,16));Object source=screen(activity,posts,true);set(source,"query","qa_navigation_retry");((Map<String,Integer>)field(source,"pages")).put("danbooru",1);Object gallery=gallery(activity,posts,source);set(gallery,"syncedRevision",(int)field(source,"revision"));method(activity,"openArtwork",Post.class,gallery.getClass()).invoke(activity,posts.get(15),gallery);method(activity,"navigate",int.class).invoke(activity,1);
+        method(activity,"selectNav",int.class).invoke(activity,0);List<Post> posts=new ArrayList<>(navigationFixtures(activity).subList(0,16));Object source=screen(activity,posts,true);set(source,"query","qa_navigation_retry");((Map<String,Integer>)field(source,"pages")).put("danbooru",1);Object gallery=gallery(activity,posts,source);set(gallery,"syncedRevision",(int)field(source,"revision"));method(activity,"openArtwork",Post.class,gallery.getClass()).invoke(activity,posts.get(15),gallery);method(activity,"navigate",int.class).invoke(activity,1);
         Handler main=new Handler(Looper.getMainLooper());main.postDelayed(()->{
             try{Post actual=(Post)field(activity,"activePost");boolean released=field(activity,"navigating")==null;Log.i("ArtCatalogQA","NAV error keeps artwork and releases request="+(actual.id.equals("9000015")&&released));method(activity,"navigate",int.class).invoke(activity,1);}
             catch(Exception e){Log.e("ArtCatalogQA","Retry input",e);}
@@ -85,7 +85,7 @@ final class NavigationChecks {
         },3200);
     }
     private static void cancelPending(Activity activity,List<Post> fixtures)throws Exception {
-        method(activity,"selectNav",int.class).invoke(activity,0);List<Post> posts=new ArrayList<>(fixtures.subList(0,16));Object source=screen(activity,posts,true);set(source,"query","qa_slow_navigation");((Map<String,Integer>)field(source,"pages")).put("danbooru",1);Object gallery=gallery(activity,posts,source);set(gallery,"syncedRevision",(int)field(source,"revision"));method(activity,"openArtwork",Post.class,gallery.getClass()).invoke(activity,posts.get(15),gallery);method(activity,"navigate",int.class).invoke(activity,1);
+        method(activity,"selectNav",int.class).invoke(activity,0);List<Post> posts=new ArrayList<>(navigationFixtures(activity).subList(0,16));Object source=screen(activity,posts,true);set(source,"query","qa_slow_navigation");((Map<String,Integer>)field(source,"pages")).put("danbooru",1);Object gallery=gallery(activity,posts,source);set(gallery,"syncedRevision",(int)field(source,"revision"));method(activity,"openArtwork",Post.class,gallery.getClass()).invoke(activity,posts.get(15),gallery);method(activity,"navigate",int.class).invoke(activity,1);
         Handler main=new Handler(Looper.getMainLooper());main.postDelayed(()->{try{method(activity,"selectNav",int.class).invoke(activity,0);}catch(Exception e){Log.e("ArtCatalogQA","Cancel input",e);}},80);
         main.postDelayed(()->{try{Log.i("ArtCatalogQA","NAV tab change cancels delayed arrival="+(field(activity,"activePost")==null&&field(activity,"navigating")==null&&(int)field(activity,"nav")==0));imageFailure(activity,fixtures);}catch(Exception e){Log.e("ArtCatalogQA","Cancel result",e);}},1400);
     }
@@ -93,13 +93,13 @@ final class NavigationChecks {
         Post current=fixtures.get(12),bad=Post.fromJson(fixtures.get(53).toJson());bad.preview="https://unsupported.example/preview.jpg";bad.image="https://unsupported.example/full.jpg";bad.original=bad.image;bad.media=new ArrayList<>(List.of(bad.image));
         Object gallery=gallery(activity,List.of(current),null);method(activity,"openArtwork",Post.class,gallery.getClass()).invoke(activity,current,gallery);((List<Post>)field(gallery,"posts")).add(bad);
         Handler main=new Handler(Looper.getMainLooper());main.postDelayed(()->{try{method(activity,"navigate",int.class).invoke(activity,1);}catch(Exception e){Log.e("ArtCatalogQA","Image failure input",e);}},300);
-        main.postDelayed(()->{try{boolean kept=field(activity,"activePost")==current&&field(activity,"navigating")==null&&((android.widget.ImageView)field(activity,"activeArt")).getDrawable() instanceof android.graphics.drawable.BitmapDrawable;Log.i("ArtCatalogQA","NAV failed image retains artwork without false readiness="+kept);method(activity,"navigate",int.class).invoke(activity,1);}catch(Exception e){Log.e("ArtCatalogQA","Image failure result",e);}},900);
-        main.postDelayed(()->{try{Log.i("ArtCatalogQA","NAV failed image cooldown never counts as success="+(field(activity,"activePost")==current&&field(activity,"navigating")==null));cancelHeldTap(activity,fixtures);}catch(Exception e){Log.e("ArtCatalogQA","Failure cooldown",e);}},1400);
+        main.postDelayed(()->{try{boolean kept=field(activity,"activePost")==bad&&field(activity,"navigating")==null;Log.i("ArtCatalogQA","NAV failed image remains navigable="+kept);method(activity,"navigate",int.class).invoke(activity,1);}catch(Exception e){Log.e("ArtCatalogQA","Image failure result",e);}},900);
+        main.postDelayed(()->{try{Log.i("ArtCatalogQA","NAV failed image boundary releases request="+(field(activity,"activePost")==bad&&field(activity,"navigating")==null));cancelHeldTap(activity,fixtures);}catch(Exception e){Log.e("ArtCatalogQA","Failure cooldown",e);}},1400);
     }
     private static void cancelHeldTap(Activity activity,List<Post> fixtures)throws Exception {
         Post previous=(Post)field(activity,"activePost");Object gallery=gallery(activity,fixtures.subList(20,24),null);method(activity,"openArtwork",Post.class,gallery.getClass()).invoke(activity,fixtures.get(20),gallery);
         new Handler(Looper.getMainLooper()).postDelayed(()->{try{
-            android.view.ViewGroup content=(android.view.ViewGroup)field(activity,"content");android.view.View button=(android.view.View)field(activity,"nextArtworkButton");int[] point=new int[2],origin=new int[2];button.getLocationOnScreen(point);content.getLocationOnScreen(origin);float x=point[0]-origin[0]+button.getWidth()/2f,y=point[1]-origin[1]+button.getHeight()/2f;long clock=SystemClock.uptimeMillis();
+            android.view.ViewGroup content=(android.view.ViewGroup)field(activity,"content");android.view.View button=(android.view.View)field(activity,"activeArt");int[] point=new int[2],origin=new int[2];button.getLocationOnScreen(point);content.getLocationOnScreen(origin);float x=point[0]-origin[0]+button.getWidth()/2f,y=point[1]-origin[1]+button.getHeight()/2f;long clock=SystemClock.uptimeMillis();
             android.view.MotionEvent down=android.view.MotionEvent.obtain(clock,clock,android.view.MotionEvent.ACTION_DOWN,x,y,0);content.dispatchTouchEvent(down);down.recycle();method(activity,"goBack").invoke(activity);int revision=(int)field(activity,"navigationGeneration");android.view.MotionEvent up=android.view.MotionEvent.obtain(clock,SystemClock.uptimeMillis(),android.view.MotionEvent.ACTION_UP,x,y,0);content.dispatchTouchEvent(up);up.recycle();
             Log.i("ArtCatalogQA","NAV Back cancels held pager tap="+(field(activity,"activePost")==previous&&(int)field(activity,"navigationGeneration")==revision));cancelAnimation(activity,fixtures);
         }catch(Exception e){Log.e("ArtCatalogQA","Held tap cancellation",e);}},500);
@@ -110,6 +110,7 @@ final class NavigationChecks {
         main.postDelayed(()->{try{boolean started=field(activity,"pageAnimator")!=null;method(activity,"selectNav",int.class).invoke(activity,0);Log.i("ArtCatalogQA","NAV cancellation exercised running animator="+started);}catch(Exception e){Log.e("ArtCatalogQA","Animation cancel",e);}},580);
         main.postDelayed(()->{try{android.view.ViewGroup content=(android.view.ViewGroup)field(activity,"content");Log.i("ArtCatalogQA","NAV cancelled animation cleans layers and queue="+(field(activity,"activePost")==null&&field(activity,"pageAnimator")==null&&field(activity,"outgoingMedia")==null&&field(activity,"outgoingPage")==null&&content.getChildCount()==1));}catch(Exception e){Log.e("ArtCatalogQA","Animation cancellation result",e);}},1100);
     }
+    @SuppressWarnings("unchecked") private static List<Post> navigationFixtures(Activity activity)throws Exception{return (List<Post>)field(field(activity,"client"),"navigationFixtures");}
     private static Object screen(Activity activity,List<Post> posts,boolean more)throws Exception {
         Class<?> type=Class.forName("com.artcatalog.mobile.MainActivity$Screen");Constructor<?> c=type.getDeclaredConstructors()[0];c.setAccessible(true);Object s=c.newInstance(activity,6);
         ((List<Post>)field(s,"posts")).addAll(posts);set(s,"loaded",true);set(s,"more",more);set(s,"revision",3);return s;

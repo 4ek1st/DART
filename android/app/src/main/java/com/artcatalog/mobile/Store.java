@@ -19,16 +19,21 @@ final class Store implements SankakuApi.Session {
     private final Context context;
     final SharedPreferences prefs;
     private final AtomicFile file;
-    private final ExecutorService writes=Executors.newSingleThreadExecutor(r->new Thread(()->{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);r.run();},"ArtCatalog-profile"));
+    private final ScheduledExecutorService writes=Executors.newSingleThreadScheduledExecutor(r->new Thread(()->{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);r.run();},"ArtCatalog-profile"));
     private LinkedHashMap<String,Post> bookmarks=new LinkedHashMap<>();
     private LinkedHashMap<String,Post> likes=new LinkedHashMap<>();
-    private Set<String> bookmarkTokens=new HashSet<>(),likedTokens=new HashSet<>();
+    private SavedIdentityIndex bookmarkIndex=new SavedIdentityIndex(),likedIndex=new SavedIdentityIndex();
+    private Set<String> bookmarkTokens=bookmarkIndex.tokens(),likedTokens=likedIndex.tokens();
+    private long likedMetadataRevision,cachedTasteRevision=Long.MIN_VALUE;
+    private Curation.Taste cachedTaste;
+    private final Object tastePreparation=new Object();
     private LinkedHashMap<String,Post> history=new LinkedHashMap<>();
     private LinkedHashMap<String,JSONObject> follows=new LinkedHashMap<>();
     private final ArrayList<String> searches=new ArrayList<>();
     private final LinkedHashMap<String,Post> catalogue=new LinkedHashMap<>();
     private final LinkedHashMap<String,Post> openWorks=new LinkedHashMap<>();private final Set<String> pinned=new LinkedHashSet<>();private String previewKey="";
     private Set<String> viewedIdentities=new LinkedHashSet<>();
+    private Set<String> knownTokens=Set.of();private long knownTokensRevision=Long.MIN_VALUE;
     private LinkedHashMap<String,String> recommendationTags=new LinkedHashMap<>();
     private final LinkedHashSet<String> recentSuggestions=new LinkedHashSet<>();
     private List<List<String>> exposureGroups=new ArrayList<>();
@@ -36,7 +41,8 @@ final class Store implements SankakuApi.Session {
     private LinkedHashSet<String> hiddenAuthors=new LinkedHashSet<>();
     private int recommendationSeed;
     String warning="";
-    private boolean loaded,dirty,writing;private long visibilityRevision,profileRevision;
+    private boolean loaded,dirty,writing,snapshotWriting,flushNextImmediately;private long visibilityRevision,profileRevision,writeTicket;
+    private ScheduledFuture<?> pendingWrite;
     synchronized long visibilityRevision(){return visibilityRevision;}
 
     Store(Context context) {
@@ -55,7 +61,6 @@ final class Store implements SankakuApi.Session {
                 likes.putAll(bookmarks);
                 dirty=true;
             }
-            rebuildSavedTokens();
             readPosts(o.optJSONArray("catalogueCache"),catalogue);
             readPosts(o.optJSONArray("openWorks"),openWorks);JSONArray pinnedKeys=o.optJSONArray("pinnedWorks");if(pinnedKeys!=null)for(int i=0;i<pinnedKeys.length();i++)if(openWorks.containsKey(pinnedKeys.optString(i)))pinned.add(pinnedKeys.optString(i));previewKey=o.optString("previewKey");
             JSONArray viewed=o.optJSONArray("viewedIdentities");if(viewed!=null)for(int i=0;i<viewed.length();i++)viewedIdentities.add(viewed.optString(i));for(Post p:history.values())viewedIdentities.addAll(WorkGrouping.viewedTokens(p));
@@ -74,7 +79,7 @@ final class Store implements SankakuApi.Session {
             if(q!=null)for(int i=0;i<Math.min(q.length(),20);i++)searches.add(q.optString(i));
         }catch(FileNotFoundException ignored){}
         catch(Exception e){warning="Не удалось прочитать профиль. Сохраните резервную копию через настройки.";}
-        rebuildSavedTokens();
+        rebuildSavedTokens();likedMetadataChanged();
         if(dirty&&warning.isBlank())persist();
     }
     private void readPosts(JSONArray array,LinkedHashMap<String,Post> target){
@@ -85,9 +90,43 @@ final class Store implements SankakuApi.Session {
             if(CatalogLogic.validId(p.source,p.id))target.put(p.key(),p);
         }
     }
-    private void rebuildSavedTokens(){bookmarkTokens.clear();likedTokens.clear();for(Post post:bookmarks.values())bookmarkTokens.addAll(WorkGrouping.viewedTokens(post));for(Post post:likes.values())likedTokens.addAll(WorkGrouping.viewedTokens(post));}
+    /** Snapshots are needed because detail enrichment mutates Post objects in place. */
+    static final class SavedIdentityIndex {
+        private final Map<String,Set<String>> records=new HashMap<>();
+        private final Map<String,Integer> owners=new HashMap<>();
+        private final java.util.function.Function<Post,Set<String>> resolver;
+        SavedIdentityIndex(){this(WorkGrouping::viewedTokens);}
+        SavedIdentityIndex(java.util.function.Function<Post,Set<String>> resolver){this.resolver=resolver;}
+        Set<String> tokens(){return Collections.unmodifiableSet(owners.keySet());}
+        boolean put(Post post){
+            Set<String> next=new HashSet<>(resolver.apply(post)),previous=records.get(post.key());
+            if(next.equals(previous))return false;
+            remove(post.key());records.put(post.key(),next);for(String token:next)owners.merge(token,1,Integer::sum);return true;
+        }
+        void remove(String key){Set<String> previous=records.remove(key);if(previous!=null)for(String token:previous){int count=owners.get(token);if(count==1)owners.remove(token);else owners.put(token,count-1);}}
+        List<String> matchingKeys(Set<String> tokens){List<String> keys=new ArrayList<>();for(Map.Entry<String,Set<String>> entry:records.entrySet())if(!Collections.disjoint(tokens,entry.getValue()))keys.add(entry.getKey());return keys;}
+        void reset(Collection<Post> posts){records.clear();owners.clear();for(Post post:posts)put(post);}
+    }
+    private void rebuildSavedTokens(){bookmarkIndex.reset(bookmarks.values());likedIndex.reset(likes.values());}
     synchronized List<Post> bookmarks(){List<Post> list=new ArrayList<>(bookmarks.values());Collections.reverse(list);return list;}
     synchronized List<Post> likes(){List<Post> list=new ArrayList<>(likes.values());Collections.reverse(list);return list;}
+    synchronized long likedMetadataRevision(){return likedMetadataRevision;}
+    private void likedMetadataChanged(){likedMetadataRevision++;cachedTaste=null;cachedTasteRevision=Long.MIN_VALUE;}
+    /** Called by background ranking. Only the immutable weights/count are retained across visits. */
+    Curation.Taste curationTaste(){
+        synchronized(tastePreparation){
+            while(true){
+                List<Post> snapshot;long revision;
+                synchronized(this){
+                    if(cachedTaste!=null&&cachedTasteRevision==likedMetadataRevision)return cachedTaste;
+                    revision=likedMetadataRevision;snapshot=new ArrayList<>(likes.values());Collections.reverse(snapshot);
+                }
+                if(Thread.currentThread().isInterrupted())throw new CancellationException();
+                Curation.Taste prepared=Curation.prepare(snapshot);
+                synchronized(this){if(likedMetadataRevision==revision){cachedTaste=prepared;cachedTasteRevision=revision;return prepared;}}
+            }
+        }
+    }
     synchronized Map<String,String> recommendationTags(){return new LinkedHashMap<>(recommendationTags);}
     synchronized String recommendationTagMode(String tag){return recommendationTags.getOrDefault(Recommendations.normal(tag),"normal");}
     synchronized void setRecommendationTagMode(String tag,String mode){
@@ -140,8 +179,15 @@ final class Store implements SankakuApi.Session {
     }
     synchronized List<Post> history(){List<Post> list=new ArrayList<>(history.values());Collections.reverse(list);return list;}
     synchronized List<Post> catalogue(){List<Post> list=new ArrayList<>(catalogue.values());Collections.reverse(list);return list;}
-    synchronized void remember(List<Post> posts){for(Post p:posts){catalogue.remove(p.key());catalogue.put(p.key(),p);}while(catalogue.size()>200)catalogue.remove(catalogue.keySet().iterator().next());persist();}
-    synchronized void refreshCachedPost(Post post){for(Map<String,Post> collection:List.of(bookmarks,likes,history,catalogue,openWorks))if(collection.containsKey(post.key()))collection.put(post.key(),post);rebuildSavedTokens();remember(List.of(post));}
+    synchronized void remember(List<Post> posts){if(posts.isEmpty())return;for(Post p:posts){catalogue.remove(p.key());catalogue.put(p.key(),p);}while(catalogue.size()>200)catalogue.remove(catalogue.keySet().iterator().next());persist();}
+    synchronized void refreshCachedPost(Post post){
+        boolean identitiesChanged=false;
+        if(bookmarks.containsKey(post.key()))identitiesChanged|=bookmarkIndex.put(post);
+        if(likes.containsKey(post.key())){identitiesChanged|=likedIndex.put(post);likedMetadataChanged();}
+        for(Map<String,Post> collection:List.of(bookmarks,likes,history,catalogue,openWorks))if(collection.containsKey(post.key()))collection.put(post.key(),post);
+        if(identitiesChanged)visibilityRevision++;
+        remember(List.of(post));
+    }
     synchronized void openWork(Post p){if(openWorks.containsKey(p.key()))return;if(prefs.getString("artworkTabs","preview").equals("preview")){if(!previewKey.isBlank()&&!pinned.contains(previewKey))openWorks.remove(previewKey);previewKey=p.key();}openWorks.put(p.key(),p);while(openWorks.size()>40){String remove=null;for(String key:openWorks.keySet())if(!pinned.contains(key)&&!key.equals(p.key())){remove=key;break;}if(remove==null)break;openWorks.remove(remove);}persist();}
     synchronized List<Post> openWorks(){return new ArrayList<>(openWorks.values());}
     synchronized boolean pinned(Post p){return pinned.contains(p.key());}
@@ -149,19 +195,24 @@ final class Store implements SankakuApi.Session {
     synchronized void closeWork(Post p){if(!pinned.contains(p.key())){openWorks.remove(p.key());if(previewKey.equals(p.key()))previewKey="";persist();}}
     boolean isHidden(Post post){Set<String> hidden;synchronized(this){hidden=new HashSet<>(hiddenAuthors);}return hiddenAuthor(post,hidden)||CatalogLogic.hidden(post,prefs.getString("aiMode","all"),CatalogLogic.excludedTags(prefs.getString("excludedTags","")),prefs.getBoolean("hideFurry",false));}
     List<Post> visible(List<Post> posts,boolean hideKnown){return visible(posts,hideKnown,false);}
-    List<Post> visible(List<Post> posts,boolean hideKnown,boolean hideFollowed){List<Post> filtered=new ArrayList<>();String ai=prefs.getString("aiMode","all");List<String> excluded=CatalogLogic.excludedTags(prefs.getString("excludedTags",""));boolean furry=prefs.getBoolean("hideFurry",false);Set<String> hidden,followed;synchronized(this){hidden=new HashSet<>(hiddenAuthors);followed=new HashSet<>();for(JSONObject follow:follows.values()){String source=follow.optString("source");followed.add(authorKey(source.isBlank()?"artist":source,follow.optString("tag").replaceFirst("^user:","")));if(source.isBlank()&&!follow.optString("gelbooruTag").isBlank())followed.add(authorKey("artist",follow.optString("gelbooruTag")));}}for(Post p:posts)if(!hiddenAuthor(p,hidden)&&!CatalogLogic.hidden(p,ai,excluded,furry)&&!(hideFollowed&&prefs.getBoolean("hideFollowedArtists",false)&&!Collections.disjoint(followed,authorKeys(p))))filtered.add(p);if(hideKnown&&prefs.getBoolean("hideViewedAndSaved",false)){Set<String> known;synchronized(this){known=new HashSet<>(viewedIdentities);known.addAll(bookmarkTokens);known.addAll(likedTokens);}filtered.removeIf(p->!Collections.disjoint(known,WorkGrouping.viewedTokens(p)));}return filtered;}
+    List<Post> visible(List<Post> posts,boolean hideKnown,boolean hideFollowed){List<Post> filtered=new ArrayList<>();String ai=prefs.getString("aiMode","all");List<String> excluded=CatalogLogic.excludedTags(prefs.getString("excludedTags",""));boolean furry=prefs.getBoolean("hideFurry",false);Set<String> hidden,followed;synchronized(this){hidden=new HashSet<>(hiddenAuthors);followed=new HashSet<>();for(JSONObject follow:follows.values()){String source=follow.optString("source");followed.add(authorKey(source.isBlank()?"artist":source,follow.optString("tag").replaceFirst("^user:","")));if(source.isBlank()&&!follow.optString("gelbooruTag").isBlank())followed.add(authorKey("artist",follow.optString("gelbooruTag")));}}for(Post p:posts)if(!hiddenAuthor(p,hidden)&&!CatalogLogic.hidden(p,ai,excluded,furry)&&!(hideFollowed&&prefs.getBoolean("hideFollowedArtists",false)&&!Collections.disjoint(followed,authorKeys(p))))filtered.add(p);if(hideKnown&&prefs.getBoolean("hideViewedAndSaved",false)){Set<String> known=knownTokensSnapshot();filtered.removeIf(p->!Collections.disjoint(known,WorkGrouping.viewedTokens(p)));}return filtered;}
+    private synchronized Set<String> knownTokensSnapshot(){
+        if(knownTokensRevision!=visibilityRevision){Set<String> next=new HashSet<>(viewedIdentities);next.addAll(bookmarkTokens);next.addAll(likedTokens);knownTokens=Collections.unmodifiableSet(next);knownTokensRevision=visibilityRevision;}
+        return knownTokens;
+    }
+    synchronized List<Post> excludeLiked(List<Post> posts){List<Post> visible=new ArrayList<>(posts.size());for(Post p:posts)if(Collections.disjoint(likedTokens,WorkGrouping.viewedTokens(p)))visible.add(p);return visible;}
     synchronized boolean saved(Post p){return !Collections.disjoint(bookmarkTokens,WorkGrouping.viewedTokens(p));}
     synchronized boolean liked(Post p){return !Collections.disjoint(likedTokens,WorkGrouping.viewedTokens(p));}
     synchronized boolean toggleLike(Post p){
         boolean add=!liked(p);
-        if(add)likes.put(p.key(),p);else{Set<String> tokens=WorkGrouping.viewedTokens(p);likes.entrySet().removeIf(entry->!Collections.disjoint(tokens,WorkGrouping.viewedTokens(entry.getValue())));}
-        rebuildSavedTokens();visibilityRevision++;persist();return add;
+        if(add){likes.put(p.key(),p);likedIndex.put(p);}else{Set<String> tokens=WorkGrouping.viewedTokens(p);for(String key:likedIndex.matchingKeys(tokens)){likes.remove(key);likedIndex.remove(key);}}
+        likedMetadataChanged();visibilityRevision++;persist();return add;
     }
-    synchronized boolean like(Post p){if(liked(p))return false;likes.put(p.key(),p);rebuildSavedTokens();visibilityRevision++;persist();return true;}
+    synchronized boolean like(Post p){if(liked(p))return false;likes.put(p.key(),p);likedIndex.put(p);likedMetadataChanged();visibilityRevision++;persist();return true;}
     synchronized boolean toggle(Post p){
         boolean add=!saved(p);
-        if(add)bookmarks.put(p.key(),p);else{Set<String> tokens=WorkGrouping.viewedTokens(p);bookmarks.entrySet().removeIf(entry->!Collections.disjoint(tokens,WorkGrouping.viewedTokens(entry.getValue())));}
-        rebuildSavedTokens();visibilityRevision++;persist();return add;
+        if(add){bookmarks.put(p.key(),p);bookmarkIndex.put(p);}else{Set<String> tokens=WorkGrouping.viewedTokens(p);for(String key:bookmarkIndex.matchingKeys(tokens)){bookmarks.remove(key);bookmarkIndex.remove(key);}}
+        visibilityRevision++;persist();return add;
     }
     synchronized void visit(Post p){if(viewedIdentities.addAll(WorkGrouping.viewedTokens(p)))visibilityRevision++;history.remove(p.key());history.put(p.key(),p);while(history.size()>200)history.remove(history.keySet().iterator().next());persist();}
     synchronized List<String> searches(){return new ArrayList<>(searches);}
@@ -208,19 +259,20 @@ final class Store implements SankakuApi.Session {
     }
     synchronized void markSeen(Post p){
         Set<String> authors=authorKeys(p),works=new LinkedHashSet<>(p.memberKeys);works.add(p.key());
+        boolean changed=false;
         for(JSONObject f:follows.values())if(authors.contains(authorKey(f.optString("source").isBlank()?"artist":f.optString("source"),f.optString("tag").replaceFirst("^user:","")))||f.optString("source").isBlank()&&!f.optString("gelbooruTag").isBlank()&&authors.contains(authorKey("artist",f.optString("gelbooruTag")))){
             JSONArray seen=f.optJSONArray("seen");if(seen==null)seen=new JSONArray();
             Set<String> existing=new HashSet<>();for(int i=0;i<seen.length();i++)existing.add(seen.optString(i));
-            for(String key:works)if(existing.add(key))seen.put(key);
-            if(seen.length()>4000){JSONArray recent=new JSONArray();for(int i=seen.length()-3000;i<seen.length();i++)recent.put(seen.optString(i));seen=recent;}
-            try{f.put("seen",seen);}catch(JSONException ignored){}
+            boolean updated=false;for(String key:works)if(existing.add(key)){seen.put(key);updated=true;}
+            if(seen.length()>4000){JSONArray recent=new JSONArray();for(int i=seen.length()-3000;i<seen.length();i++)recent.put(seen.optString(i));seen=recent;updated=true;}
+            if(updated)try{f.put("seen",seen);changed=true;}catch(JSONException ignored){}
         }
-        persist();
+        if(changed)persist();
     }
     JSONObject export(){
         List<Post> saved,liked,recent;List<JSONObject> authors=new ArrayList<>();List<String> queries,viewed,hidden,favorites;Map<String,String> choices;List<List<String>> exposures=new ArrayList<>();Set<String> suggestions;int seed;
         synchronized(this){saved=new ArrayList<>(bookmarks.values());liked=new ArrayList<>(likes.values());recent=new ArrayList<>(history.values());queries=new ArrayList<>(searches);
-            for(JSONObject f:follows.values())try{authors.add(new JSONObject(f.toString()));}catch(JSONException ignored){}
+            for(JSONObject f:follows.values())try{authors.add(ProfileTransfer.copy(f));}catch(JSONException ignored){}
             viewed=new ArrayList<>(viewedIdentities);hidden=new ArrayList<>(hiddenAuthors);favorites=new ArrayList<>(favoriteTags);choices=new LinkedHashMap<>(recommendationTags);suggestions=new LinkedHashSet<>(recentSuggestions);seed=recommendationSeed;for(List<String> group:exposureGroups)exposures.add(new ArrayList<>(group));
         }
         try{return new JSONObject().put("format","artcatalog-mobile").put("version",2).put("bookmarks",array(saved)).put("likes",array(liked))
@@ -241,9 +293,12 @@ final class Store implements SankakuApi.Session {
                 ProfileTransfer.Merge merged=ProfileTransfer.merge(current,document,applySettings);
                 if(!merged.changed){synchronized(this){if(profileRevision==expected)return merged;else continue;}}
                 PreparedImport prepared=new PreparedImport(merged.mobile);
-                JSONObject disk=new JSONObject(merged.mobile.toString()).put("catalogueCache",array(cached)).put("openWorks",array(opened)).put("pinnedWorks",new JSONArray(pinnedKeys)).put("previewKey",preview);
+                // The merged document is private and already validated. A shallow envelope
+                // adds device-local caches without another full JSON tree/string allocation.
+                JSONObject disk=new JSONObject();Iterator<String> fields=merged.mobile.keys();while(fields.hasNext()){String key=fields.next();disk.put(key,merged.mobile.get(key));}
+                disk.put("catalogueCache",array(cached)).put("openWorks",array(opened)).put("pinnedWorks",new JSONArray(pinnedKeys)).put("previewKey",preview);
                 File staging=new File(context.getFilesDir(),"catalog-import-staged.json");
-                try(FileOutputStream stream=new FileOutputStream(staging)){stream.write(disk.toString().getBytes(StandardCharsets.UTF_8));stream.getFD().sync();}
+                try(FileOutputStream stream=new FileOutputStream(staging)){ProfileTransfer.writeJson(disk,stream);stream.getFD().sync();}
                 synchronized(this){if(profileRevision!=expected){staging.delete();continue;}}
                 File original=file.getBaseFile();
                 if(original.exists()){
@@ -263,7 +318,8 @@ final class Store implements SankakuApi.Session {
                         java.nio.file.Files.move(staging.toPath(),original.toPath(),java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                     }catch(Exception error){SharedPreferences.Editor restore=prefs.edit();for(String key:changed){Object value=before.get(key);if(value instanceof Boolean)restore.putBoolean(key,(Boolean)value);else if(value instanceof String)restore.putString(key,(String)value);else restore.remove(key);}restore.commit();staging.delete();throw error;}
                     bookmarks=prepared.bookmarks;likes=prepared.likes;history=prepared.history;follows=prepared.follows;viewedIdentities=prepared.viewed;
-                    bookmarkTokens=prepared.bookmarkTokens;likedTokens=prepared.likedTokens;recommendationTags=prepared.choices;favoriteTags=prepared.favorites;hiddenAuthors=prepared.hidden;exposureGroups=prepared.exposures;
+                    bookmarkIndex=prepared.bookmarkIndex;likedIndex=prepared.likedIndex;bookmarkTokens=bookmarkIndex.tokens();likedTokens=likedIndex.tokens();recommendationTags=prepared.choices;favoriteTags=prepared.favorites;hiddenAuthors=prepared.hidden;exposureGroups=prepared.exposures;
+                    if(document.optJSONArray("likes")!=null&&document.optJSONArray("likes").length()>0)likedMetadataChanged();
                     visibilityRevision++;profileRevision++;warning="";dirty=false;return merged;
                 }
             }
@@ -272,11 +328,11 @@ final class Store implements SankakuApi.Session {
     }
     private final class PreparedImport {
         final LinkedHashMap<String,Post> bookmarks=new LinkedHashMap<>(),likes=new LinkedHashMap<>(),history=new LinkedHashMap<>();final LinkedHashMap<String,JSONObject> follows=new LinkedHashMap<>();
-        final Set<String> viewed=new LinkedHashSet<>(),bookmarkTokens=new HashSet<>(),likedTokens=new HashSet<>();final LinkedHashMap<String,String> choices=new LinkedHashMap<>();final LinkedHashSet<String> favorites=new LinkedHashSet<>(),hidden=new LinkedHashSet<>();List<List<String>> exposures=new ArrayList<>();
+        final Set<String> viewed=new LinkedHashSet<>();final SavedIdentityIndex bookmarkIndex=new SavedIdentityIndex(),likedIndex=new SavedIdentityIndex();final LinkedHashMap<String,String> choices=new LinkedHashMap<>();final LinkedHashSet<String> favorites=new LinkedHashSet<>(),hidden=new LinkedHashSet<>();List<List<String>> exposures=new ArrayList<>();
         PreparedImport(JSONObject root){
             readPosts(root.optJSONArray("bookmarks"),bookmarks);readPosts(root.optJSONArray("likes"),likes);readPosts(root.optJSONArray("history"),history);
             JSONArray values=root.optJSONArray("viewedIdentities");if(values!=null)for(int i=0;i<values.length();i++)viewed.add(values.optString(i));for(Post post:history.values())viewed.addAll(WorkGrouping.viewedTokens(post));while(history.size()>200)history.remove(history.keySet().iterator().next());
-            for(Post post:bookmarks.values())bookmarkTokens.addAll(WorkGrouping.viewedTokens(post));for(Post post:likes.values())likedTokens.addAll(WorkGrouping.viewedTokens(post));
+            bookmarkIndex.reset(bookmarks.values());likedIndex.reset(likes.values());
             JSONArray authors=root.optJSONArray("follows");if(authors!=null)for(int i=0;i<authors.length();i++){JSONObject f=authors.optJSONObject(i);if(f!=null)follows.put(f.optString("key"),f);}
             JSONObject tags=root.optJSONObject("recommendationTags");if(tags!=null)for(Iterator<String> keys=tags.keys();keys.hasNext();){String key=keys.next();choices.put(key,tags.optString(key));}
             JSONArray starred=root.optJSONArray("favoriteTags");if(starred!=null)for(int i=0;i<starred.length();i++)favorites.add(starred.optString(i));
@@ -289,14 +345,28 @@ final class Store implements SankakuApi.Session {
         // A damaged profile is preserved until the user explicitly imports a replacement.
         if(!warning.isBlank())return;
         dirty=true;if(writing)return;writing=true;
-        writes.execute(()->{while(true){
-            synchronized(this){if(!dirty){writing=false;return;}dirty=false;}
+        // Opening a work mutates tabs, history and follow-seen state together. Prepare
+        // one large snapshot after that short burst, rather than competing with rendering.
+        scheduleProfileWrite(200);
+    }
+    private void scheduleProfileWrite(long delay){long ticket=++writeTicket;pendingWrite=writes.schedule(()->flushProfileWrite(ticket),delay,TimeUnit.MILLISECONDS);}
+    /** Bring a pending save forward on backgrounding without blocking Android's UI thread. */
+    synchronized void flushPending(){
+        if(!warning.isBlank()||!dirty)return;
+        if(snapshotWriting){flushNextImmediately=true;return;}
+        if(pendingWrite!=null&&pendingWrite.getDelay(TimeUnit.MILLISECONDS)<=0)return;
+        if(pendingWrite!=null)pendingWrite.cancel(false);
+        writing=true;scheduleProfileWrite(0);
+    }
+    private void flushProfileWrite(long ticket){
+        synchronized(this){if(ticket!=writeTicket)return;pendingWrite=null;if(!dirty){writing=false;return;}dirty=false;snapshotWriting=true;}
+        try{
             JSONObject snapshotObject=export();List<Post> cached,opened;Set<String> pinnedKeys;String preview;
             synchronized(this){cached=new ArrayList<>(catalogue.values());opened=new ArrayList<>(openWorks.values());pinnedKeys=new LinkedHashSet<>(pinned);preview=previewKey;}
-            try{snapshotObject.put("catalogueCache",array(cached)).put("openWorks",array(opened)).put("pinnedWorks",new JSONArray(pinnedKeys)).put("previewKey",preview);}catch(JSONException ignored){}String snapshot=snapshotObject.toString();FileOutputStream stream=null;
-            try{stream=file.startWrite();stream.write(snapshot.getBytes(StandardCharsets.UTF_8));file.finishWrite(stream);}
+            try{snapshotObject.put("catalogueCache",array(cached)).put("openWorks",array(opened)).put("pinnedWorks",new JSONArray(pinnedKeys)).put("previewKey",preview);}catch(JSONException ignored){}FileOutputStream stream=null;
+            try{stream=file.startWrite();ProfileTransfer.writeJson(snapshotObject,stream);file.finishWrite(stream);}
             catch(IOException e){if(stream!=null)file.failWrite(stream);Log.e("ArtCatalog","Profile write failed",e);}
-        }});
+        }finally{synchronized(this){snapshotWriting=false;if(dirty){long delay=flushNextImmediately?0:200;flushNextImmediately=false;scheduleProfileWrite(delay);}else{writing=false;flushNextImmediately=false;}}}
     }
     String credential(String source,String key) throws Exception {
         String encoded=prefs.getString(source+"."+key,"");if(encoded.isBlank())return "";

@@ -19,6 +19,36 @@ public final class Post {
     public List<String> identityKeys=new ArrayList<>(),uploaderKeys=new ArrayList<>();public JSONArray visualSamples=new JSONArray(),imageRecords=new JSONArray();
     public String key(){return source+":"+id;}
     public boolean isVideo(){return image.toLowerCase(Locale.ROOT).matches(".*\\.(mp4|webm|m4v)(\\?.*)?$");}
+    /** The existing persistence round-trip values, without allocating a JSON tree for every field. */
+    Post copy(){return copy(true);}
+    private Post copy(boolean includeMembers){
+        Post p=new Post();p.source=source;p.id=id;p.title=title;p.artist=artist;p.artistTag=artistTag;p.preview=preview;
+        p.image=image;p.original=original;p.sourceUrl=sourceUrl;p.hash=hash;p.rating=rating;p.published=published;p.smallPreview=smallPreview;
+        p.originalUrl=originalUrl;p.uploaderId=uploaderId;p.uploaderName=uploaderName;p.groupKey=groupKey;p.pixivGroupKey=pixivGroupKey;
+        p.visualHash=visualHash;p.visualPHash=visualPHash;p.relatedQuery=relatedQuery;p.accessMessage=accessMessage;
+        p.width=width;p.height=height;p.score=score;p.groupingVersion=groupingVersion;p.groupCount=Math.max(1,media.size());p.popularityCount=popularityCount;
+        p.groupMinTime=groupMinTime;p.groupMaxTime=groupMaxTime;p.visualAspectRatio=visualAspectRatio;p.requiresAuthentication=requiresAuthentication;
+        p.tags=copyStrings(tags,1000,true);p.characterTags=copyStrings(characterTags,1000,false);p.copyrightTags=copyStrings(copyrightTags,1000,false);
+        p.artistTags=copyStrings(artistTags,1000,false);if(p.artistTags.isEmpty()&&!artistTag.isBlank())p.artistTags.add(artistTag);
+        p.memberKeys=copyStrings(memberKeys,1000,false);p.identityKeys=copyStrings(identityKeys,2000,false);p.uploaderKeys=copyStrings(uploaderKeys,1000,false);
+        p.media=copyStrings(media,1000,false);if(p.media.isEmpty()&&!image.isBlank())p.media.add(image);
+        try{
+            // Serialization adds missing artists before the parser applies its first-100-slot limit.
+            Set<String> seen=new HashSet<>();int slots=participants.length();
+            for(int i=0;i<Math.min(100,slots);i++){JSONObject person=participants.optJSONObject(i);if(person!=null){seen.add(person.optString("tag"));if(person.optString("tag").length()<=100)p.participants.put(copyJson(person));}}
+            if(slots<100){List<String> artists=new ArrayList<>(artistTags);if(!artistTag.isBlank())artists.add(artistTag);
+                for(String tag:artists)if(!tag.isBlank()&&seen.add(tag)){if(slots++>=100)break;if(tag.length()<=100)p.participants.put(new JSONObject().put("tag",tag).put("name",tag.equals(artistTag)?artist:tag.replace('_',' ')).put("role",participantRole(tag,"")));}}
+            p.visualSamples=(JSONArray)copyJson(visualSamples);p.imageRecords=(JSONArray)copyJson(imageRecords);
+            if(!Double.isFinite(visualAspectRatio))throw new JSONException("Non-finite aspect ratio");
+        }catch(JSONException e){throw new IllegalStateException(e);}
+        if(includeMembers)for(int i=0;i<Math.min(100,groupMembers.size());i++)p.groupMembers.add(groupMembers.get(i).copy(false));return p;
+    }
+    private static List<String> copyStrings(List<String> source,int limit,boolean keepBlank){List<String> result=new ArrayList<>(Math.min(source.size(),limit));
+        for(int i=0;i<Math.min(source.size(),limit);i++){String value=source.get(i);if(value==null)value="";if(keepBlank||!value.isBlank())result.add(value);}return result;}
+    private static Object copyJson(Object value)throws JSONException {
+        if(value instanceof JSONObject){JSONObject source=(JSONObject)value,result=new JSONObject();Iterator<String> keys=source.keys();while(keys.hasNext()){String key=keys.next();result.put(key,copyJson(source.get(key)));}return result;}
+        if(value instanceof JSONArray){JSONArray source=(JSONArray)value,result=new JSONArray();for(int i=0;i<source.length();i++)result.put(copyJson(source.get(i)));return result;}return value;
+    }
     public JSONObject toJson() {return toJson(true);}
     private JSONObject toJson(boolean includeMembers) {
         JSONObject o=new JSONObject();

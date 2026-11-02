@@ -14,6 +14,7 @@ import android.view.inputmethod.*;
 import android.widget.*;
 import org.json.*;
 import java.io.*;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
@@ -36,7 +37,13 @@ public final class MainActivity extends Activity {
     private final ExecutorService foreground=Executors.newSingleThreadExecutor(r->backgroundThread("DART-interaction",r));
     private final ExecutorService io=Executors.newSingleThreadExecutor(r->backgroundThread("ArtCatalog-io",r));
     private final ExecutorService grouping=Executors.newSingleThreadExecutor(r->backgroundThread("ArtCatalog-grouping",r));
+    private final ExecutorService recommendationWork=Executors.newSingleThreadExecutor(r->backgroundThread("DART-taste-model",r));
+    private final ExecutorService mediaRepairs=Executors.newFixedThreadPool(2,r->backgroundThread("DART-media-repair",r));
     private Store store;private CatalogClient client;private ImageLoader images;private I18n i18n;private final Set<VideoView> openVideoViewers=Collections.newSetFromMap(new IdentityHashMap<>());
+    private AppUpdates appUpdates;private boolean updatesListening,updatesResumed;private final UpdateInstallRequest updateInstallRequest=new UpdateInstallRequest();
+    private final List<WeakReference<View>> updateActions=new ArrayList<>();private final List<WeakReference<UpdatesUi>> updatePanels=new ArrayList<>();
+    private final java.util.function.Consumer<AppUpdates.State> updateListener=this::renderUpdates;
+    private static final int UPDATE_INSTALL_PERMISSION=41;
     private String tr(String value){if(i18n==null||value==null)return value;String exact=i18n.text(value);if(!exact.equals(value))return exact;String[] parts=value.split("(?<= · )|(?= · )|(?<=\\n)|(?=\\n)",-1);if(parts.length<2)return value;StringBuilder text=new StringBuilder();for(String part:parts)text.append(i18n.text(part));return text.toString();}
     private LinearLayout root,bottom;private FrameLayout content;
     private final Screen[] screens=new Screen[4];
@@ -60,7 +67,7 @@ public final class MainActivity extends Activity {
     }
     private final ArrayDeque<NavigationRequest> navigationQueue=new ArrayDeque<>();
     private NavigationRequest navigating;private ImageLoader.Ticket navigationPreview;
-    private Screen navigationSource;private Runnable navigationCallback,navigationOldCallback;
+    private Screen navigationSource;private Runnable navigationCallback,navigationOldCallback,navigationDeadline;
     private int transitionDirection;private boolean navigationRendering;private AnimatorSet pageAnimator;private View outgoingPage,turnTarget;
     private ImageView outgoingMedia;
     private final class NavigationRequest {
@@ -79,7 +86,7 @@ public final class MainActivity extends Activity {
                     List<Post> grouped=CatalogLogic.merge(snapshot,List.of());boolean changed=grouped.size()!=snapshot.size();
                     for(int i=0;!changed&&i<grouped.size();i++){Post before=snapshot.get(i),after=grouped.get(i);changed=!before.key().equals(after.key())||!before.media.equals(after.media)||!before.memberKeys.equals(after.memberKeys)||!before.artistTag.equals(after.artistTag);}
                     if(!changed)return;
-                    long visibility=store.visibilityRevision();List<Post> visible=FeedSession.visible(snapshot,grouped,p->!screenVisible(s,List.of(p)).isEmpty());
+                    long visibility=store.visibilityRevision();Set<Post> allowed=Collections.newSetFromMap(new IdentityHashMap<>());allowed.addAll(screenVisible(s,grouped));List<Post> visible=FeedSession.visible(snapshot,grouped,allowed::contains);
                     main.post(()->{
                         if(destroyed||s.generation!=generation)return;if(s.revision!=revision||store.visibilityRevision()!=visibility){scheduleRegroup();return;}
                         java.util.function.Consumer<List<Post>> apply=ordered->{s.posts.clear();s.posts.addAll(ordered);s.revision++;if(s.adapter!=null)s.adapter.notifyDataSetChanged();};
@@ -89,9 +96,12 @@ public final class MainActivity extends Activity {
             }
         },160);
     }
-    private List<Post> screenVisible(Screen s,List<Post> posts){List<Post> visible=store.visible(posts,s.tab!=3&&s.tab!=6&&s.tab!=7,!(s.tab==2&&s.followingMode)&&s.tab!=3&&s.tab!=6&&s.tab!=7);if(s.anchor!=null)visible=CatalogLogic.excludeSaved(visible,List.of(s.anchor));if(s.tab==0&&s.homeTab==0)visible=CatalogLogic.excludeSaved(visible,store.likes());return visible;}
-    private void mergeAsync(Screen s,List<Post> base,List<Post> incoming,int generation,java.util.function.Consumer<List<Post>> apply){List<Post> first=new ArrayList<>(base),second=new ArrayList<>(incoming);long submission=++s.mergeSequence;int prefixRevision=s.revision;grouping.execute(()->{if(destroyed||s.generation!=generation)return;filterMerged(s,CatalogLogic.merge(first,second),first,generation,submission,prefixRevision,apply);});}
+    private List<Post> screenVisible(Screen s,List<Post> posts){List<Post> visible=store.visible(posts,s.tab!=3&&s.tab!=6&&s.tab!=7,!(s.tab==2&&s.followingMode)&&s.tab!=3&&s.tab!=6&&s.tab!=7);if(s.anchor!=null)visible=CatalogLogic.excludeSaved(visible,List.of(s.anchor));if(s.tab==0&&s.homeTab==0)visible=store.excludeLiked(visible);return visible;}
+    private void mergeAsync(Screen s,List<Post> base,List<Post> incoming,int generation,java.util.function.Consumer<List<Post>> apply){List<Post> first=new ArrayList<>(base),second=new ArrayList<>(incoming);long submission=++s.mergeSequence;int prefixRevision=s.revision;grouping.execute(()->{if(destroyed||s.generation!=generation)return;try{filterMerged(s,CatalogLogic.merge(first,second),first,generation,submission,prefixRevision,apply);}catch(OutOfMemoryError|RuntimeException error){preparationFailed(s,generation,error);}});}
     private void filterMerged(Screen s,List<Post> merged,List<Post> base,int generation,long submission,int prefixRevision,java.util.function.Consumer<List<Post>> apply){
+        try{filterMergedPrepared(s,merged,base,generation,submission,prefixRevision,apply);}catch(OutOfMemoryError|RuntimeException error){preparationFailed(s,generation,error);}
+    }
+    private void filterMergedPrepared(Screen s,List<Post> merged,List<Post> base,int generation,long submission,int prefixRevision,java.util.function.Consumer<List<Post>> apply){
         long visibility=store.visibilityRevision();Set<Post> allowed=Collections.newSetFromMap(new IdentityHashMap<>());allowed.addAll(screenVisible(s,merged));List<Post> visible=FeedSession.visible(base,merged,allowed::contains);
         Recommendations.Model model=s.recommendationModel;
         if(s.tab==0&&s.homeTab==0&&model!=null){
@@ -101,10 +111,24 @@ public final class MainActivity extends Activity {
             List<Post> ranked=model.rank(fresh,stable,s.recentExposure,rating,store.curation(),System.currentTimeMillis());
             visible=new ArrayList<>(stable);visible.addAll(ranked);
         }
-        if(!(s.tab==0&&s.homeTab==0)){Set<String> prior=new HashSet<>();for(Post p:base)prior.addAll(FeedSession.keys(p));List<Post> stable=new ArrayList<>(),fresh=new ArrayList<>();for(Post p:visible)if(Collections.disjoint(prior,FeedSession.keys(p)))fresh.add(p);else stable.add(p);if(s.tab==2&&s.followingMode)fresh=CatalogLogic.orderFollowing(fresh,s.unreadKeys);else if(s.tab!=3&&s.order.equals("latest"))fresh=CatalogLogic.rankCuratedWorks(fresh,store.curation(),store.likes(),store.recommendationTags(),System.currentTimeMillis());visible=new ArrayList<>(stable);visible.addAll(fresh);}
+        if(!(s.tab==0&&s.homeTab==0)){Set<String> prior=new HashSet<>();for(Post p:base)prior.addAll(FeedSession.keys(p));List<Post> stable=new ArrayList<>(),fresh=new ArrayList<>();for(Post p:visible)if(Collections.disjoint(prior,FeedSession.keys(p)))fresh.add(p);else stable.add(p);if(s.tab==2&&s.followingMode)fresh=CatalogLogic.orderFollowing(fresh,s.unreadKeys);else if(s.tab!=3&&s.order.equals("latest"))fresh=rankCurated(s,fresh,generation);visible=new ArrayList<>(stable);visible.addAll(fresh);}
         List<Post> prepared=visible;
         main.post(()->publishMerged(s,merged,base,generation,submission,prefixRevision,visibility,prepared,apply));
     }
+    private List<Post> rankCurated(Screen screen,List<Post> posts,int generation){
+        Map<String,Boolean> preferences=store.curation();if(!Boolean.TRUE.equals(preferences.get("enabled"))||posts.isEmpty())return posts;
+        CurationSnapshot snapshot=screen.curationSnapshot;
+        if(snapshot==null||snapshot.generation!=generation){snapshot=new CurationSnapshot(generation,store.curationTaste());if(!destroyed&&screen.generation==generation)screen.curationSnapshot=snapshot;}
+        return Curation.rank(posts,preferences,snapshot.taste,store.recommendationTags(),System.currentTimeMillis());
+    }
+    private void preparationFailed(Screen screen,int generation,Throwable error){
+        android.util.Log.e("ArtCatalog","Feed preparation failed: "+error.getClass().getSimpleName());
+        main.post(()->{if(destroyed||screen.generation!=generation)return;
+            cancel(screen.task);screen.generation++;screen.loading=false;screen.loaded=screen.recommendationModel!=null||!personalized(screen);screen.failed=true;
+            screen.publications.clear();screen.publishing=false;updateStatus(screen);if(screen.loadedCallback!=null)screen.loadedCallback.run();
+        });
+    }
+    private void prepareTaste(Screen screen,int generation,Runnable action){recommendationWork.execute(()->{try{action.run();}catch(OutOfMemoryError|RuntimeException error){preparationFailed(screen,generation,error);}});}
     private void publishMerged(Screen s,List<Post> merged,List<Post> base,int generation,long submission,int prefixRevision,long visibility,List<Post> prepared,java.util.function.Consumer<List<Post>> apply){
         if(destroyed||s.generation!=generation||submission<s.appliedSequence)return;
         if(s.revision!=prefixRevision){List<Post> latest=new ArrayList<>(s.posts);int revision=s.revision;grouping.execute(()->filterMerged(s,CatalogLogic.merge(latest,merged),latest,generation,submission,revision,apply));return;}
@@ -132,7 +156,8 @@ public final class MainActivity extends Activity {
     private ScreenState[] retainedScreens;
     private RetainedState retainedState;
     private static final class RetainedState {ScreenState[] screens;ScreenState detail,author;GalleryState gallery;final List<ScreenState> backs=new ArrayList<>();final List<GalleryState> backGalleries=new ArrayList<>();}
-    private static final class GalleryState {final List<Post> posts=new ArrayList<>();ScreenState source;int tab=-1,followingReached;String query="",order="latest",scopedSource="";boolean following=true;Post anchor;}
+    private static final class GalleryState {final List<Post> posts=new ArrayList<>();ScreenState source;int tab=-1,followingReached;String query="",order="latest",scopedSource="",localCollection="";boolean following=true,registeredSource,sourceWasSynced;Post anchor;}
+    private static final class LocalCollectionRoute {final String kind;final Screen screen;LocalCollectionRoute(String kind,Screen screen){this.kind=kind;this.screen=screen;}}
     private static final class ScreenState {
         final List<Post> posts=new ArrayList<>();final Map<String,Integer> pages=new LinkedHashMap<>();final List<Job> jobs=new ArrayList<>();final Set<String> fingerprints=new HashSet<>(),unreadKeys=new HashSet<>();final Set<String> authRequired=new LinkedHashSet<>();String accessNotice="";boolean loaded,more,failed,authBlocked;
         int followingExposed;long followingStarted;Map<String,FollowingOrder.NewSnapshot> followingSnapshots=Map.of();
@@ -148,18 +173,20 @@ public final class MainActivity extends Activity {
         final Map<String,Integer> pages=new LinkedHashMap<>();
         final Map<String,Long> deferredSources=new HashMap<>();
         final Set<String> fingerprints=new HashSet<>(),unreadKeys=new HashSet<>(),authRequired=new LinkedHashSet<>();String accessNotice="";
-        String query="",order="latest",scopedSource="";volatile int generation;int homeTab,revision,restoreRow=-1,restoreTop;boolean loading,loaded,failed,authBlocked,more=true;Post anchor;Runnable retryRunnable;Runnable loadedCallback;
+        String query="",order="latest",scopedSource="",localCollection="";volatile int generation;int homeTab,revision,restoreRow=-1,restoreTop;boolean loading,loaded,failed,authBlocked,more=true;Post anchor;Runnable retryRunnable;Runnable loadedCallback;
         int followingExposed;long followingStarted;Map<String,FollowingOrder.NewSnapshot> followingSnapshots=Map.of();
         TextView status,rankingLabel;LinearLayout ranking,artistWorks;List<Post> pendingRanking,pendingArtistWorks;String pendingRankingLabel;Gallery pendingRankingGallery,exploreGallery,pendingArtistGallery;boolean followingMode=true;String exploreMessage="";
         Set<String> recentExposure=Set.of();
         boolean calibrationStarted,roundSettled,publishing;int roundStartSize,emptyRounds;final ArrayDeque<QueuedResult> publications=new ArrayDeque<>();Future<?> calibrationTask;
         Future<?> task,rankTask;long mergeSequence,appliedSequence;volatile Recommendations.Model recommendationModel;
+        volatile CurationSnapshot curationSnapshot;
         Screen(int tab){this.tab=tab;}
     }
+    private static final class CurationSnapshot {final int generation;final Curation.Taste taste;CurationSnapshot(int generation,Curation.Taste taste){this.generation=generation;this.taste=taste;}}
 
     @Override public void onCreate(Bundle supplied){
         Bundle saved=readNavigationState(supplied);
-        super.onCreate(saved);restored=saved;Object retained=getLastNonConfigurationInstance();if(retained instanceof RetainedState){retainedState=(RetainedState)retained;retainedScreens=retainedState.screens;}
+        super.onCreate(saved);restored=saved;appUpdates=AppUpdates.get(this);updateInstallRequest.restore(saved!=null&&saved.getBoolean("updateInstallRequested",false));Object retained=getLastNonConfigurationInstance();if(retained instanceof RetainedState){retainedState=(RetainedState)retained;retainedScreens=retainedState.screens;}
         SharedPreferences appearance=getSharedPreferences("settings",MODE_PRIVATE);applyAppearance(appearance.getString("themePreference","dark"));
         if(appearance.getBoolean("secureCapture",false))getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         getWindow().setStatusBarColor(PANEL);getWindow().setNavigationBarColor(PANEL);
@@ -194,6 +221,7 @@ public final class MainActivity extends Activity {
             else if(saved!=null&&!saved.getString("author","").isBlank())renderAuthor(saved.getString("author"),false,retainedState==null?null:retainedState.author,saved.getInt("authorFirst"),saved.getInt("authorTop"));
             if(saved!=null)restoreBackStack(saved);
             if(saved!=null&&saved.containsKey("settingsPage"))display(restoreSettingsState(saved.getBundle("settingsPage")));
+            if(saved!=null&&saved.containsKey("localCollectionPage"))display(restoreLocalCollection(saved.getBundle("localCollectionPage")));
             if(pendingDocument!=null){Uri document=pendingDocument;int request=pendingDocumentRequest;pendingDocument=null;processDocument(request,document);}
             if(!store.warning.isBlank())new AlertDialog.Builder(this).setTitle(tr("Профиль")).setMessage(store.warning).setPositiveButton(tr("Понятно"),null).show();
         });});
@@ -216,6 +244,13 @@ public final class MainActivity extends Activity {
     private TextView button(String label,int color,Runnable action){TextView v=text(label,14,color);v.setGravity(Gravity.CENTER);v.setPadding(dp(16),0,dp(16),0);v.setMinHeight(dp(44));touchBackground(v,RAISED,22);v.setOnClickListener(x->action.run());return v;}
     private void settingsAction(LinearLayout body,String label,int color,Runnable action){LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,dp(48));layout.setMargins(0,dp(7),0,dp(7));body.addView(button(label,color,action),layout);}
     private FrameLayout iconButton(String icon,String label,Runnable action){FrameLayout box=new FrameLayout(this);box.setContentDescription(tr(label));box.setFocusable(true);touchBackground(box,Color.TRANSPARENT,8);box.addView(new IconView(this,icon,TEXT),new FrameLayout.LayoutParams(-1,-1));box.setOnClickListener(v->action.run());return box;}
+    private void openUpdates(){if(store!=null&&!settingsRoute(currentView).equals("updates"))settings("updates");}
+    private void addUpdateAction(LinearLayout bar){FrameLayout action=iconButton("download","Update available",this::openUpdates);action.setTag("dart-update-action");((IconView)action.getChildAt(0)).color(BLUE);bar.addView(action,new LinearLayout.LayoutParams(dp(44),dp(48)));updateActions.add(new WeakReference<>(action));renderUpdateAction(action,appUpdates==null?null:appUpdates.state());}
+    private void renderUpdateAction(View action,AppUpdates.State state){boolean visible=store!=null&&UpdatesUi.badgeVisible(state,Build.VERSION.SDK_INT);action.setVisibility(visible?View.VISIBLE:View.GONE);if(visible)action.setContentDescription(tr("Update available")+" · "+state.update.versionName);}
+    private void renderUpdates(AppUpdates.State state){if(destroyed)return;for(Iterator<WeakReference<View>> it=updateActions.iterator();it.hasNext();){View action=it.next().get();if(action==null)it.remove();else renderUpdateAction(action,state);}boolean allowed=appUpdates.canInstall();for(Iterator<WeakReference<UpdatesUi>> it=updatePanels.iterator();it.hasNext();){UpdatesUi panel=it.next().get();if(panel==null)it.remove();else panel.render(state,allowed);}if(updatesResumed)resumeUpdateInstall();}
+    private void updatesSettingsBody(LinearLayout body,SettingsUi ui){UpdatesUi panel=new UpdatesUi(this,body,ui,TEXT,MUTED,BLUE,this::tr,i18n==null?"en":i18n.language,()->appUpdates.check(true),()->appUpdates.download(),()->{updateInstallRequest.cancel();appUpdates.cancelDownload();},this::requestUpdateInstall);updatePanels.add(new WeakReference<>(panel));panel.render(appUpdates.state(),appUpdates.canInstall());}
+    private void requestUpdateInstall(){AppUpdates.State state=appUpdates.state();if(!UpdatesUi.installVisible(state,Build.VERSION.SDK_INT))return;if(appUpdates.canInstall()){updateInstallRequest.cancel();appUpdates.openInstall(this);return;}updateInstallRequest.begin();updatesResumed=false;try{Intent permission=new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName()));startActivityForResult(permission,UPDATE_INSTALL_PERMISSION);}catch(RuntimeException unavailable){updatesResumed=true;updateInstallRequest.cancel();toast("Open Android settings to allow app updates.");}}
+    private void resumeUpdateInstall(){if(appUpdates==null||!updateInstallRequest.pending())return;AppUpdates.State state=appUpdates.state();boolean allowed=appUpdates.canInstall();if(allowed&&(state.status==AppUpdates.Status.IDLE||state.status==AppUpdates.Status.CHECKING||state.status==AppUpdates.Status.VERIFYING))return;boolean ready=UpdatesUi.installVisible(state,Build.VERSION.SDK_INT);if(updateInstallRequest.finish(allowed,ready))appUpdates.openInstall(this);}
     private FrameLayout artIconButton(String icon,String label,Runnable action){FrameLayout box=iconButton(icon,label,action);((IconView)box.getChildAt(0)).color(Color.WHITE);return box;}
     private void display(View view){
         updateBottomVisibility(view);
@@ -250,6 +285,7 @@ public final class MainActivity extends Activity {
         animation.start();
     }
     private void cancelNavigation(){
+        if(navigationDeadline!=null){main.removeCallbacks(navigationDeadline);navigationDeadline=null;}
         navigationGeneration++;navigationQueue.clear();navigating=null;clearNavigationWait();
         if(images!=null)images.cancelPreparation(navigationPreview);navigationPreview=null;
         AnimatorSet animation=pageAnimator;pageAnimator=null;if(animation!=null)animation.cancel();
@@ -268,12 +304,21 @@ public final class MainActivity extends Activity {
         stopDetail();detachScreen(activeAuthor);activeAuthor=null;activePost=null;authorTag="";display(view);
     }
     private ScreenState snapshot(Screen s){if(s==null)return null;ScreenState state=new ScreenState();state.posts.addAll(s.posts);state.fingerprints.addAll(s.fingerprints);state.unreadKeys.addAll(s.unreadKeys);state.followingExposed=s.followingExposed;state.followingStarted=s.followingStarted;state.followingSnapshots=s.followingSnapshots;state.pages.putAll(s.pages);for(Job job:s.jobs)state.jobs.add(new Job(job.query,new LinkedHashMap<>(job.pages)));state.loaded=s.loaded||!s.posts.isEmpty();state.more=s.more;state.failed=s.failed;state.authBlocked=s.authBlocked;state.authRequired.addAll(s.authRequired);state.accessNotice=s.accessNotice;return state;}
-    private GalleryState snapshotGallery(Gallery gallery){if(gallery==null)return null;GalleryState state=new GalleryState();state.posts.addAll(gallery.posts);state.followingReached=gallery.followingReached;if(gallery.source!=null){state.source=snapshot(gallery.source);state.tab=gallery.source.tab;state.query=gallery.source.query;state.order=gallery.source.order;state.scopedSource=gallery.source.scopedSource;state.following=gallery.source.followingMode;state.anchor=gallery.source.anchor;}return state;}
-    private Gallery restoreGallery(GalleryState state){if(state==null)return null;Screen source=null;if(state.tab>=0&&state.tab<4){source=screens[state.tab];if(source==null){source=new Screen(state.tab);screens[state.tab]=source;initializeScreen(source);}}else if(state.source!=null){source=new Screen(state.tab);source.query=state.query;source.order=state.order;source.scopedSource=state.scopedSource;source.followingMode=state.following;source.anchor=state.anchor;source.posts.addAll(state.source.posts);source.fingerprints.addAll(state.source.fingerprints);source.unreadKeys.addAll(state.source.unreadKeys);source.pages.putAll(state.source.pages);source.jobs.addAll(state.source.jobs);source.loaded=state.source.loaded;source.more=state.source.more;source.failed=state.source.failed;}Gallery restored=new Gallery(state.posts,source);restored.followingReached=Math.max(restored.followingReached,state.followingReached);return restored;}
+    private String galleryCollection(Screen source){if(source==null)return "";if(Set.of("likes","history","bookmarks").contains(source.localCollection))return source.localCollection;return source.tab==3&&screens[3]==source?"bookmarks":"";}
+    private GalleryState snapshotGallery(Gallery gallery){if(gallery==null)return null;GalleryState state=new GalleryState();state.posts.addAll(gallery.posts);state.followingReached=gallery.followingReached;if(gallery.source!=null){Screen source=gallery.source;state.source=snapshot(source);state.tab=source.tab;state.query=source.query;state.order=source.order;state.scopedSource=source.scopedSource;state.following=source.followingMode;state.anchor=source.anchor;state.localCollection=galleryCollection(source);state.registeredSource=source.tab>=0&&source.tab<screens.length&&screens[source.tab]==source;state.sourceWasSynced=gallery.syncedRevision==source.revision;}return state;}
+    private Gallery restoreGallery(GalleryState state){if(state==null)return null;Screen source=null;if(state.registeredSource&&state.tab>=0&&state.tab<screens.length){source=screens[state.tab];if(source==null){source=new Screen(state.tab);screens[state.tab]=source;initializeScreen(source);}}else if(state.source!=null){source=new Screen(state.tab);source.query=state.query;source.order=state.order;source.scopedSource=state.scopedSource;source.localCollection=state.localCollection;source.followingMode=state.following;source.anchor=state.anchor;source.posts.addAll(state.source.posts);source.fingerprints.addAll(state.source.fingerprints);source.unreadKeys.addAll(state.source.unreadKeys);source.pages.putAll(state.source.pages);source.jobs.addAll(state.source.jobs);source.loaded=state.source.loaded;source.more=state.source.more;source.failed=state.source.failed;source.followingExposed=state.source.followingExposed;source.followingStarted=state.source.followingStarted;source.followingSnapshots=state.source.followingSnapshots;source.authBlocked=state.source.authBlocked;source.authRequired.addAll(state.source.authRequired);source.accessNotice=state.source.accessNotice;}Gallery restored=new Gallery(state.posts,source);restored.followingReached=Math.max(restored.followingReached,state.followingReached);if(source!=null&&state.sourceWasSynced)restored.syncedRevision=source.revision;return restored;}
     private Gallery galleryFromJson(String json){List<Post> posts=new ArrayList<>();try{JSONArray array=new JSONArray(json);for(int i=0;i<array.length();i++)posts.add(Post.fromJson(array.getJSONObject(i)));}catch(Exception ignored){}return new Gallery(posts,null);}
-    private Bundle galleryBundle(Gallery gallery,Post selected){Bundle data=new Bundle();JSONArray posts=new JSONArray();if(gallery!=null){List<Post> merged=gallery.source==null?gallery.posts:CatalogLogic.merge(gallery.posts,gallery.source.posts);List<Post> ordered=following(gallery.source)?FollowingOrder.gallery(gallery.posts,merged,gallery.source.posts,gallery.followingReached):merged;for(Post p:ordered)posts.put(p.toJson());data.putInt("followingReached",following(gallery.source)?FollowingOrder.protectedCount(gallery.posts,ordered,gallery.followingReached):gallery.followingReached);Screen source=gallery.source;if(source!=null){data.putInt("tab",source.tab);data.putString("query",source.query);data.putString("order",source.order);data.putString("scopedSource",source.scopedSource);data.putBoolean("following",source.followingMode);data.putInt("followingExposed",source.followingExposed);data.putLong("followingStarted",source.followingStarted);data.putStringArrayList("followingUnread",new ArrayList<>(source.unreadKeys));data.putBoolean("more",source.more);data.putString("pages",new JSONObject(source.pages).toString());data.putString("fingerprints",new JSONArray(source.fingerprints).toString());JSONArray jobs=new JSONArray();for(Job job:source.jobs)try{jobs.put(new JSONObject().put("query",job.query).put("pages",new JSONObject(job.pages)));}catch(JSONException ignored){}data.putString("jobs",jobs.toString());if(source.anchor!=null)data.putString("anchor",source.anchor.toJson().toString());}}data.putString("posts",posts.toString());return data;}
+    private int galleryWindowStart(List<Post> posts,Post selected){int index=0;if(selected!=null)for(int i=0;i<posts.size();i++)if(posts.get(i).key().equals(selected.key())||posts.get(i).memberKeys.contains(selected.key())){index=i;break;}return Math.max(0,index-5);}
+    private List<Post> galleryWindow(List<Post> posts,int start){return posts.subList(Math.min(start,posts.size()),Math.min(posts.size(),start+11));}
+    private int windowBoundary(int boundary,int start,int size){return Math.max(0,Math.min(size,boundary-start));}
+    private JSONArray galleryPostsJson(List<Post> posts){JSONArray result=new JSONArray();for(Post post:posts)result.put(post.toJson());return result;}
+    private Bundle galleryBundle(Gallery gallery,Post selected){Bundle data=new Bundle();if(gallery==null){data.putString("posts","[]");return data;}int start=galleryWindowStart(gallery.posts,selected);List<Post> window=galleryWindow(gallery.posts,start);data.putString("posts",galleryPostsJson(window).toString());data.putInt("windowStart",start);data.putInt("followingReached",windowBoundary(gallery.followingReached,start,window.size()));Screen source=gallery.source;
+        if(source!=null){boolean synced=gallery.syncedRevision==source.revision;int sourceStart=synced?start:galleryWindowStart(source.posts,selected);List<Post> sourceWindow=synced?window:galleryWindow(source.posts,sourceStart);data.putBoolean("sourceWasSynced",synced);if(!synced)data.putString("sourcePosts",galleryPostsJson(sourceWindow).toString());data.putString("localCollection",galleryCollection(source));data.putBoolean("registeredSource",source.tab>=0&&source.tab<screens.length&&screens[source.tab]==source);
+            data.putInt("tab",source.tab);data.putString("query",source.query);data.putString("order",source.order);data.putString("scopedSource",source.scopedSource);data.putBoolean("following",source.followingMode);data.putInt("followingExposed",windowBoundary(source.followingExposed,sourceStart,sourceWindow.size()));data.putLong("followingStarted",source.followingStarted);data.putStringArrayList("followingUnread",new ArrayList<>(source.unreadKeys));data.putBoolean("more",source.more);data.putString("pages",new JSONObject(source.pages).toString());data.putString("fingerprints",new JSONArray(source.fingerprints).toString());JSONArray jobs=new JSONArray();for(Job job:source.jobs)try{jobs.put(new JSONObject().put("query",job.query).put("pages",new JSONObject(job.pages)));}catch(JSONException ignored){}data.putString("jobs",jobs.toString());if(source.anchor!=null)data.putString("anchor",source.anchor.toJson().toString());}return data;}
     private Map<String,Integer> pagesFromJson(JSONObject object){Map<String,Integer> pages=new LinkedHashMap<>();if(object!=null)for(String source:CatalogClient.SOURCES)if(object.has(source))pages.put(source,Math.max(0,object.optInt(source)));return pages;}
-    private Gallery galleryFromBundle(Bundle data){if(data==null)return null;Gallery list=galleryFromJson(data.getString("posts","[]"));list.followingReached=data.getInt("followingReached",0);if(!data.containsKey("tab"))return list;Screen source=new Screen(data.getInt("tab"));source.query=data.getString("query","");source.order=data.getString("order","latest");source.scopedSource=data.getString("scopedSource","");source.followingMode=data.getBoolean("following",true);source.followingExposed=data.getInt("followingExposed",0);if(following(source)){source.followingStarted=data.getLong("followingStarted",0);if(source.followingStarted<=0)source.followingStarted=System.currentTimeMillis();source.followingSnapshots=store.followingSnapshots(rating,source.followingStarted);ArrayList<String> unread=data.getStringArrayList("followingUnread");if(unread!=null)source.unreadKeys.addAll(unread);}source.more=data.getBoolean("more");source.loaded=true;source.posts.addAll(list.posts);try{source.pages.putAll(pagesFromJson(new JSONObject(data.getString("pages","{}"))));JSONArray fingerprints=new JSONArray(data.getString("fingerprints","[]"));for(int i=0;i<fingerprints.length();i++)source.fingerprints.add(fingerprints.getString(i));JSONArray jobs=new JSONArray(data.getString("jobs","[]"));for(int i=0;i<jobs.length();i++){JSONObject job=jobs.getJSONObject(i);source.jobs.add(new Job(job.optString("query"),pagesFromJson(job.optJSONObject("pages"))));}if(data.containsKey("anchor"))source.anchor=Post.fromJson(new JSONObject(data.getString("anchor")));}catch(Exception ignored){}Gallery restored=new Gallery(list.posts,source);restored.followingReached=Math.max(restored.followingReached,list.followingReached);return restored;}
+    private Gallery galleryFromBundle(Bundle data){if(data==null)return null;Gallery list=galleryFromJson(data.getString("posts","[]"));list.followingReached=data.getInt("followingReached",0);if(!data.containsKey("tab"))return list;Screen source=new Screen(data.getInt("tab"));source.query=data.getString("query","");source.order=data.getString("order","latest");source.scopedSource=data.getString("scopedSource","");source.localCollection=data.getString("localCollection","");source.followingMode=data.getBoolean("following",true);source.followingExposed=data.getInt("followingExposed",0);if(following(source)){source.followingStarted=data.getLong("followingStarted",0);if(source.followingStarted<=0)source.followingStarted=System.currentTimeMillis();source.followingSnapshots=store.followingSnapshots(rating,source.followingStarted);ArrayList<String> unread=data.getStringArrayList("followingUnread");if(unread!=null)source.unreadKeys.addAll(unread);}source.more=data.getBoolean("more");source.loaded=true;
+        if(Set.of("likes","history","bookmarks").contains(source.localCollection)){List<Post> complete=localGalleryPosts(source.localCollection,list.posts,data.getInt("windowStart",0));source.posts.addAll(complete);list.posts.clear();list.posts.addAll(complete);source.more=false;}else source.posts.addAll(data.containsKey("sourcePosts")?galleryFromJson(data.getString("sourcePosts","[]")).posts:list.posts);
+        try{source.pages.putAll(pagesFromJson(new JSONObject(data.getString("pages","{}"))));JSONArray fingerprints=new JSONArray(data.getString("fingerprints","[]"));for(int i=0;i<fingerprints.length();i++)source.fingerprints.add(fingerprints.getString(i));JSONArray jobs=new JSONArray(data.getString("jobs","[]"));for(int i=0;i<jobs.length();i++){JSONObject job=jobs.getJSONObject(i);source.jobs.add(new Job(job.optString("query"),pagesFromJson(job.optJSONObject("pages"))));}if(data.containsKey("anchor"))source.anchor=Post.fromJson(new JSONObject(data.getString("anchor")));}catch(Exception ignored){}Gallery restored=new Gallery(list.posts,source);restored.followingReached=Math.max(restored.followingReached,list.followingReached);if(!data.containsKey("sourcePosts"))restored.syncedRevision=source.revision;return restored;}
     private String galleryJson(){JSONArray posts=new JSONArray();if(activeGallery!=null&&activePost!=null){int index=0;for(int i=0;i<activeGallery.posts.size();i++)if(activeGallery.posts.get(i).key().equals(activePost.key()))index=i;for(int i=Math.max(0,index-5);i<Math.min(activeGallery.posts.size(),index+6);i++)posts.put(activeGallery.posts.get(i).toJson());}return posts.toString();}
     private void stopDetail(){cancel(detailTask);cancel(mediaActionTask);detachScreen(activeRelated);activeRelated=null;detailList=null;}
     private void detachScreen(Screen screen){if(screen==null)return;cancel(screen.task);screen.generation++;if(screen.retryRunnable!=null){main.removeCallbacks(screen.retryRunnable);screen.retryRunnable=null;}screen.loading=false;screen.publications.clear();screen.publishing=false;screen.roundSettled=false;cancel(screen.calibrationTask);screen.view=null;screen.list=null;screen.adapter=null;screen.status=null;screen.loadedCallback=null;screen.artistWorks=null;screen.pendingArtistWorks=null;screen.pendingArtistGallery=null;}
@@ -292,11 +337,12 @@ public final class MainActivity extends Activity {
     private Future<?> submitNetwork(Runnable runnable){CatalogClient.NetworkTask<Void> task=new CatalogClient.NetworkTask<>(runnable);try{work.execute(task);}catch(RejectedExecutionException error){task.cancel(false);main.post(()->{if(destroyed)return;List<Screen> active=new ArrayList<>(Arrays.asList(screens));active.add(activeRelated);active.add(activeAuthor);for(Screen screen:active)if(screen!=null&&screen.task==task){screen.loading=false;screen.failed=true;updateStatus(screen);}});}return task;}
     private Future<?> submitForeground(Runnable runnable){CatalogClient.NetworkTask<Void> task=new CatalogClient.NetworkTask<>(runnable);foreground.execute(task);return task;}
     private void invalidateScreens(){for(Screen s:screens)if(s!=null){s.generation++;cancel(s.task);cancel(s.rankTask);}Arrays.fill(screens,null);retainedScreens=null;restored=null;}
-    private void restoreBackStack(Bundle saved){ArrayList<Bundle> entries=saved.getParcelableArrayList("backStack");if(entries==null)return;backStack.clear();for(int i=entries.size()-1;i>=0;i--){Bundle item=entries.get(i);BackEntry entry=new BackEntry();entry.nav=item.getInt("nav");entry.scroll=item.getInt("scroll");entry.top=item.getInt("top");entry.mediaIndex=item.getInt("mediaIndex");entry.gallery=galleryFromBundle(item.getBundle("galleryRoute"));if(retainedState!=null&&i<retainedState.backs.size()){entry.related=retainedState.backs.get(i);entry.gallery=restoreGallery(retainedState.backGalleries.get(i));}try{if(item.containsKey("detail"))entry.detail=Post.fromJson(new JSONObject(item.getString("detail")));else if(item.containsKey("author"))entry.author=item.getString("author");else if(item.containsKey("settingsPage"))entry.view=restoreSettingsState(item.getBundle("settingsPage"));else{int tab=item.getInt("tab",entry.nav);if(tab==4)entry.view=profile();else{Screen s=screens[tab];if(s==null){s=new Screen(tab);screens[tab]=s;initializeScreen(s);}entry.view=s.view;}}backStack.push(entry);}catch(Exception ignored){}}retainedState=null;}
+    private void restoreBackStack(Bundle saved){ArrayList<Bundle> entries=saved.getParcelableArrayList("backStack");if(entries==null)return;backStack.clear();for(int i=entries.size()-1;i>=0;i--){Bundle item=entries.get(i);BackEntry entry=new BackEntry();entry.nav=item.getInt("nav");entry.scroll=item.getInt("scroll");entry.top=item.getInt("top");entry.mediaIndex=item.getInt("mediaIndex");entry.gallery=galleryFromBundle(item.getBundle("galleryRoute"));if(retainedState!=null&&i<retainedState.backs.size()){entry.related=retainedState.backs.get(i);entry.gallery=restoreGallery(retainedState.backGalleries.get(i));}try{if(item.containsKey("detail"))entry.detail=Post.fromJson(new JSONObject(item.getString("detail")));else if(item.containsKey("author"))entry.author=item.getString("author");else if(item.containsKey("settingsPage"))entry.view=restoreSettingsState(item.getBundle("settingsPage"));else if(item.containsKey("localCollectionPage"))entry.view=restoreLocalCollection(item.getBundle("localCollectionPage"));else{int tab=item.getInt("tab",entry.nav);if(tab==4)entry.view=profile();else{Screen s=screens[tab];if(s==null){s=new Screen(tab);screens[tab]=s;initializeScreen(s);}entry.view=s.view;}}backStack.push(entry);}catch(Exception ignored){}}retainedState=null;}
     private LinearLayout toolbar(String title,Runnable back){
         LinearLayout bar=row();bar.setBackgroundColor(PANEL);bar.setPadding(dp(8),0,dp(8),0);bar.setMinimumHeight(dp(56));
         bar.addView(iconButton(back==null?"menu":"back",back==null?"Меню":"Назад",back==null?()->selectNav(4):back),new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView label=text(title,19,TEXT);label.setSingleLine(true);label.setEllipsize(TextUtils.TruncateAt.END);label.setPadding(dp(6),0,dp(8),0);label.setTypeface(null,Typeface.BOLD);bar.addView(label,new LinearLayout.LayoutParams(0,dp(48),1));label.setGravity(Gravity.CENTER_VERTICAL);
+        addUpdateAction(bar);
         return bar;
     }
     private void buildBottom(){
@@ -315,7 +361,7 @@ public final class MainActivity extends Activity {
         Screen screen=screens[index];if(screen==null){screen=new Screen(index);screens[index]=screen;initializeScreen(screen);}
         if(index==3){screen.posts.clear();screen.more=false;screen.loaded=true;for(Post p:store.visible(store.bookmarks(),false))if(CatalogLogic.matchesRating(p.rating,rating))screen.posts.add(p);screen.adapter.notifyDataSetChanged();updateStatus(screen);}
         display(screen.view);
-        if(!screen.loaded&&index!=3){if(index==1&&screen.query.isBlank())loadExplore(screen);else load(screen,true);}
+        if(!screen.loaded&&!screen.loading&&index!=3){if(index==1&&screen.query.isBlank())loadExplore(screen);else load(screen,true);}
     }
     private void initializeScreen(Screen s){
         Bundle state=restored==null?null:restored.getBundle("screen"+s.tab);
@@ -325,7 +371,7 @@ public final class MainActivity extends Activity {
         ScreenState cached=retainedScreens==null?null:retainedScreens[s.tab];
         if(retainedScreens!=null)retainedScreens[s.tab]=null;
         if(cached!=null&&cached.loaded){s.posts.addAll(cached.posts);s.fingerprints.addAll(cached.fingerprints);s.unreadKeys.addAll(cached.unreadKeys);s.followingExposed=cached.followingExposed;s.followingStarted=cached.followingStarted;s.followingSnapshots=cached.followingSnapshots;s.pages.putAll(cached.pages);s.jobs.addAll(cached.jobs);s.loaded=true;s.more=cached.more;s.failed=cached.failed;s.authBlocked=cached.authBlocked;s.authRequired.addAll(cached.authRequired);s.accessNotice=cached.accessNotice;s.adapter.notifyDataSetChanged();updateStatus(s);if(s.tab==0)loadRankings(s,s.generation,rating);
-            if(personalized(s)){s.loading=true;int generation=s.generation;List<Post> liked=store.likes();Map<String,String> choices=store.recommendationTags();int seed=store.recommendationSeed();grouping.execute(()->{Recommendations.Model model=Recommendations.build(liked,choices,seed);main.post(()->{if(destroyed||s.generation!=generation)return;s.recommendationModel=model;s.loading=false;updateStatus(s);prepareVisibleContent();});});}
+            if(personalized(s)){s.loading=true;int generation=s.generation;List<Post> liked=store.likes();Map<String,String> choices=store.recommendationTags();int seed=store.recommendationSeed();prepareTaste(s,generation,()->{Recommendations.Model model=Recommendations.build(liked,choices,seed,()->!destroyed&&s.generation==generation);if(model==null||destroyed||s.generation!=generation)return;main.post(()->{if(destroyed||s.generation!=generation)return;s.recommendationModel=model;s.loading=false;updateStatus(s);prepareVisibleContent();});});}
         }
         if(state!=null)restored.remove("screen"+s.tab);
     }
@@ -335,7 +381,7 @@ public final class MainActivity extends Activity {
         LinearLayout bar=toolbar(s.tab==0?"DART":s.tab==1?"Поиск":s.tab==2?"Новое":"Закладки",null);
         if(s.tab==0)brand((TextView)bar.getChildAt(1));
         if(s.tab!=1)bar.addView(iconButton("search","Найти иллюстрации",()->{selectNav(1);focusSearch();}),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        bar.addView(iconButton("heart","Понравившееся",()->localGrid("Понравившееся",store.likes())),new LinearLayout.LayoutParams(dp(44),dp(48)));bar.addView(iconButton("filter","Фильтры",this::filters),new LinearLayout.LayoutParams(dp(48),dp(48)));shell.addView(bar);
+        bar.addView(iconButton("heart","Понравившееся",()->localGrid("Понравившееся",store.likes(),"likes")),new LinearLayout.LayoutParams(dp(44),dp(48)));bar.addView(iconButton("filter","Фильтры",this::filters),new LinearLayout.LayoutParams(dp(48),dp(48)));shell.addView(bar);
         if(s.tab==1)buildSearch(shell,s);
         FeedListView list=new FeedListView(this);list.setRecyclerListener(this::recycleImages);list.setRestoreListener(this::restoreCards);list.setClipToPadding(false);list.setPadding(dp(6),0,dp(6),dp(12));list.setVerticalScrollBarEnabled(false);s.list=list;
         LinearLayout header=column();
@@ -368,8 +414,8 @@ public final class MainActivity extends Activity {
     private boolean personalized(Screen s){return s.tab==0&&s.homeTab==0&&(!store.likes().isEmpty()||store.recommendationTags().containsValue("priority"));}
     private void startRecommendationCalibration(Screen screen){
         if(screen.calibrationStarted||!personalized(screen)||screen.view!=currentView||screen.adapter==null||screen.adapter.shown.isEmpty())return;
-        screen.calibrationStarted=true;int generation=screen.generation,seed=store.recommendationSeed();List<Post> liked=store.likes();Map<String,String> choices=store.recommendationTags();String selectedRating=rating;Map<String,Integer> pages=selectedPages();
-        screen.calibrationTask=submitNetwork(()->{CatalogClient.Page result=client.search("",pages,selectedRating,"latest");if(result.posts.isEmpty())return;grouping.execute(()->{Recommendations.Model model=Recommendations.build(liked,choices,seed,result.posts);main.post(()->{if(!destroyed&&screen.generation==generation)screen.recommendationModel=model;});});});
+        screen.calibrationStarted=true;int generation=screen.generation,seed=store.recommendationSeed();List<Post> liked=store.likes();Map<String,String> choices=store.recommendationTags();String selectedRating=rating;Map<String,Integer> pages=selectedPages();Recommendations.Model baseline=screen.recommendationModel;
+        screen.calibrationTask=submitNetwork(()->{CatalogClient.Page result=client.search("",pages,selectedRating,"latest");if(result.posts.isEmpty())return;prepareTaste(screen,generation,()->{Recommendations.Model model=baseline==null?Recommendations.build(liked,choices,seed,result.posts,()->!destroyed&&screen.generation==generation):baseline.recalibrate(result.posts,()->!destroyed&&screen.generation==generation);if(model==null)return;main.post(()->{if(!destroyed&&screen.generation==generation)screen.recommendationModel=model;});});});
     }
     private void fingerprint(Post post,Bitmap bitmap){
         if((!post.visualHash.isBlank()&&!post.visualPHash.isBlank())||!fingerprinting.add(post.key()))return;
@@ -386,14 +432,15 @@ public final class MainActivity extends Activity {
         String candidate=cardPreview(post);if(!post.source.equals("sankaku")||CatalogLogic.isMediaUrl(candidate)&&!images.failed(candidate,720)||hydratingMedia.size()>=4||hydratingMedia.contains(post.key()))return;
         long now=SystemClock.elapsedRealtime();if(now-mediaRecoveryAttempts.getOrDefault(post.key(),-60000L)<60000)return;
         mediaRecoveryAttempts.put(post.key(),now);while(mediaRecoveryAttempts.size()>256)mediaRecoveryAttempts.remove(mediaRecoveryAttempts.keySet().iterator().next());hydratingMedia.add(post.key());
-        submitForeground(()->{try{Post fresh=Post.fromJson(post.toJson());client.enrich(fresh);main.post(()->{hydratingMedia.remove(post.key());if(destroyed)return;CatalogLogic.refreshSignedMedia(post,fresh);store.refreshCachedPost(post);List<Screen> affected=new ArrayList<>(Arrays.asList(screens));affected.add(activeRelated);affected.add(activeAuthor);for(Screen screen:affected)if(screen!=null&&screen.adapter!=null&&screen.posts.stream().anyMatch(item->!Collections.disjoint(FeedSession.keys(item),FeedSession.keys(post))))screen.adapter.notifyDataSetChanged();restoreCards(currentView);prepareVisibleContent();});}catch(Exception error){main.post(()->hydratingMedia.remove(post.key()));}});
+        mediaRepairs.execute(new CatalogClient.NetworkTask<Void>(()->{try{Post fresh=post.copy();client.enrich(fresh,2);main.post(()->{hydratingMedia.remove(post.key());if(destroyed)return;CatalogLogic.refreshSignedMedia(post,fresh);store.refreshCachedPost(post);List<Screen> affected=new ArrayList<>(Arrays.asList(screens));affected.add(activeRelated);affected.add(activeAuthor);for(Screen screen:affected)if(screen!=null&&screen.adapter!=null&&screen.posts.stream().anyMatch(item->!Collections.disjoint(FeedSession.keys(item),FeedSession.keys(post))))screen.adapter.notifyDataSetChanged();restoreCards(currentView);prepareVisibleContent();});}catch(Exception error){main.post(()->hydratingMedia.remove(post.key()));}}));
     }
     private void prepareRecommendations(Screen s,int generation){
         List<Post> liked=store.likes();Map<String,String> choices=store.recommendationTags();int seed=store.recommendationSeed();
         String selectedSource=sourceFilter,selectedRating=rating;
         s.recentExposure=store.recentSuggestions();s.loading=true;updateStatus(s);
-        grouping.execute(()->{
-            Recommendations.Model model=Recommendations.build(liked,choices,seed);
+        prepareTaste(s,generation,()->{
+            if(destroyed||s.generation!=generation)return;
+            Recommendations.Model model=Recommendations.build(liked,choices,seed,()->!destroyed&&s.generation==generation);if(model==null||destroyed||s.generation!=generation)return;
             List<Post> warm=new ArrayList<>();for(Post post:store.visible(store.catalogue(),true,true))
                 if(CatalogLogic.matchesRating(post.rating,selectedRating)&&(selectedSource.equals("all")&&store.configured(post.source)||selectedSource.equals(post.source)))warm.add(post);
             warm=model.rank(warm,List.of(),s.recentExposure,selectedRating,store.curation(),System.currentTimeMillis());
@@ -406,6 +453,7 @@ public final class MainActivity extends Activity {
                  if(BuildConfig.DEBUG)android.util.Log.i("ArtCatalogQA","RECOMMEND prepared="+prepared.size()+" likes="+liked.size()+" queries="+queries.size()+" jobs="+s.jobs.size());
                 s.loading=false;load(s,false);
             });
+            if(Boolean.TRUE.equals(store.curation().get("enabled"))&&Boolean.TRUE.equals(store.curation().get("personal")))try{store.curationTaste();}catch(OutOfMemoryError|RuntimeException error){android.util.Log.w("ArtCatalog","Taste warmup deferred: "+error.getClass().getSimpleName());}
         });
     }
     private Map<String,Integer> selectedPages(){Map<String,Integer> pages=new LinkedHashMap<>();for(String source:CatalogClient.SOURCES)if((sourceFilter.equals("all")||sourceFilter.equals(source))&&store.configured(source))pages.put(source,0);if(pages.isEmpty()&&!sourceFilter.equals("all"))pages.put(sourceFilter,0);return pages;}
@@ -430,7 +478,7 @@ public final class MainActivity extends Activity {
             if(retry>now){earliest=Math.min(earliest,retry);continue;}if(!following(screen)&&requests.size()>=12)break;FeedRound.Request request=new FeedRound.Request(job.query,Map.of(source,job.pages.get(source)));requests.add(request);owners.put(request,job);
         }
         if(requests.isEmpty()){
-            screen.loading=false;screen.loaded=true;screen.more=true;updateStatus(screen);int generation=screen.generation;if(screen.retryRunnable==null){screen.retryRunnable=()->{screen.retryRunnable=null;if(!destroyed&&screen.generation==generation&&screen.view==currentView&&!screen.loading)load(screen,false);};main.postDelayed(screen.retryRunnable,Math.max(250,Math.min(60000,earliest-now)));}return;
+            screen.loading=false;screen.loaded=true;screen.more=true;updateStatus(screen);int generation=screen.generation;if(screen.retryRunnable==null){screen.retryRunnable=()->{screen.retryRunnable=null;boolean visible=screen.view==currentView||activePost!=null&&activeGallery!=null&&activeGallery.source==screen;if(!destroyed&&screen.generation==generation&&visible&&!screen.loading)load(screen,false);};main.postDelayed(screen.retryRunnable,Math.max(250,Math.min(60000,earliest-now)));}return;
         }
         if(following(screen)&&screen.followingSnapshots.isEmpty()){screen.followingStarted=System.currentTimeMillis();screen.followingSnapshots=store.followingSnapshots(rating,screen.followingStarted);}
         Map<String,String> followOwners=following(screen)?followingRequestOwners():Map.of();
@@ -476,7 +524,7 @@ public final class MainActivity extends Activity {
     private void load(Screen s,boolean reset){
         if(s.tab==3){selectNav(3);return;}
         if(s.loading&&!reset)return;boolean recommendations=personalized(s),queued=s.tab==5||s.tab==2&&s.followingMode||recommendations;
-        if(reset){s.loading=true;cancel(s.task);cancel(s.rankTask);cancel(s.calibrationTask);s.calibrationStarted=false;s.generation++;s.recommendationModel=null;s.posts.clear();s.unreadKeys.clear();if(!queued&&!s.query.contains(":")&&(s.tab==0||s.tab==1||s.tab==6))for(Post cached:screenVisible(s,exploreCache()))if(queryMatches(cached,s.query))s.posts.add(cached);s.pages.clear();s.pages.putAll(selectedPages(s));s.jobs.clear();s.publications.clear();s.publishing=false;s.emptyRounds=0;s.deferredSources.clear();s.fingerprints.clear();s.more=true;s.loaded=false;s.failed=false;s.authRequired.clear();s.accessNotice="";
+        if(reset){s.loading=true;cancel(s.task);cancel(s.rankTask);cancel(s.calibrationTask);s.calibrationStarted=false;s.generation++;s.recommendationModel=null;s.curationSnapshot=null;s.posts.clear();s.unreadKeys.clear();if(!queued&&!s.query.contains(":")&&(s.tab==0||s.tab==1||s.tab==6))for(Post cached:screenVisible(s,exploreCache()))if(queryMatches(cached,s.query))s.posts.add(cached);s.pages.clear();s.pages.putAll(selectedPages(s));s.jobs.clear();s.publications.clear();s.publishing=false;s.emptyRounds=0;s.deferredSources.clear();s.fingerprints.clear();s.more=true;s.loaded=false;s.failed=false;s.authRequired.clear();s.accessNotice="";
             s.followingExposed=0;s.followingStarted=System.currentTimeMillis();s.followingSnapshots=following(s)?store.followingSnapshots(rating,s.followingStarted):Map.of();
             if(s.tab==2&&s.followingMode)for(JSONObject f:store.follows()){String source=f.optString("source"),tag=f.optString("tag");Map<String,Integer> pages=source.isBlank()?selectedPages():new LinkedHashMap<>(Map.of(source,0));String alias=f.optString("gelbooruTag");if(source.isBlank()&&!alias.isBlank()&&!alias.equals(tag)&&pages.containsKey("gelbooru")){pages.remove("gelbooru");s.jobs.add(new Job(alias,new LinkedHashMap<>(Map.of("gelbooru",0))));}if(!pages.isEmpty())s.jobs.add(new Job(tag,pages));}
             if(s.tab==5&&s.anchor!=null)for(String q:CatalogLogic.relatedQueries(s.anchor))s.jobs.add(new Job(q,selectedPages()));
@@ -594,12 +642,12 @@ public final class MainActivity extends Activity {
     }
     private void updateStatus(Screen s){
         if(s.status==null)return;
-        String label=s.loading||s.adapter!=null&&!s.adapter.explore()&&s.adapter.shown.size()<s.posts.size()?"Подготовка следующих иллюстраций…":s.more?s.posts.isEmpty()?"Ищем доступные работы…":"Загрузить ещё":s.posts.isEmpty()?s.tab==3?"Закладки появятся здесь.\nСохраните работу кнопкой внутри иллюстрации.":s.tab==2&&s.followingMode&&store.follows().isEmpty()?"Подпишитесь на художника, чтобы видеть его новые работы.":"Здесь пока нет работ.\nИзмените фильтры или нажмите, чтобы обновить.":s.tab==0&&s.homeTab==0?"Подборка просмотрена · нажмите, чтобы обновить рекомендации":"Пока новых результатов нет · нажмите, чтобы обновить";
+        String label=s.failed?"Не удалось загрузить каталог. Нажмите, чтобы повторить.":s.loading||s.adapter!=null&&!s.adapter.explore()&&s.adapter.shown.size()<s.posts.size()?"Подготовка следующих иллюстраций…":s.more?s.posts.isEmpty()?"Ищем доступные работы…":"Загрузить ещё":s.posts.isEmpty()?s.tab==3?"Закладки появятся здесь.\nСохраните работу кнопкой внутри иллюстрации.":s.tab==2&&s.followingMode&&store.follows().isEmpty()?"Подпишитесь на художника, чтобы видеть его новые работы.":"Здесь пока нет работ.\nИзмените фильтры или нажмите, чтобы обновить.":s.tab==0&&s.homeTab==0?"Подборка просмотрена · нажмите, чтобы обновить рекомендации":"Пока новых результатов нет · нажмите, чтобы обновить";
         if(!s.accessNotice.isBlank()&&!s.more)label=s.accessNotice+(s.authRequired.isEmpty()?"":"\nНажмите, чтобы авторизоваться.");
-        if(!TextUtils.equals(s.status.getText(),label))s.status.setText(label);s.status.setVisibility(View.VISIBLE);
+        label=tr(label);if(!TextUtils.equals(s.status.getText(),label))s.status.setText(label);s.status.setVisibility(View.VISIBLE);
     }
     private void applyAccess(Screen screen,CatalogClient.Page result){screen.authRequired.clear();screen.authRequired.addAll(result.authRequired);screen.accessNotice=String.join("\n",result.notices.values());screen.authBlocked=result.posts.isEmpty()&&!result.authRequired.isEmpty()&&!screen.more;}
-    private void statusAction(Screen screen){screen.emptyRounds=0;if(screen.more){load(screen,false);return;}if(screen.authRequired.contains("sankaku")){settings("source/sankaku");return;}if(screen.tab==0&&screen.homeTab==0)store.rotateRecommendations();load(screen,true);}
+    private void statusAction(Screen screen){screen.emptyRounds=0;if(screen.failed&&!screen.loaded){load(screen,true);return;}if(screen.more){load(screen,false);return;}if(screen.authRequired.contains("sankaku")){settings("source/sankaku");return;}if(screen.tab==0&&screen.homeTab==0)store.rotateRecommendations();load(screen,true);}
     private void accessPrompt(SankakuApi.AccessException error){
         AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle(tr(error.loginRequired?"Авторизуйтесь в Sankaku":"Доступ Sankaku ограничен")).setMessage(error.getMessage()).setNegativeButton(tr("Закрыть"),null);
         if(error.loginRequired)dialog.setPositiveButton(tr("Авторизоваться"),(d,w)->settings("source/sankaku"));else dialog.setPositiveButton(tr("Открыть Sankaku"),(d,w)->external("https://sankaku.app/"));dialog.show();
@@ -652,7 +700,7 @@ public final class MainActivity extends Activity {
         private String token(Post p){return p==null?"":presentation.key(p)+"|"+preview(p)+"|"+p.title+"|"+p.artist+"|"+p.media.size()+(following(screen)?"|"+!Collections.disjoint(screen.unreadKeys,FeedSession.keys(p)):"");}
         public Object getItem(int position){return position<rowTokens.size()?rowTokens.get(position):rowToken(position);}
         private String rowToken(int position){if(explore()){if(position==0)return screen.exploreMessage+"|"+token(shown.isEmpty()?null:shown.get(0));if(position<5){String content="";for(int i=(position-1)*3;i<position*3;i++)content+="|"+token(topic(shown,i));return content;}if(position==5)return "Каталог|"+screen.exploreMessage;}int index=(explore()?position-6:position)*2;return token(shown.get(index))+"||"+token(index+1<shown.size()?shown.get(index+1):null);}
-        private Gallery gallery(){if(bindingGallery==null||galleryRevision!=screen.revision||galleryCount!=screen.posts.size()){bindingGallery=new Gallery(screen.posts,screen);if(screen.loaded&&screen.revision>0)bindingGallery.syncedRevision=screen.revision;galleryRevision=screen.revision;galleryCount=screen.posts.size();}return bindingGallery;}
+        private Gallery gallery(){if(bindingGallery==null||galleryRevision!=screen.revision||galleryCount!=screen.posts.size()){bindingGallery=new Gallery(screen.posts,screen);bindingGallery.syncedRevision=screen.revision;galleryRevision=screen.revision;galleryCount=screen.posts.size();}return bindingGallery;}
         @Override public void notifyDataSetChanged(){metadataDirty=true;bindingGallery=null;prefetchScreen=null;refreshPrepared();if(screen.view==currentView)prefetchCards(screen,0);}
         void refreshPrepared(){
             if(!metadataDirty&&prefixCurrent&&shown.size()==screen.posts.size()&&screen.restoreRow<0)return;
@@ -729,15 +777,26 @@ public final class MainActivity extends Activity {
         LinearLayout account=row();account.setPadding(dp(4),dp(6),dp(4),dp(24));TextView avatar=text("A",28,TEXT);avatar.setGravity(Gravity.CENTER);avatar.setBackground(rounded(BLUE,36));account.addView(avatar,new LinearLayout.LayoutParams(dp(60),dp(60)));
         LinearLayout label=column();label.setPadding(dp(16),0,0,0);TextView name=text("ArtCatalog",19,TEXT);name.setTypeface(null,Typeface.BOLD);label.addView(name);TextView info=text("Ваш каталог на телефоне",13,MUTED);info.setPadding(0,dp(6),0,0);label.addView(info);account.addView(label);body.addView(account);
         LinearLayout summary=row();summary.setPadding(dp(16),dp(16),dp(16),dp(16));summary.setBackground(rounded(RAISED,8));summary.addView(text(tr("Понравившееся")+": "+store.likes().size()+" · "+tr("Закладки")+": "+store.bookmarks().size(),14,TEXT),new LinearLayout.LayoutParams(0,-2,1));summary.addView(text(tr("Подписки")+": "+store.follows().size(),14,MUTED));body.addView(summary);
-        menuRow(body,"heart","Понравившееся",()->localGrid("Понравившееся",store.likes()));menuRow(body,"bookmark","Закладки",()->selectNav(3));menuRow(body,"clock","Недавно открытое",()->localGrid("Недавно открытое",store.history()));menuRow(body,"users","Подписки",this::manageFollows);
+        menuRow(body,"heart","Понравившееся",()->localGrid("Понравившееся",store.likes(),"likes"));menuRow(body,"bookmark","Закладки",()->selectNav(3));menuRow(body,"clock","Недавно открытое",()->localGrid("Недавно открытое",store.history(),"history"));menuRow(body,"users","Подписки",this::manageFollows);
         TextView divider=text("Настройки",12,MUTED);divider.setPadding(dp(8),dp(24),0,dp(8));body.addView(divider);
         menuRow(body,"settings","Настройки",this::settings);menuRow(body,"bookmark","Открытые работы",this::openWorks);menuRow(body,"download","Экспорт профиля",this::exportData);menuRow(body,"bookmark","Импорт профиля с ПК",this::importData);
         TextView note=text("ArtCatalog Mobile "+BuildConfig.VERSION_NAME+"\nДанные хранятся на этом телефоне",12,MUTED);note.setPadding(dp(8),dp(30),0,0);body.addView(note);return page;
     }
     private void menuRow(LinearLayout parent,String icon,String label,Runnable action){LinearLayout option=row();option.setPadding(dp(4),0,dp(4),0);option.addView(new IconView(this,icon,MUTED),new LinearLayout.LayoutParams(dp(44),dp(60)));TextView title=text(label,15,TEXT);title.setPadding(dp(10),0,0,0);option.addView(title,new LinearLayout.LayoutParams(0,-2,1));option.addView(new IconView(this,"next",MUTED),new LinearLayout.LayoutParams(dp(26),dp(40)));touchBackground(option,Color.TRANSPARENT,7);option.setContentDescription(tr(label));option.setOnClickListener(v->action.run());parent.addView(option,new LinearLayout.LayoutParams(-1,dp(60)));}
-    private void localGrid(String title,List<Post> posts){
-        Screen screen=new Screen(3);buildFeed(screen);screen.more=false;screen.loaded=true;screen.posts.clear();for(Post p:posts)if(CatalogLogic.matchesRating(p.rating,rating))screen.posts.add(p);screen.adapter.notifyDataSetChanged();updateStatus(screen);LinearLayout shell=(LinearLayout)screen.view;shell.removeViewAt(0);shell.addView(toolbar(title,this::goBack),0);push(shell);
+    private void localGrid(String title,List<Post> posts){localGrid(title,posts,title.equals("Понравившееся")?"likes":title.equals("Недавно открытое")?"history":"");}
+    private void localGrid(String title,List<Post> posts,String kind){push(buildLocalGrid(title,posts,kind,-1,0));}
+    private View buildLocalGrid(String title,List<Post> posts,String kind,int first,int top){
+        Screen screen=new Screen(3);screen.localCollection=kind;screen.restoreRow=first;screen.restoreTop=top;buildFeed(screen);screen.more=false;screen.loaded=true;for(Post p:store.visible(posts,false))if(CatalogLogic.matchesRating(p.rating,rating))screen.posts.add(p);screen.adapter.notifyDataSetChanged();updateStatus(screen);LinearLayout shell=(LinearLayout)screen.view;shell.removeViewAt(0);shell.addView(toolbar(title,this::goBack),0);if(!kind.isBlank())shell.setTag(new LocalCollectionRoute(kind,screen));return shell;
     }
+    private String localCollectionTitle(String kind){return kind.equals("likes")?"Понравившееся":kind.equals("history")?"Недавно открытое":"Закладки";}
+    private List<Post> localCollectionPosts(String kind){return kind.equals("likes")?store.likes():kind.equals("history")?store.history():store.bookmarks();}
+    private Post localMatch(Post post,Map<String,Post> aliases){Post found=aliases.get(post.key());if(found!=null)return found;for(String key:post.memberKeys){found=aliases.get(key);if(found!=null)return found;}return null;}
+    /** Restore the complete saved collection without regrouping/encoding its whole library. */
+    private List<Post> localGalleryPosts(String kind,List<Post> window,int oldStart){List<Post> result=new ArrayList<>();for(Post post:store.visible(localCollectionPosts(kind),false))if(CatalogLogic.matchesRating(post.rating,rating))result.add(post);Map<String,Post> aliases=new HashMap<>();for(Post post:result){aliases.putIfAbsent(post.key(),post);for(String key:post.memberKeys)aliases.putIfAbsent(key,post);}
+        List<Post> visible=store.visible(window,false);for(int i=visible.size()-1;i>=0;i--){Post post=visible.get(i);if(!CatalogLogic.matchesRating(post.rating,rating)||localMatch(post,aliases)!=null)continue;int position=-1;for(int j=i+1;j<visible.size();j++){Post next=localMatch(visible.get(j),aliases);if(next!=null){position=result.indexOf(next);break;}}if(position<0)for(int j=i-1;j>=0;j--){Post previous=localMatch(visible.get(j),aliases);if(previous!=null){position=result.indexOf(previous)+1;break;}}if(position<0)position=Math.max(0,Math.min(oldStart,result.size()));result.add(position,post);aliases.put(post.key(),post);for(String key:post.memberKeys)aliases.putIfAbsent(key,post);}return result;
+    }
+    private Bundle localCollectionState(View view){if(view==null||!(view.getTag() instanceof LocalCollectionRoute))return null;LocalCollectionRoute route=(LocalCollectionRoute)view.getTag();Bundle state=new Bundle();state.putString("kind",route.kind);if(route.screen.list!=null){state.putInt("first",route.screen.list.getFirstVisiblePosition());View first=route.screen.list.getChildAt(0);state.putInt("top",first==null?0:first.getTop());}return state;}
+    private View restoreLocalCollection(Bundle state){String kind=state.getString("kind","");if(!Set.of("likes","history","bookmarks").contains(kind))return profile();return buildLocalGrid(localCollectionTitle(kind),localCollectionPosts(kind),kind,state.getInt("first",-1),state.getInt("top",0));}
     private void manageFollows(){
         LinearLayout page=column();page.addView(toolbar("Подписки",this::goBack));ScrollView scroll=new ScrollView(this);LinearLayout body=column();body.setPadding(dp(16),dp(16),dp(16),dp(24));scroll.addView(body);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         body.addView(button("Добавить художника по тегу",BLUE,()->followDialog(null,()->{goBack();manageFollows();})),new LinearLayout.LayoutParams(-1,dp(46)));
@@ -773,6 +832,7 @@ public final class MainActivity extends Activity {
         {"appearance","palette","Оформление","Color and theme"},
         {"privacy","shield","Приватность","Screen capture"},
         {"transfer","copy","Перенос профиля","Windows and Android"},
+        {"updates","download","Updates","Updates and installation"},
         {"language","language","Язык","English · Русский · Deutsch"},
         {"about","info","About DART","Version and updates"}
     };
@@ -782,7 +842,7 @@ public final class MainActivity extends Activity {
         LinearLayout bar=row();bar.setBackgroundColor(PANEL);bar.setPadding(dp(8),dp(6),dp(12),dp(6));bar.setMinimumHeight(dp(60));
         bar.addView(iconButton("back","Назад",this::goBack),new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView label=text(title,19,TEXT);label.setTypeface(null,Typeface.BOLD);label.setPadding(dp(7),0,0,0);if(Build.VERSION.SDK_INT>=28)label.setAccessibilityHeading(true);
-        bar.addView(label,new LinearLayout.LayoutParams(0,-2,1));return bar;
+        bar.addView(label,new LinearLayout.LayoutParams(0,-2,1));addUpdateAction(bar);return bar;
     }
     private String settingsRoute(View page){return page!=null&&page.getTag() instanceof SettingsRoute?((SettingsRoute)page.getTag()).key:"";}
     private String settingsTitle(String route){
@@ -824,6 +884,7 @@ public final class MainActivity extends Activity {
         else if(route.equals("appearance"))appearanceSettingsBody(body,ui);
         else if(route.equals("language"))languageSettingsBody(body,ui);
         else if(route.equals("privacy"))privacySettingsBody(body,ui);
+        else if(route.equals("updates"))updatesSettingsBody(body,ui);
         else if(route.equals("transfer")){
             LinearLayout card=ui.card(body,"copy","Перенос профиля","Один JSON-файл для DART на ПК и Android. Передайте его любым удобным способом и выберите импорт на другом устройстве.");
             hint(card,"Переносятся лайки, закладки, подписки, просмотренное, избранные теги и приоритеты рекомендаций. Импорт дополняет профиль без удаления существующих записей. Фильтры и отбор можно перенести отдельно.");
@@ -833,7 +894,7 @@ public final class MainActivity extends Activity {
         else if(route.equals("recommendations"))recommendationSettingsBody(body,page,ui);
         else if(route.equals("about")){
             LinearLayout card=ui.card(body,"info","DART","Discover Art");TextView version=literalText(tr("Version")+" "+BuildConfig.VERSION_NAME,18,TEXT);version.setPadding(0,dp(8),0,dp(16));card.addView(version);
-            hint(card,"Install Android updates over the existing app to keep your profile.");ui.action(card,"View Android releases",true,()->external("https://github.com/4ek1st/DART/releases?q=android-v&expanded=true"));
+            hint(card,"Install Android updates over the existing app to keep your profile.");ui.action(card,"Check for updates",true,()->settings("updates"));ui.action(card,"View Android releases",false,()->external("https://github.com/4ek1st/DART/releases?q=android-v&expanded=true"));
         }
         return page;
     }
@@ -882,7 +943,7 @@ public final class MainActivity extends Activity {
             hint(body,"Жёлтый тег получает приоритет, красный исключается из рекомендаций. Нажмите на тег, чтобы изменить его. Лайки и закладки хранятся отдельно.");
             TextView loading=text("Считаем интересы…",14,MUTED);body.addView(loading);
             List<Post> likes=store.likes();Map<String,String> prefs=store.recommendationTags();int seed=store.recommendationSeed();
-            grouping.execute(()->{Recommendations.Model model=Recommendations.build(likes,prefs,seed);main.post(()->{
+            recommendationWork.execute(()->{try{Recommendations.Model model=Recommendations.build(likes,prefs,seed,()->!destroyed);if(model==null)return;main.post(()->{
                 if(destroyed||request!=revision[0])return;body.removeView(loading);
                 if(likes.isEmpty())hint(body,"Отметьте несколько иллюстраций сердцем, и здесь появятся ваши интересы. До этого главная показывает общую ленту.");
                 Map<String,Double> interest=new LinkedHashMap<>(model.weights);for(String tag:prefs.keySet())interest.putIfAbsent(tag,0.);
@@ -891,14 +952,14 @@ public final class MainActivity extends Activity {
                     int color=mode.equals("priority")?Color.rgb(255,206,74):mode.equals("disabled")?Color.rgb(243,118,119):TEXT;
                     TextView item=ui.action(body,(mode.equals("priority")?"★ ":mode.equals("disabled")?"✕ ":"# ")+tag.replace('_',' '),false,()->recommendationTagDialog(tag,refresh[0],null));item.setTextColor(color);item.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);
                 }
-            });});
+            });}catch(OutOfMemoryError|RuntimeException error){main.post(()->{if(destroyed||request!=revision[0])return;loading.setText(tr("Не удалось загрузить каталог. Нажмите, чтобы повторить."));loading.setOnClickListener(v->refresh[0].run());});}});
         };refresh[0].run();
     }
     private void curationSettings(){settings("curation");}
     private void profileTransferSettings(){settings("transfer");}
     private void languageSettings(){settings("language");}
     @Override public void onWindowFocusChanged(boolean focused){super.onWindowFocusChanged(focused);if(focused&&store!=null)main.post(this::prepareVisibleContent);}
-    @Override protected void onPause(){if(exposureWrite!=null){main.removeCallbacks(exposureWrite);exposureWrite.run();}super.onPause();}
+    @Override protected void onPause(){updatesResumed=false;if(exposureWrite!=null){main.removeCallbacks(exposureWrite);exposureWrite.run();}super.onPause();}
     private void hiddenAuthorsSettings(){settings("hidden-authors");}
     private void hiddenAuthorsSettingsBody(LinearLayout body,SettingsUi ui){
         Runnable[] fill={null};fill[0]=()->{body.removeAllViews();List<String> keys=store.hiddenAuthors();
@@ -1004,7 +1065,7 @@ public final class MainActivity extends Activity {
         FrameLayout art=new FrameLayout(this);art.setBackgroundColor(Color.BLACK);ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setContentDescription(tr("Открыть изображение на весь экран"));art.addView(image,new FrameLayout.LayoutParams(-1,-1));
         image.setContentDescription(tr("Изображение 1 из "+Math.max(1,p.media.size())+". Открыть на весь экран"));
         if(p.isVideo()){bindVideoPoster(image,p,true);image.setOnClickListener(v->{activeMediaIndex=0;video(p);});}else{images.bindProgressive(image,p.preview,p.image.isBlank()?p.preview:p.image,2000,0,null);image.setOnClickListener(v->{activeMediaIndex=0;fullscreenMedia(p,0);});}
-        LinearLayout controls=row();FrameLayout back=artIconButton("back","Назад",this::goBack);touchBackground(back,Color.argb(110,0,0,0),24);controls.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));controls.addView(new Space(this),new LinearLayout.LayoutParams(0,1,1));controls.addView(artIconButton("bookmark","Открытые работы",this::openWorks),new LinearLayout.LayoutParams(dp(48),dp(48)));FrameLayout share=artIconButton("share","Поделиться",()->share(p));controls.addView(share,new LinearLayout.LayoutParams(dp(48),dp(48)));FrameLayout.LayoutParams cl=new FrameLayout.LayoutParams(-1,dp(56),Gravity.TOP);cl.setMargins(dp(8),dp(4),dp(8),0);art.addView(controls,cl);
+        LinearLayout controls=row();FrameLayout back=artIconButton("back","Назад",this::goBack);touchBackground(back,Color.argb(110,0,0,0),24);controls.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));controls.addView(new Space(this),new LinearLayout.LayoutParams(0,1,1));addUpdateAction(controls);controls.addView(artIconButton("bookmark","Открытые работы",this::openWorks),new LinearLayout.LayoutParams(dp(48),dp(48)));FrameLayout share=artIconButton("share","Поделиться",()->share(p));controls.addView(share,new LinearLayout.LayoutParams(dp(48),dp(48)));FrameLayout.LayoutParams cl=new FrameLayout.LayoutParams(-1,dp(56),Gravity.TOP);cl.setMargins(dp(8),dp(4),dp(8),0);art.addView(controls,cl);
         TextView mediaLabel=text("",12,Color.WHITE);mediaLabel.setGravity(Gravity.CENTER);art.addView(mediaLabel,new FrameLayout.LayoutParams(-1,dp(40),Gravity.BOTTOM));mediaStrip.addView(art,new LinearLayout.LayoutParams(-1,height));
         LinearLayout info=column();info.setPadding(dp(16),dp(16),dp(16),dp(12));header.addView(info);TextView title=literalText(p.title,20,TEXT);title.setMaxLines(3);title.setEllipsize(TextUtils.TruncateAt.END);title.setTypeface(null,Typeface.BOLD);info.addView(title);TextView provenance=text(sourceName(p.source)+" · "+(CatalogLogic.matchesRating(p.rating,"general")?"Обычное":"18+")+(p.score>0?" · ♥ "+p.score:""),12,MUTED);provenance.setPadding(0,dp(6),0,dp(12));info.addView(provenance);
         LinearLayout actions=row();
@@ -1052,7 +1113,7 @@ public final class MainActivity extends Activity {
         boolean[] touched={false};list.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_MOVE)touched[0]=true;return false;});list.setOnScrollListener(new FeedListView.ScrollListener(){public void onScrollStateChanged(FeedListView v,int state){if(state==SCROLL_STATE_TOUCH_SCROLL)related.restoreRow=-1;}public void onScroll(FeedListView v,int firstVisible,int visible,int total){if(currentView==page)updateDetailMediaWindow();prefetchCards(related,Math.max(0,firstVisible-1));if(currentView==page&&related.loaded&&!related.loading&&!related.failed&&related.more&&needsPage(related))load(related,false);}});
         related.loadedCallback=()->{};
         prefetchNeighbors(p);prepareGalleryPage();
-        String filter=rating;Map<String,Integer> pages=selectedPages();detailTask=submitForeground(()->{String confirmedTag=p.artistTag;if(!p.source.equals("danbooru"))try{Post enriched=Post.fromJson(p.toJson());client.enrich(enriched);confirmedTag=enriched.artistTag;main.post(()->{if(destroyed||currentView!=page)return;p.artistTag=enriched.artistTag;p.artist=enriched.artist;p.artistTags=enriched.artistTags;p.characterTags=enriched.characterTags;p.copyrightTags=enriched.copyrightTags;p.tags=enriched.tags;if(p.source.equals("sankaku")){p.title=enriched.title;title.setText(p.title);p.originalUrl=enriched.originalUrl;CatalogLogic.refreshSignedMedia(p,enriched);syncDetailMedia(p);}ordered.clear();ordered.addAll(CatalogLogic.artworkTags(p));reseedRelated(related,p);identities.removeAllViews();addAttribution(identities,p);fillTags.run();store.refreshCachedPost(p);});}catch(SankakuApi.AccessException error){main.post(()->{if(!destroyed&&currentView==page)accessPrompt(error);});}catch(Exception error){if(p.source.equals("sankaku"))main.post(()->{if(!destroyed&&currentView==page)toast("Не удалось обновить работу Sankaku. Повторите открытие.");});}if(confirmedTag.isBlank())return;String authorQuery=confirmedTag;CatalogClient.Page authored=client.search(authorQuery,pages,filter,"latest");main.post(()->{if(destroyed||currentView!=page)return;List<Post> works=store.visible(CatalogLogic.excludeSaved(authored.posts,List.of(p)),false);if(works.isEmpty())return;related.pendingArtistWorks=new ArrayList<>(works.subList(0,Math.min(works.size(),8)));related.pendingArtistGallery=serverGallery(works,authorQuery,"latest",authored,pages);applyPreparedArtistWorks(related);});});
+        String filter=rating;Map<String,Integer> pages=selectedPages();detailTask=submitForeground(()->{String confirmedTag=p.artistTag;if(!p.source.equals("danbooru"))try{Post enriched=p.copy();client.enrich(enriched);confirmedTag=enriched.artistTag;main.post(()->{if(destroyed||currentView!=page)return;p.artistTag=enriched.artistTag;p.artist=enriched.artist;p.artistTags=enriched.artistTags;p.characterTags=enriched.characterTags;p.copyrightTags=enriched.copyrightTags;p.tags=enriched.tags;if(p.source.equals("sankaku")){p.title=enriched.title;title.setText(p.title);p.originalUrl=enriched.originalUrl;CatalogLogic.refreshSignedMedia(p,enriched);syncDetailMedia(p);}ordered.clear();ordered.addAll(CatalogLogic.artworkTags(p));reseedRelated(related,p);identities.removeAllViews();addAttribution(identities,p);fillTags.run();store.refreshCachedPost(p);});}catch(SankakuApi.AccessException error){main.post(()->{if(!destroyed&&currentView==page)accessPrompt(error);});}catch(Exception error){if(p.source.equals("sankaku"))main.post(()->{if(!destroyed&&currentView==page)toast("Не удалось обновить работу Sankaku. Повторите открытие.");});}if(confirmedTag.isBlank())return;String authorQuery=confirmedTag;CatalogClient.Page authored=client.search(authorQuery,pages,filter,"latest");main.post(()->{if(destroyed||currentView!=page)return;List<Post> works=store.visible(CatalogLogic.excludeSaved(authored.posts,List.of(p)),false);if(works.isEmpty())return;related.pendingArtistWorks=new ArrayList<>(works.subList(0,Math.min(works.size(),8)));related.pendingArtistGallery=serverGallery(works,authorQuery,"latest",authored,pages);applyPreparedArtistWorks(related);});});
     }
     private DetailMediaFrame appendDetailMedia(Post post,LinearLayout strip,int index,int height,TextView like){
         FrameLayout frame=new FrameLayout(this);frame.setBackgroundColor(Color.BLACK);
@@ -1132,6 +1193,9 @@ public final class MainActivity extends Activity {
     private void navigate(int delta,Runnable arrived){navigate(delta,arrived,()->true);}
     private void navigate(int delta,Runnable arrived,java.util.function.BooleanSupplier alive){
         if(activePost==null||!alive.getAsBoolean()||delta==0)return;
+        // A pending page cannot block an explicit move back through ready works.
+        // Leave its source request/cursor intact; only detach this viewer wait.
+        if(navigating!=null&&navigationSource!=null&&Integer.signum(delta)!=navigating.delta){navigationQueue.clear();finishNavigation(navigating);}
         if(BuildConfig.DEBUG&&getIntent().getBooleanExtra("qaNavigationManual",false))android.util.Log.i("ArtCatalogQA","NAV input delta="+delta+" post="+activePost.id+" queued="+navigationQueue.size()+" busy="+(navigating!=null));
         navigationQueue.addLast(new NavigationRequest(delta>0?1:-1,arrived,alive));drainNavigation();
     }
@@ -1150,14 +1214,17 @@ public final class MainActivity extends Activity {
                 applyGallerySequence(selected,context,sequence,revision,reached);continueNavigation(request);
             });});return;
         }
-        Post next=context==null?null:CatalogLogic.neighbor(context.posts,selected,request.delta);
+        Post next=context==null?null:CatalogLogic.neighbor(context.posts,selected,request.delta,post->!store.isHidden(post));
         if(next!=null){prepareNavigation(request,next);return;}
         if(request.delta>0&&source!=null&&source.authBlocked){navigationQueue.clear();finishNavigation(request);accessPrompt(new SankakuApi.AccessException(true));return;}
         if(request.delta>0&&source!=null&&(source.loading||source.more)){
             setNavigationLoading();clearNavigationWait();navigationSource=source;navigationOldCallback=source.loadedCallback;
             Runnable old=navigationOldCallback;
             navigationCallback=()->{clearNavigationWait();if(old!=null)old.run();if(!navigationAlive(request)){finishNavigation(request);return;}if(source.failed){navigationQueue.clear();finishNavigation(request);if(activeMediaLabel!=null){if(activeFullscreenStatus!=null)activeFullscreenStatus.setText(tr("Ошибка · повторить →"));activeMediaLabel.setText(tr("Ошибка загрузки · повторить →"));activeMediaLabel.setContentDescription(tr("Не удалось загрузить продолжение. Нажмите вправо, чтобы повторить."));}return;}continueNavigation(request);};
-            source.loadedCallback=navigationCallback;if(!source.loading)load(source,false);if(!source.loading&&navigationCallback!=null&&source.loadedCallback==navigationCallback)navigationCallback.run();return;
+            source.loadedCallback=navigationCallback;if(!source.loading)load(source,false);
+            // A deferred retry is pending work, not a synchronously completed page.
+            // Only a settled boundary/error needs an immediate wake-up here.
+            if(!source.loading&&(source.failed||source.authBlocked||!source.more)&&navigationCallback!=null&&source.loadedCallback==navigationCallback){Runnable wake=navigationCallback;main.post(()->{if(navigationCallback==wake&&source.loadedCallback==wake)wake.run();});}return;
         }
         // A confirmed boundary is quiet. Loading and a failed request are never treated as an end.
         finishNavigation(request);
@@ -1165,14 +1232,16 @@ public final class MainActivity extends Activity {
     private void clearNavigationWait(){if(navigationSource!=null&&navigationSource.loadedCallback==navigationCallback)navigationSource.loadedCallback=navigationOldCallback;navigationSource=null;navigationCallback=null;navigationOldCallback=null;}
     private void setNavigationLoading(){if(activeMediaLabel!=null){if(activeFullscreenStatus!=null)activeFullscreenStatus.setText(tr("Загрузка…"));activeMediaLabel.setText(tr("Загрузка…"));activeMediaLabel.setContentDescription(tr("Подготовка следующей иллюстрации"));activeMediaLabel.setVisibility(View.VISIBLE);}}
     private void finishNavigation(NavigationRequest request){
-        if(request==null||navigating!=request)return;clearNavigationWait();images.cancelPreparation(navigationPreview);navigationPreview=null;navigating=null;updateMediaLabel();main.post(this::drainNavigation);
+        if(request==null||navigating!=request)return;if(navigationDeadline!=null){main.removeCallbacks(navigationDeadline);navigationDeadline=null;}clearNavigationWait();images.cancelPreparation(navigationPreview);navigationPreview=null;navigating=null;updateMediaLabel();main.post(this::drainNavigation);
     }
     private void prepareNavigation(NavigationRequest request,Post target){
         Post previous=activePost;Gallery context=activeGallery;
-        String preview=target.preview;
+        String preview=cardPreview(target);boolean[] committed={false};
         Runnable ready=()->{
+            if(committed[0])return;committed[0]=true;
+            if(navigationDeadline!=null){main.removeCallbacks(navigationDeadline);navigationDeadline=null;}
             if(!navigationAlive(request)||activePost!=previous||activeGallery!=context){finishNavigation(request);return;}
-            navigationPreview=null;
+            images.cancelPreparation(navigationPreview);navigationPreview=null;
             navigationRendering=true;transitionDirection=request.arrived==null?request.delta:0;
             try{renderDetail(target,false,0,0,null,context);if(detailList!=null)detailList.setSelectionFromTop(0,0);}finally{navigationRendering=false;transitionDirection=0;}
             if(activePost!=target){finishNavigation(request);return;}
@@ -1180,14 +1249,13 @@ public final class MainActivity extends Activity {
         };
         String full=target.image.isBlank()?target.preview:target.image;
         if(target.isVideo()||images.hasBitmap(preview,720)||images.hasBitmap(full,720)||images.hasBitmap(full,2000)||images.hasBitmap(full,2400)){ready.run();return;}
-        setNavigationLoading();navigationPreview=images.prepare(preview,720,success->{
-            if(!navigationAlive(request))return;
-            if(success){ready.run();return;}
-            if(!full.equals(preview)&&CatalogLogic.isMediaUrl(full))navigationPreview=images.prepare(full,720,fallback->{if(!navigationAlive(request))return;if(fallback)ready.run();else navigationImageFailed(request);});
-            else navigationImageFailed(request);
-        });
+        // Media preparation improves the transition, but one slow or unavailable image
+        // must never trap the user before every later work in the gallery.
+        if(!CatalogLogic.isMediaUrl(preview)){ready.run();return;}
+        navigationDeadline=ready;main.postDelayed(ready,180);
+        ImageLoader.Ticket prepared=images.prepare(preview,720,success->{if(navigationAlive(request))ready.run();});
+        if(committed[0]||!navigationAlive(request))images.cancelPreparation(prepared);else navigationPreview=prepared;
     }
-    private void navigationImageFailed(NavigationRequest request){navigationQueue.clear();finishNavigation(request);if(activeMediaLabel!=null){if(activeFullscreenStatus!=null)activeFullscreenStatus.setText(tr("Ошибка · повторить →"));activeMediaLabel.setText(tr("Ошибка изображения · повторить →"));activeMediaLabel.setContentDescription(tr("Не удалось подготовить изображение. Повторите перелистывание."));activeMediaLabel.setVisibility(View.VISIBLE);}}
     private void applyGallerySequence(Post current,Gallery context,List<Post> sequence,int revision,int reached){
         String selected=current.media.isEmpty()?current.image:current.media.get(Math.min(activeMediaIndex,current.media.size()-1));
         context.posts.clear();context.posts.addAll(sequence);context.syncedRevision=revision;if(following(context.source))context.followingReached=reached;
@@ -1196,7 +1264,7 @@ public final class MainActivity extends Activity {
             break;
         }
     }
-    private Post mediaPost(Post p,int index){if(index<=0||index>=p.media.size())return p;Post media=Post.fromJson(p.toJson());media.image=p.media.get(index);media.original=media.image;String[] poster=VideoPlaybackState.posterFor(p,media.image);media.preview=poster[0];media.smallPreview=poster[1];media.media=new ArrayList<>(List.of(media.image));for(int i=0;i<p.imageRecords.length();i++){JSONObject record=p.imageRecords.optJSONObject(i);if(record!=null&&record.optString("url").equals(media.image)&&record.optString("source").equals("sankaku")&&CatalogLogic.validId("sankaku",record.optString("id"))){media.source="sankaku";media.id=record.optString("id");media.hash=record.optString("hash");media.imageRecords=new JSONArray().put(record);break;}}return media;}
+    private Post mediaPost(Post p,int index){if(index<=0||index>=p.media.size())return p;Post media=p.copy();media.image=p.media.get(index);media.original=media.image;String[] poster=VideoPlaybackState.posterFor(p,media.image);media.preview=poster[0];media.smallPreview=poster[1];media.media=new ArrayList<>(List.of(media.image));for(int i=0;i<p.imageRecords.length();i++){JSONObject record=p.imageRecords.optJSONObject(i);if(record!=null&&record.optString("url").equals(media.image)&&record.optString("source").equals("sankaku")&&CatalogLogic.validId("sankaku",record.optString("id"))){media.source="sankaku";media.id=record.optString("id");media.hash=record.optString("hash");media.imageRecords=new JSONArray().put(record);break;}}return media;}
     private void updateMediaLabel(){if(activeFullscreenStatus!=null)activeFullscreenStatus.setText("");if(activeMediaLabel==null)return;activeMediaLabel.setText("");activeMediaLabel.setContentDescription("");activeMediaLabel.setVisibility(View.GONE);}
     private void addAttribution(LinearLayout info,Post p){
         String priority=store.prefs.getString("attributionPriority","creator");if(priority.equals("original")&&!p.originalUrl.isBlank())menuRow(info,"share","Исходная публикация · "+Uri.parse(p.originalUrl).getHost(),()->external(p.originalUrl));if(priority.equals("uploader")&&!p.uploaderName.isBlank())menuRow(info,"profile","Загрузчик · "+p.uploaderName,()->uploader(p));
@@ -1259,7 +1327,7 @@ public final class MainActivity extends Activity {
     private void withSankakuMedia(Post post,boolean force,java.util.function.Consumer<Post> action,Runnable failed){
         if(!post.source.equals("sankaku")||!force&&CatalogLogic.isMediaUrl(post.image)&&!VideoPlaybackState.expiring(post.image,System.currentTimeMillis())){if(!destroyed)action.accept(post);return;}
         int generation=navigationGeneration;View view=currentView;
-        cancel(mediaActionTask);mediaActionTask=submitForeground(()->{try{Post fresh=Post.fromJson(post.toJson());client.enrich(fresh);main.post(()->{if(destroyed||currentView!=view||navigationGeneration!=generation)return;CatalogLogic.refreshSignedMedia(post,fresh);if(activePost!=null){CatalogLogic.refreshSignedMedia(activePost,fresh);store.refreshCachedPost(activePost);}action.accept(fresh);});}
+        cancel(mediaActionTask);mediaActionTask=submitForeground(()->{try{Post fresh=post.copy();client.enrich(fresh);main.post(()->{if(destroyed||currentView!=view||navigationGeneration!=generation)return;CatalogLogic.refreshSignedMedia(post,fresh);if(activePost!=null){CatalogLogic.refreshSignedMedia(activePost,fresh);store.refreshCachedPost(activePost);}action.accept(fresh);});}
         catch(SankakuApi.AccessException error){main.post(()->{if(!destroyed&&currentView==view&&navigationGeneration==generation){failed.run();accessPrompt(error);}});}
         catch(Exception error){main.post(()->{if(!destroyed&&currentView==view&&navigationGeneration==generation){failed.run();toast("Не удалось загрузить работу Sankaku. Повторите позже.");}});}});
     }
@@ -1395,16 +1463,16 @@ public final class MainActivity extends Activity {
     private void downloadReady(Post p){String url=p.original.isBlank()?p.image:p.original;if(!CatalogLogic.isMediaUrl(url)){toast("Оригинал недоступен");return;}pendingDownload=url;String path=Uri.parse(url).getPath();String ext=path!=null&&path.contains(".")?path.substring(path.lastIndexOf('.')):".jpg";if(ext.length()>6)ext=".jpg";Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType(p.isVideo()?"video/*":"image/*");intent.putExtra(Intent.EXTRA_TITLE,"ArtCatalog-"+p.source+"-"+p.id+ext);startActivityForResult(intent,3);}
     private void exportData(){Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");intent.putExtra(Intent.EXTRA_TITLE,"DART-profile.json");startActivityForResult(intent,1);}
     private void importData(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("*/*");intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain"});startActivityForResult(intent,2);}
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;if(store==null){pendingDocument=data.getData();pendingDocumentRequest=request;return;}processDocument(request,data.getData());}
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==UPDATE_INSTALL_PERMISSION){resumeUpdateInstall();return;}if(result!=RESULT_OK||data==null||data.getData()==null)return;if(store==null){pendingDocument=data.getData();pendingDocumentRequest=request;return;}processDocument(request,data.getData());}
     private void processDocument(int request,Uri uri){String url=pendingDownload;io.execute(()->{try{
-        if(request==1){String json=ProfileTransfer.export(store.export()).toString();byte[] exportBytes=json.getBytes(StandardCharsets.UTF_8);if(exportBytes.length>ProfileTransfer.MAX_BYTES)throw new IOException("Profile file exceeds 20 MB.");try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException();out.write(exportBytes);}main.post(()->toast("Профиль экспортирован"));}
+        if(request==1){JSONObject document=ProfileTransfer.export(store.export());ProfileTransfer.encodedBytes(document,ProfileTransfer.MAX_BYTES);try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException();ProfileTransfer.writeJson(document,out);}main.post(()->toast("Профиль экспортирован"));}
         else if(request==2){String json;try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException();byte[] b=new byte[8192];int n,total=0;while((n=in.read(b))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("Файл слишком большой");out.write(b,0,n);}json=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(out.toByteArray())).toString();}JSONObject document=ProfileTransfer.parse(json);String filename=profileDocumentName(uri);main.post(()->showImportPreview(document,filename));}
         else if(request==3&&CatalogLogic.isMediaUrl(url)){java.net.HttpURLConnection connection=CatalogClient.open(url);connection.setRequestProperty("Accept-Encoding","identity");try{if(connection.getResponseCode()!=200)throw new IOException("Оригинал недоступен");try(InputStream in=connection.getInputStream();OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException();byte[] b=new byte[32768];int n;long total=0;while((n=in.read(b))!=-1){total+=n;if(total>512L*1024*1024)throw new IOException("Файл слишком большой");out.write(b,0,n);}}main.post(()->toast("Оригинал сохранён"));}finally{connection.disconnect();}}
     }catch(Exception e){main.post(()->{if(!destroyed)new AlertDialog.Builder(this).setTitle(tr("Действие не выполнено")).setMessage(tr(e instanceof IllegalArgumentException||e instanceof IOException?e.getMessage():"Не удалось выполнить действие. Профиль сохранён; проверьте файл и попробуйте ещё раз.")).setPositiveButton(tr("Закрыть"),null).show();});}});}
     private String sourceName(String source){return switch(source){case "gelbooru"->"Gelbooru";case "rule34"->"Rule34";case "sankaku"->"Sankaku";default->"Danbooru";};}
     private int sourceColor(String source){return switch(source){case "gelbooru"->Color.rgb(111,196,174);case "rule34"->Color.rgb(153,190,89);case "sankaku"->Color.rgb(240,157,66);default->BLUE;};}
     private void toast(String message){if(!destroyed)Toast.makeText(this,tr(message),Toast.LENGTH_SHORT).show();}
-    private void goBack(){hideKeyboard();stopDetail();detachScreen(activeAuthor);activeAuthor=null;authorTag="";if(!backStack.isEmpty()){BackEntry entry=backStack.pop();nav=entry.nav;buildBottom();if(entry.detail!=null){renderDetail(entry.detail,false,entry.scroll,entry.top,entry.related,entry.gallery);if(activePost!=null&&entry.mediaIndex<activePost.media.size())activeMediaIndex=Math.max(0,entry.mediaIndex);}else if(entry.author!=null)renderAuthor(entry.author,false,entry.related,entry.scroll,entry.top);else{activePost=null;activeGallery=null;display(entry.view);for(Screen s:screens)if(s!=null&&s.view==entry.view&&!s.loaded&&s.tab!=3){if(s.tab==1&&s.query.isBlank())loadExplore(s);else load(s,true);break;}}refreshCards();}else selectNav(nav);}
+    private void goBack(){hideKeyboard();stopDetail();detachScreen(activeAuthor);activeAuthor=null;authorTag="";if(!backStack.isEmpty()){BackEntry entry=backStack.pop();nav=entry.nav;buildBottom();if(entry.detail!=null){renderDetail(entry.detail,false,entry.scroll,entry.top,entry.related,entry.gallery);if(activePost!=null&&entry.mediaIndex<activePost.media.size())activeMediaIndex=Math.max(0,entry.mediaIndex);}else if(entry.author!=null)renderAuthor(entry.author,false,entry.related,entry.scroll,entry.top);else{activePost=null;activeGallery=null;display(entry.view);for(Screen s:screens)if(s!=null&&s.view==entry.view&&!s.loaded&&!s.loading&&s.posts.isEmpty()&&!s.failed&&s.tab!=3){if(s.tab==1&&s.query.isBlank())loadExplore(s);else load(s,true);break;}}refreshCards();}else selectNav(nav);}
     @Override public void onBackPressed(){if(!backStack.isEmpty()||activePost!=null||!authorTag.isBlank())goBack();else if(nav!=0)selectNav(0);else super.onBackPressed();}
     private Bundle readNavigationState(Bundle supplied){if(supplied==null)return null;String token=supplied.getString("navigationState","");if(!token.matches("[a-f0-9-]{36}\\.bin"))return supplied;File file=new File(new File(getFilesDir(),"navigation"),token);Parcel parcel=Parcel.obtain();try{if(file.length()>16*1024*1024)return supplied;byte[] bytes;try(InputStream input=new FileInputStream(file);ByteArrayOutputStream buffer=new ByteArrayOutputStream()){byte[] chunk=new byte[8192];int count;while((count=input.read(chunk))!=-1){if(buffer.size()+count>16*1024*1024)throw new IOException("Navigation state too large");buffer.write(chunk,0,count);}bytes=buffer.toByteArray();}parcel.unmarshall(bytes,0,bytes.length);parcel.setDataPosition(0);Bundle state=parcel.readBundle(getClassLoader());file.delete();return state==null?supplied:state;}catch(Exception ignored){return supplied;}finally{parcel.recycle();}}
     private void writeNavigationState(Bundle out){Parcel parcel=Parcel.obtain();File directory=new File(getFilesDir(),"navigation");directory.mkdirs();String token=UUID.randomUUID()+".bin";File file=new File(directory,token);try{parcel.writeBundle(out);byte[] bytes=parcel.marshall();try(OutputStream output=new FileOutputStream(file)){output.write(bytes);}out.clear();out.putInt("nav",nav);out.putString("navigationState",token);File[] old=directory.listFiles();if(old!=null&&old.length>4){Arrays.sort(old,Comparator.comparingLong(File::lastModified).reversed());for(int i=4;i<old.length;i++)old[i].delete();}}catch(Exception ignored){file.delete();out.remove("galleryRoute");out.remove("backStack");}finally{parcel.recycle();}}
@@ -1413,12 +1481,17 @@ public final class MainActivity extends Activity {
         for(int i=0;i<screens.length;i++){Screen s=screens[i];if(s==null)continue;Bundle state=new Bundle();state.putString("query",s.query);state.putString("order",s.order);state.putInt("homeTab",s.homeTab);state.putBoolean("following",s.followingMode);state.putInt("first",s.list.getFirstVisiblePosition());View first=s.list.getChildAt(0);state.putInt("top",first==null?0:first.getTop());if(i==1&&searchInput!=null)state.putString("input",searchInput.getText().toString());out.putBundle("screen"+i,state);}
         if(activePost!=null){out.putString("detail",activePost.toJson().toString());out.putBundle("galleryRoute",galleryBundle(activeGallery,activePost));out.putInt("mediaIndex",activeMediaIndex);if(detailList!=null){out.putInt("detailScroll",detailList.getFirstVisiblePosition());View first=detailList.getChildAt(0);out.putInt("detailTop",first==null?0:first.getTop());}}
         if(!authorTag.isBlank()&&activeAuthor!=null&&activeAuthor.list!=null){out.putString("author",authorTag);out.putInt("authorFirst",activeAuthor.list.getFirstVisiblePosition());View first=activeAuthor.list.getChildAt(0);out.putInt("authorTop",first==null?0:first.getTop());}
-        ArrayList<Bundle> entries=new ArrayList<>();for(BackEntry entry:backStack){Bundle item=new Bundle();item.putInt("nav",entry.nav);item.putInt("scroll",entry.scroll);item.putInt("top",entry.top);item.putInt("mediaIndex",entry.mediaIndex);if(entry.gallery!=null)item.putBundle("galleryRoute",galleryBundle(entry.gallery,entry.detail));if(entry.detail!=null)item.putString("detail",entry.detail.toJson().toString());else if(entry.author!=null)item.putString("author",entry.author);else if(!settingsRoute(entry.view).isBlank())item.putBundle("settingsPage",settingsState(entry.view));else{for(Screen s:screens)if(s!=null&&s.view==entry.view)item.putInt("tab",s.tab);}entries.add(item);}out.putParcelableArrayList("backStack",entries);
+        ArrayList<Bundle> entries=new ArrayList<>();for(BackEntry entry:backStack){Bundle item=new Bundle();item.putInt("nav",entry.nav);item.putInt("scroll",entry.scroll);item.putInt("top",entry.top);item.putInt("mediaIndex",entry.mediaIndex);if(entry.gallery!=null)item.putBundle("galleryRoute",galleryBundle(entry.gallery,entry.detail));if(entry.detail!=null)item.putString("detail",entry.detail.toJson().toString());else if(entry.author!=null)item.putString("author",entry.author);else if(!settingsRoute(entry.view).isBlank())item.putBundle("settingsPage",settingsState(entry.view));else if(localCollectionState(entry.view)!=null)item.putBundle("localCollectionPage",localCollectionState(entry.view));else{for(Screen s:screens)if(s!=null&&s.view==entry.view)item.putInt("tab",s.tab);}entries.add(item);}out.putParcelableArrayList("backStack",entries);
         if(!settingsRoute(currentView).isBlank())out.putBundle("settingsPage",settingsState(currentView));
+        Bundle localPage=localCollectionState(currentView);if(localPage!=null)out.putBundle("localCollectionPage",localPage);
+        out.putBoolean("updateInstallRequested",updateInstallRequest.pending());
         if(pendingDownload!=null)out.putString("download",pendingDownload);if(pendingDocument!=null){out.putString("pendingDocument",pendingDocument.toString());out.putInt("pendingDocumentRequest",pendingDocumentRequest);}
         writeNavigationState(out);
     }
     @Override public Object onRetainNonConfigurationInstance(){RetainedState state=new RetainedState();state.screens=new ScreenState[4];for(int i=0;i<screens.length;i++)state.screens[i]=snapshot(screens[i]);state.detail=snapshot(activeRelated);state.author=snapshot(activeAuthor);state.gallery=snapshotGallery(activeGallery);for(BackEntry entry:backStack){state.backs.add(entry.related);state.backGalleries.add(snapshotGallery(entry.gallery));}return state;}
     @Override public void onTrimMemory(int level){super.onTrimMemory(level);if(images!=null&&level>=TRIM_MEMORY_RUNNING_LOW){images.clearMemory();prefetchScreen=null;}}
-    @Override public void onDestroy(){destroyed=true;cancelNavigation();main.removeCallbacksAndMessages(null);work.shutdownNow();foreground.shutdownNow();grouping.shutdownNow();io.shutdown();if(client!=null)client.close();if(images!=null)images.close();super.onDestroy();}
+    @Override protected void onStart(){super.onStart();if(appUpdates!=null&&!updatesListening){updatesListening=true;appUpdates.addListener(updateListener);}}
+    @Override protected void onResume(){super.onResume();updatesResumed=true;if(appUpdates!=null)appUpdates.foreground();resumeUpdateInstall();}
+    @Override protected void onStop(){if(appUpdates!=null&&updatesListening){appUpdates.removeListener(updateListener);updatesListening=false;}if(store!=null)store.flushPending();super.onStop();}
+    @Override public void onDestroy(){destroyed=true;if(appUpdates!=null)appUpdates.removeListener(updateListener);updatesListening=false;updateActions.clear();updatePanels.clear();cancelNavigation();main.removeCallbacksAndMessages(null);work.shutdownNow();foreground.shutdownNow();grouping.shutdownNow();recommendationWork.shutdownNow();mediaRepairs.shutdownNow();io.shutdown();if(client!=null)client.close();if(images!=null)images.close();super.onDestroy();}
 }
