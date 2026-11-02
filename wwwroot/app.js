@@ -6786,7 +6786,7 @@ globalThis.DartUpscale?.configure({ readImage: DartUpscaleMedia.create({
   const bounds = main.getBoundingClientRect(), center = (bounds.top + bounds.bottom) / 2;
   const image = images.find(image => image.matches(':hover')) || images.find(image => {
     const rect = image.getBoundingClientRect(); return rect.top <= center && rect.bottom >= center;
-  }) || images.find(image => image.getBoundingClientRect().bottom > bounds.top);
+  }) || images.find(image => image.getBoundingClientRect().bottom > bounds.top) || images[0];
   return image ? { item: currentTab().item, url: image.dataset.imageUrl } : null;
 } });
 

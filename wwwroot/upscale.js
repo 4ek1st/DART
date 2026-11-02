@@ -347,7 +347,7 @@
     });
     root.document.addEventListener('keydown', event => {
       if (event.code !== 'KeyU' || event.repeat || event.ctrlKey || event.metaKey || event.altKey ||
-          event.target.closest('input,textarea,select,[contenteditable="true"]') ||
+          event.target.closest('input,textarea,select,[contenteditable="true"],[role="menu"]') ||
           root.document.querySelector('dialog[open]:not(.quick-preview)')) return;
       const selected = dependencies.currentImage?.();
       if (!selected || !canUpscaleImage(selected.item, selected.url)) return;
