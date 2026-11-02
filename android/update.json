@@ -1,11 +1,11 @@
 {
   "schema": 1,
   "packageName": "com.artcatalog.mobile",
-  "versionCode": 17,
-  "versionName": "0.1.15",
+  "versionCode": 18,
+  "versionName": "0.1.16",
   "minSdk": 26,
-  "apkUrl": "https://github.com/4ek1st/DART/releases/download/android-v0.1.15/DART.Android-0.1.15.apk",
-  "sha256": "d3f0a2c16c1114026aeb3c67de62600c1b5136475263ef5f227b9276f152537c",
+  "apkUrl": "https://github.com/4ek1st/DART/releases/download/android-v0.1.16/DART.Android-0.1.16.apk",
+  "sha256": "40a1555f20209c8faaf436f7c269fe65f5ab93730de5bc41dcb06ab60eac1db2",
   "size": 2169986,
-  "releaseNotes": "# DART for Android 0.1.15\n\n- Removed the Android in-app updater completely: background version checks, APK download/installation, update indicators and the Updates settings page.\n- Removed android.permission.REQUEST_INSTALL_PACKAGES and the update FileProvider. About DART keeps a normal link to Android releases for manual downloads. Install downloaded APKs over the existing app to retain the local profile.\n- Artwork actions now run from left to right: Like, Bookmark, Download original, Open source.\n- Removed the Original publication row from artwork attribution. Original links remain in saved metadata. When Original link is explicitly selected as the attribution preference, Open source uses that link; otherwise it opens the catalog record.\n- Kept the existing signing certificate, package, saved collections and profile format. Compact collection buttons retain their touch targets and support larger fonts.\n\nThe user reported a Play Protect warning for 0.1.14. Removing the updater and its installation permission is confirmed for this release; whether Google clears its classification has not been confirmed. No Play Protect bypass or automatic installation is included. Windows updates are separate and unchanged."
+  "releaseNotes": "# DART for Android 0.1.16\n\n- Swipe your finger left for the next artwork and right for the previous one. Detail pages, fullscreen images and videos use the same direction, with matching page animation.\n- Published neighboring artworks remain usable while background feed grouping is busy. Confirmed copies are skipped, and page lookahead uses the latest published source list.\n- Repeated double-tap likes show their heart immediately instead of inheriting the previous fade-out delay. Likes remain saved locally in the background.\n- Pinch zoom follows the center of both fingers. Lifting one finger keeps the image still; full-quality image upgrades preserve the selected subject and zoom. Double-tap liking no longer also enables Android's one-finger quick zoom.\n- Imported Sankaku previews refresh in the open Liked, Bookmarks and History pages. A failed visible thumbnail can trigger exact-post recovery even when another old media URL has not been tried yet. Saved identities and separate like/bookmark states are preserved.\n\nInstall this APK over the existing app to preserve the local profile. The Android in-app updater remains removed; use the ordinary release link in About for manual downloads. Whether Google Play Protect changes its classification must be checked on the device and is not established by these local tests."
 }
