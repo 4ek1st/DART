@@ -1,38 +1,83 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="264" viewBox="0 0 960 264" role="img" aria-labelledby="title desc">
-  <title id="title">DART — Discover Art</title>
-  <desc id="desc">Dark banner with a blue DART mark and abstract art cards.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="264" viewBox="0 0 960 264" role="img" aria-labelledby="banner-title banner-desc">
+  <title id="banner-title">DART — Discover Art</title>
+  <desc id="banner-desc">The original white and blue DART A mark with its diagonal cut, beside the DART wordmark and two illustrated gallery cards on a dark background.</desc>
   <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="960" y2="264" gradientUnits="userSpaceOnUse"><stop stop-color="#101a2a"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
-    <linearGradient id="accent" x1="84" y1="74" x2="194" y2="194" gradientUnits="userSpaceOnUse"><stop stop-color="#71d8ff"/><stop offset="1" stop-color="#3788ff"/></linearGradient>
-    <linearGradient id="art" x1="0" y1="0" x2="140" y2="150" gradientUnits="userSpaceOnUse"><stop stop-color="#77d9d0"/><stop offset="1" stop-color="#4570ca"/></linearGradient>
-    <linearGradient id="frame" x1="0" y1="0" x2="160" y2="190" gradientUnits="userSpaceOnUse"><stop stop-color="#23364f"/><stop offset="1" stop-color="#182130"/></linearGradient>
+    <linearGradient id="banner-bg" x1="0" y1="0" x2="960" y2="264" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111923"/><stop offset=".55" stop-color="#0d131c"/><stop offset="1" stop-color="#101a29"/>
+    </linearGradient>
+    <radialGradient id="banner-glow" cx=".74" cy=".44" r=".62">
+      <stop stop-color="#329cff" stop-opacity=".17"/><stop offset="1" stop-color="#329cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="card-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#53647b" stop-opacity=".78"/><stop offset="1" stop-color="#2c3d54" stop-opacity=".45"/>
+    </linearGradient>
+    <linearGradient id="card-sky" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#203559"/><stop offset=".55" stop-color="#406c9b"/><stop offset="1" stop-color="#78b7c7"/>
+    </linearGradient>
+    <linearGradient id="card-dusk" x1="0" y1="0" x2=".9" y2="1">
+      <stop stop-color="#5fb8dc"/><stop offset=".47" stop-color="#437cbd"/><stop offset="1" stop-color="#243f6e"/>
+    </linearGradient>
+    <linearGradient id="card-land" x1="0" y1="0" x2=".6" y2="1">
+      <stop stop-color="#254b7a"/><stop offset="1" stop-color="#162c4e"/>
+    </linearGradient>
+    <clipPath id="banner-clip"><rect width="960" height="264" rx="24"/></clipPath>
+    <clipPath id="lower"><path d="M0 186 256 106V256H0Z"/></clipPath>
+    <mask id="cut">
+      <rect width="256" height="256" fill="white"/>
+      <path d="M0 186 256 106" fill="none" stroke="black" stroke-width="5"/>
+    </mask>
+    <path id="letter" d="M600.904 621.988H346.386L474.398 224.398H475.904ZM951.807 1000 599.398 0H356.928L0 1000H221.386L292.169 793.675H661.145L724.398 1000Z"/>
+    <clipPath id="back-art"><rect x="10" y="10" width="124" height="132" rx="8"/></clipPath>
+    <clipPath id="front-art"><rect x="10" y="10" width="132" height="138" rx="9"/></clipPath>
   </defs>
-  <rect width="960" height="264" rx="24" fill="url(#background)"/>
-  <rect x=".5" y=".5" width="959" height="263" rx="23.5" fill="none" stroke="#2b3a4e"/>
-  <circle cx="875" cy="15" r="185" fill="#2d9cff" opacity=".035"/>
-  <circle cx="780" cy="255" r="180" fill="#71d8cf" opacity=".025"/>
-  <g transform="translate(74 70)">
-    <rect width="124" height="124" rx="32" fill="#2d9cff" opacity=".08" stroke="#305070"/>
-    <path d="M34 27h23c36 0 51 17 51 35S93 97 57 97H34V27zm21 19v32h4c20 0 28-7 28-16s-8-16-28-16h-4z" fill="url(#accent)"/>
-    <path d="m20 62 10-10 10 10-10 10z" fill="#7bdcff"/>
+  <g clip-path="url(#banner-clip)">
+    <rect width="960" height="264" fill="url(#banner-bg)"/>
+    <rect id="art-glow" width="960" height="264" fill="url(#banner-glow)" opacity=".8"/>
+    <path d="M560 264 960 137V264Z" fill="#329cff" opacity=".025"/>
+    <path d="M602 264 960 151" fill="none" stroke="#83bfff" stroke-opacity=".055"/>
+    <g id="brand-mark" transform="translate(62 64) scale(.53125)">
+      <rect x="4" y="4" width="248" height="248" rx="54" fill="#141a23"/>
+      <g mask="url(#cut)">
+        <g transform="translate(49.48 40) scale(.165)" fill="#f6f9ff" stroke="#f6f9ff" stroke-width="12" stroke-linejoin="round"><use href="#letter"/></g>
+        <g clip-path="url(#lower)">
+          <g transform="translate(49.48 40) scale(.165)" fill="#329CFF" stroke="#329CFF" stroke-width="12" stroke-linejoin="round"><use href="#letter"/></g>
+        </g>
+      </g>
+    </g>
+    <g id="brand-name" font-family="Segoe UI,Arial,sans-serif">
+      <text x="222" y="139" fill="#f6f9ff" font-size="78" font-weight="700" letter-spacing="-3.8">DART</text>
+      <text x="226" y="177" fill="#97a9bf" font-size="24" letter-spacing=".6">Discover Art</text>
+    </g>
+    <g id="artwork-cards">
+      <g id="back-card" transform="translate(686 35) rotate(-10 72 94)">
+        <rect x="2" y="9" width="144" height="184" rx="16" fill="#030914" opacity=".38"/>
+        <rect width="144" height="184" rx="16" fill="#192330" stroke="url(#card-edge)"/>
+        <g clip-path="url(#back-art)">
+          <rect x="10" y="10" width="124" height="132" fill="url(#card-sky)"/>
+          <circle cx="54" cy="48" r="23" fill="#abcfe4" opacity=".8"/>
+          <path d="M-8 142 45 79 77 114 110 65 151 142Z" fill="#254463"/>
+          <path d="M-5 148 44 109 83 137 139 92 151 148Z" fill="#152b43"/>
+          <path d="M-3 136Q46 124 77 137T147 130V151H-3Z" fill="#73adc2" opacity=".37"/>
+        </g>
+        <rect x="14" y="154" width="70" height="4" rx="2" fill="#8a9cb2" opacity=".62"/>
+        <rect x="14" y="165" width="39" height="3" rx="1.5" fill="#697f98" opacity=".65"/>
+      </g>
+      <g id="front-card" transform="translate(780 54) rotate(9 76 94)">
+        <rect x="2" y="8" width="152" height="188" rx="17" fill="#030914" opacity=".48"/>
+        <rect width="152" height="188" rx="17" fill="#1c293a" stroke="url(#card-edge)"/>
+        <g clip-path="url(#front-art)">
+          <rect x="10" y="10" width="132" height="138" fill="url(#card-dusk)"/>
+          <circle cx="108" cy="43" r="16" fill="#d8f1f5" opacity=".88"/>
+          <path d="M-10 122 50 57 97 116 130 85 158 125V155H-10Z" fill="#45669a"/>
+          <path d="M-7 134 58 90 87 113 143 81 159 132V155H-7Z" fill="url(#card-land)"/>
+          <path d="M-8 142Q29 123 75 137T159 127V157H-8Z" fill="#72b7d5" opacity=".58"/>
+          <path d="M12 148Q50 137 88 145T143 140V153H12Z" fill="#a0d7e9" opacity=".32"/>
+        </g>
+        <rect x="14" y="160" width="70" height="4" rx="2" fill="#a0b4cd" opacity=".85"/>
+        <rect x="14" y="172" width="43" height="3" rx="1.5" fill="#738aa6" opacity=".75"/>
+        <path d="M125 162c-5-6-11 0-7 5l7 6 7-6c4-5-2-11-7-5z" fill="#63baff"/>
+      </g>
+    </g>
   </g>
-  <text x="232" y="130" fill="#f0f6fc" font-family="Segoe UI,Arial,sans-serif" font-size="70" font-weight="700" letter-spacing="-3">DART</text>
-  <text x="236" y="172" fill="#9bb2cc" font-family="Segoe UI,Arial,sans-serif" font-size="25" letter-spacing=".5">Discover Art</text>
-  <g transform="translate(692 38) rotate(-9 70 94)">
-    <rect width="140" height="184" rx="16" fill="url(#frame)" stroke="#37506c"/>
-    <rect x="12" y="12" width="116" height="130" rx="9" fill="#193248"/>
-    <circle cx="74" cy="57" r="25" fill="#5085b7" opacity=".7"/>
-    <path d="m12 142 42-60 32 39 24-22 18 43z" fill="#598da9"/>
-    <rect x="16" y="157" width="73" height="5" rx="2.5" fill="#7c94b2" opacity=".5"/>
-    <rect x="16" y="168" width="42" height="4" rx="2" fill="#526780"/>
-  </g>
-  <g transform="translate(788 58) rotate(9 66 86)">
-    <rect width="132" height="174" rx="16" fill="#172334" stroke="#3c546e"/>
-    <rect x="11" y="11" width="110" height="123" rx="8" fill="url(#art)"/>
-    <path d="m11 97 31-38 31 39 25-31 23 37v30H11z" fill="#142a52" opacity=".38"/>
-    <circle cx="91" cy="41" r="14" fill="#c0fff2" opacity=".6"/>
-    <rect x="15" y="147" width="69" height="5" rx="2.5" fill="#a4bad4" opacity=".65"/>
-    <path d="M102 149c-5-6-11 0-7 5l7 6 7-6c4-5-2-11-7-5z" fill="#64c7e8"/>
-    <rect x="15" y="158" width="39" height="4" rx="2" fill="#536c89"/>
-  </g>
+  <rect x=".5" y=".5" width="959" height="263" rx="23.5" fill="none" stroke="#304052" stroke-opacity=".65"/>
 </svg>
