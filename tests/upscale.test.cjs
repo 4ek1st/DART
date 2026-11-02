@@ -127,6 +127,9 @@ test('one action uses the saved default with no extra interface or per-image que
   assert.equal(calls.length, before, 'a ready result must be reused immediately');
   window.DartUpscale.restore(item,url);
   assert.equal(window.DartUpscale.resultFor(item,url).visible, false);
+  window.DartUpscale.show(item,url);
+  assert.equal(window.DartUpscale.resultFor(item,url).visible, true);
+  assert.equal(calls.length, before, 'showing the previous result must not start processing again');
   window.DartUpscale.dispose();
 });
 

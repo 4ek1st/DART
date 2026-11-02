@@ -665,6 +665,12 @@ Open this image before copying it, or download the original.|Откройте и
 Image copying is already in progress.|Копирование изображения уже выполняется.|Ein Bild wird bereits kopiert.
 Image upscaling|Увеличение изображений|Bilder hochskalieren
 Local 2× and 4×|Локально в 2× и 4×|Lokal auf das 2- und 4-Fache
+Cancel upscale|Отменить увеличение|Hochskalieren abbrechen
+Show original|Показать оригинал|Original anzeigen
+Show upscaled image|Показать увеличенное изображение|Hochskaliertes Bild anzeigen
+Save upscaled PNG|Сохранить увеличенный PNG|Hochskaliertes PNG speichern
+Download original|Скачать оригинал|Original herunterladen
+Copy original image|Скопировать оригинал изображения|Originalbild kopieren
 `; 
   root.DartMessages = rows.trim().split('\n').map(row => row.split('|'));
   if (typeof module !== 'undefined') module.exports = root.DartMessages;

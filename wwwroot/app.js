@@ -4143,14 +4143,21 @@ function openContentContextMenu(context, x, y) {
   (quickPreview.open && quickPreview.contains(context.trigger) ? quickPreview : document.body).append(recommendationTagMenu);
   if (context.kind === 'artwork') {
     const item=context.item,hidden=artworkActionsController().isHidden(item);
-    recommendationTagMenu.context={...context,hidden};recommendationTagMenu.trigger=context.trigger;context.trigger.setAttribute('aria-expanded','true');
+    const upscaleUrl = context.mediaUrl || item.images?.[0] || '';
+    const upscaleAllowed = globalThis.DartUpscale?.canUpscaleImage(item, upscaleUrl);
+    const upscaleState = upscaleAllowed && DartUpscale.stateFor(item, upscaleUrl);
+    const upscaleResult = upscaleAllowed && DartUpscale.resultFor(item, upscaleUrl);
+    const upscaleBusy = ['preparing','uploading','queued','processing'].includes(upscaleState?.state);
+    recommendationTagMenu.context={...context,hidden,upscaleUrl};recommendationTagMenu.trigger=context.trigger;context.trigger.setAttribute('aria-expanded','true');
     const row=(action,label,icon)=>`<button type="button" role="menuitem" data-context-action="artwork-${action}"${['group','ungroup'].includes(action)&&favoriteGroupsController().pending?' disabled':''}>${svg(icon)}<span>${label}</span></button>`;
     recommendationTagMenu.innerHTML=`<div class="recommendation-tag-menu-title" data-no-i18n>${escapeHtml(item.title)}</div>`+
       row('favorite',favoritesController().isArtworkFavorite(item)?'Remove favorite artwork':'Save favorite artwork','collection')+
       (favoritesController().isArtworkFavorite(item)?row('group','Group with another Favorite','collection'):'')+
       (favoriteGroupFor(item)?row('ungroup','Ungroup artworks','collection'):'')+
       row('hide',hidden?'Show again':'Don’t show this artwork again','hide')+'<div class="recommendation-tag-menu-separator" role="separator"></div>'+
-      row('download','Download image','download')+row('copy-image','Copy image','copy')+row('copy-link','Copy artwork link','external')+row('copy-image-link','Copy image link','external')+row('copy-tags','Copy all artwork tags','copy');
+      (upscaleAllowed ? row(upscaleBusy ? 'upscale-cancel' : 'upscale', upscaleBusy ? 'Cancel upscale' : DartUpscale.label(item,upscaleUrl) + ' · U', 'image') : '')+
+      (upscaleResult ? row('upscale-restore', upscaleResult.visible ? 'Show original' : 'Show upscaled image', 'image') + row('upscale-download','Save upscaled PNG','download') : '')+
+      row('download',upscaleResult?.visible?'Download original':'Download image','download')+row('copy-image',upscaleResult?.visible?'Copy original image':'Copy image','copy')+row('copy-link','Copy artwork link','external')+row('copy-image-link','Copy image link','external')+row('copy-tags','Copy all artwork tags','copy');
     positionContentContextMenu(context,x,y);return;
   }
   if (context.kind === 'nsfw') {
@@ -6242,6 +6249,13 @@ recommendationTagMenu.addEventListener('click', async event => {
   const context = recommendationTagMenu.context;
   if (action && context) {
     closeRecommendationTagMenu(true);
+    if (action === 'artwork-upscale') { void DartUpscale.open({ item: context.item, url: context.upscaleUrl }); return; }
+    if (action === 'artwork-upscale-cancel') { DartUpscale.cancel(context.item, context.upscaleUrl); return; }
+    if (action === 'artwork-upscale-restore') {
+      if (DartUpscale.resultFor(context.item,context.upscaleUrl)?.visible) DartUpscale.restore(context.item,context.upscaleUrl);
+      else DartUpscale.show(context.item,context.upscaleUrl); return;
+    }
+    if (action === 'artwork-upscale-download') { DartUpscale.download(context.item,context.upscaleUrl); return; }
     if(action==='artwork-group'){openFavoriteGroupPicker(context.item,context.trigger);return;}
     if(action==='artwork-ungroup'){const pack=favoriteGroupFor(context.item);if(pack)await favoriteGroupsController().ungroup(pack.groupId);return;}
     if (action?.startsWith('artwork-')) { await artworkActionsController().run(action.slice(8),context); return; }

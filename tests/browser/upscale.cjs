@@ -52,7 +52,7 @@ async function api(route, options = {}) {
       if (url.pathname === '/api/client-state') return answer({ session: { activeIndex: 0, tabs: [{ kind: 'likes', title: 'Liked' }] } });
       if (url.pathname === '/api/likes') return answer([fixture]);
       if (url.pathname === '/api/detail') return answer(fixture);
-      if (['/api/bookmarks', '/api/follows', '/api/favorite-tags', '/api/favorite-artworks', '/api/viewed-identities'].includes(url.pathname)) return answer([]);
+      if (['/api/bookmarks', '/api/follows', '/api/favorite-tags', '/api/favorite-artworks', '/api/favorite-artwork-groups', '/api/hidden-artworks', '/api/viewed-identities'].includes(url.pathname)) return answer([]);
       if (url.pathname === '/api/content-preferences') return answer({ language: 'en', aiMode: 'all' });
       if (url.pathname === '/api/search') return answer({ items: [], errors: {}, hasMore: false });
       return answer({});
@@ -80,7 +80,11 @@ async function api(route, options = {}) {
       await page.waitForFunction(() => !!document.querySelector('.detail-image > img[data-image-url]')?.naturalWidth);
       const original = page.locator('.detail-image > img[data-image-url]').first();
       const before = await original.boundingBox();
-      const started = Date.now(); await page.keyboard.press('u');
+      const started = Date.now();
+      if (scale === 4) {
+        await original.click({ button: 'right' });
+        await page.locator('[data-context-action="artwork-upscale"]').click();
+      } else await page.keyboard.press('u');
       await page.waitForFunction(width => document.querySelector('img.upscale-inline-result')?.naturalWidth === width, expected.width * scale, { timeout: 60000 });
       assert.equal(await page.locator('.upscale-dialog').count(), 0, 'default processing never opens a separate interface');
       assert.deepEqual(await original.boundingBox(), before, 'upscaling preserves viewer geometry');
@@ -89,11 +93,19 @@ async function api(route, options = {}) {
       const image = page.locator('img.upscale-inline-result').first();
       const dimensions = await image.evaluate(img => ({ width: img.naturalWidth, height: img.naturalHeight }));
       assert.deepEqual(dimensions, { width: expected.width * scale, height: expected.height * scale });
+      await page.locator('[data-action="artwork-more"]').first().click();
+      assert.equal(await page.locator('[data-context-action="artwork-upscale-restore"]').isVisible(), true);
       const downloadPromise = page.waitForEvent('download');
-      await page.evaluate(item => DartUpscale.download(item, item.images[0]), fixture);
+      await page.locator('[data-context-action="artwork-upscale-download"]').click();
       const download = await downloadPromise;
       assert.equal(await download.failure(), null); assert.match(download.suggestedFilename(), /\.png$/i);
       const bytes = fs.readFileSync(await download.path()); assert.deepEqual(pngSize(bytes), dimensions);
+      await page.locator('[data-action="artwork-more"]').first().click();
+      await page.locator('[data-context-action="artwork-upscale-restore"]').click();
+      assert.equal(await original.evaluate(img => getComputedStyle(img).opacity), '1');
+      await page.locator('[data-action="artwork-more"]').first().click();
+      await page.locator('[data-context-action="artwork-upscale-restore"]').click();
+      await page.waitForFunction(width => document.querySelector('img.upscale-inline-result')?.naturalWidth === width, expected.width * scale);
       measurements.push({ scale, milliseconds: Date.now() - started, ...dimensions, bytes: bytes.length });
     }
     // The same cached result follows Space preview, pan/zoom and return to the artwork.

@@ -76,6 +76,7 @@
   });
   function canUpscaleImage(item, url) {
     if (!url || !/^https?:\/\//i.test(url)) return false;
+    if (!item?.images?.length && item?.thumbnail === url) return false;
     if (root.CatalogLogic?.videoMimeType(url)) return false;
     return !/\.(?:mp4|webm|mov|m4v|mkv|gif)(?:[?#]|$)/i.test(url);
   }
@@ -262,6 +263,7 @@
   }
   function cancel(item, url) { const entry = stateFor(item,url); entry?.controller?.cancel(); }
   function restore(item, url) { const entry = stateFor(item,url); if (entry) { entry.hidden = true; applyVisible(); } }
+  function show(item, url) { const entry = stateFor(item,url); if (entry?.resultUrl) { entry.hidden = false; applyVisible(); } }
   function download(item, url) {
     const result = resultFor(item,url); if (!result) return;
     const link = root.document.createElement('a'); link.href = result.url + '?download=1'; link.download = 'DART-' + result.scale + 'x.png';
@@ -332,7 +334,7 @@
     for (const entry of records.values()) entry.controller?.cancel(false);
     for (const key of overlays.keys()) removeOverlay(key);
   }
-  const api = { configure, canUpscaleImage, open, cancel, restore, download, stateFor, resultFor, label, syncPreview,
+  const api = { configure, canUpscaleImage, open, cancel, restore, show, download, stateFor, resultFor, label, syncPreview,
     applyVisible, settingsMarkup, mounted, refresh, createJobController, messages, dispose };
   if (typeof module !== 'undefined') module.exports = api;
   else {
