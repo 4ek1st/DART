@@ -85,6 +85,7 @@ async function api(route, options = {}) {
       assert.equal(await page.locator('.upscale-dialog').count(), 0, 'default processing never opens a separate interface');
       assert.deepEqual(await original.boundingBox(), before, 'upscaling preserves viewer geometry');
       assert.equal(await original.evaluate(img => img.naturalWidth), expected.width, 'original pixels and metadata remain intact');
+      assert.equal(await original.evaluate(img => getComputedStyle(img).opacity), '0', 'transparent result must not composite over the original');
       const image = page.locator('img.upscale-inline-result').first();
       const dimensions = await image.evaluate(img => ({ width: img.naturalWidth, height: img.naturalHeight }));
       assert.deepEqual(dimensions, { width: expected.width * scale, height: expected.height * scale });
@@ -101,6 +102,14 @@ async function api(route, options = {}) {
     await page.locator('[data-preview-action="zoom-in"]').click();
     assert.equal(await page.locator('.quick-preview img.upscale-inline-result').evaluate(img => img.style.transform),
       await page.locator('.quick-preview-image').evaluate(img => img.style.transform));
+    await page.evaluate(item => {
+      const original = document.querySelector('.quick-preview-image'), adopted = original.cloneNode(true);
+      original.replaceWith(adopted); DartUpscale.syncPreview(adopted);
+      DartUpscale.restore(item, item.images[0]);
+    }, fixture);
+    assert.equal(await page.locator('.quick-preview-image').evaluate(img => getComputedStyle(img).opacity), '1', 'Show original must remain visible after cached-image adoption');
+    await page.keyboard.press('u');
+    await page.waitForFunction(() => !!document.querySelector('.quick-preview img.upscale-inline-result'));
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('.quick-preview[open]') && !!document.querySelector('.detail-image img.upscale-inline-result'));
     await page.setViewportSize({ width: 700, height: 850 });

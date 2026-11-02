@@ -129,3 +129,31 @@ test('one action uses the saved default with no extra interface or per-image que
   assert.equal(window.DartUpscale.resultFor(item,url).visible, false);
   window.DartUpscale.dispose();
 });
+
+test('fast browsing is bounded before original downloads and decoding workers start', async () => {
+  const waiting = [], notices = []; let workers = 0, uploads = 0;
+  class Worker {
+    constructor() { workers++; }
+    postMessage({ blob }) { queueMicrotask(() => this.onmessage({ data: { result: { blob, width: 80, height: 60 } } })); }
+    terminate() {}
+  }
+  const window = { document: { querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {} },
+    Worker, addEventListener: () => {}, fetch: async (url, options = {}) => ({ ok: true, json: async () => {
+      if (url === '/api/upscale') return { component: { installed: true, state: 'ready' }, preferences: { scale: 2 }, cacheBytes: 0 };
+      if (url.includes('/jobs?')) uploads++;
+      return { id: 'job' + uploads, state: 'completed', scale: 2, resultUrl: '/result' + uploads + '.png' };
+    } }) };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../wwwroot/upscale.js'),'utf8'),
+    { window, Blob, AbortController, AbortSignal, DOMException, setTimeout, clearTimeout, URL });
+  window.DartUpscale.configure({ readImage: () => new Promise(resolve => waiting.push(resolve)), toast: value => notices.push(value) });
+  const attempts = Array.from({ length: 10 }, (_, id) => window.DartUpscale.open({ item: { key: 'danbooru:' + id }, url: 'https://example.test/' + id + '.png' }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(waiting.length, 4, 'only four original reads may be in flight');
+  assert.equal(workers, 0, 'blocked originals must not start decoding');
+  for (const resolve of waiting) resolve(new Blob(['pixels']));
+  const values = await Promise.all(attempts);
+  assert.equal(workers, 4); assert.equal(uploads, 4);
+  assert.equal(values.filter(Boolean).length, 4);
+  assert.equal(notices.filter(value => value.includes('queue is full')).length, 6);
+  window.DartUpscale.dispose();
+});

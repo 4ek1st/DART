@@ -15,5 +15,7 @@
 .upscale-cache { margin-top: 26px; justify-content: space-between; }
 .upscale-settings .upscale-module-actions { margin: 16px 0; }
 /* Preserve original pixels, metadata and pointer targets. Follow the existing viewer zoom. */
+.detail-image > img.upscale-original-suppressed, .quick-preview-stage > img.upscale-original-suppressed { opacity: 0 !important; }
+.detail-image:has(> img.upscale-original-suppressed:focus-visible) { outline: 2px solid var(--blue); outline-offset: 3px; }
 .detail-image > img.upscale-inline-result, .quick-preview-stage > img.upscale-inline-result { position: absolute; inset: 0; width: 100%; height: 100%; max-width: 100%; max-height: none; object-fit: contain; pointer-events: none; user-select: none; transform-origin: center center; transition: transform .22s cubic-bezier(.2,.8,.2,1); }
 @media (prefers-reduced-motion: reduce) { .quick-preview-stage > img.upscale-inline-result { transition: none; } }

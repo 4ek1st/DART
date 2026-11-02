@@ -15,6 +15,12 @@ internal static class UpscaleFixtureTests
         Directory.CreateDirectory(root);
         try
         {
+            var personal = Path.Combine(root, "personal-profile");
+            var device = Path.Combine(root, "local-appdata");
+            Check(UpscaleStorage.DeviceRoot(personal, false, device) == Path.Combine(device, "DART", "Upscale"),
+                "the launcher's explicit personal data-dir must not put executable components in the profile");
+            Check(UpscaleStorage.DeviceRoot(personal, true, device) == Path.Combine(personal, "device-upscale"),
+                "server-only QA must isolate its component from the real device installation");
             var files = new Dictionary<string, byte[]>
             {
                 ["waifu2x-ncnn-vulkan.exe"] = "test executable, never run"u8.ToArray(),
@@ -83,8 +89,17 @@ internal static class UpscaleFixtureTests
             Check(same.Id == first.Id, "double submit must share one job");
             var second = await jobs.SubmitAsync(image, 4, default);
             Check(jobs.Get(second.Id)?.State == "queued" && runner.Calls == 1, "only one GPU process may run");
+            var distinct = image.ToArray(); distinct[29] ^= 1; // Different hash, same bounded PNG structure; fake runner never decodes.
+            var third = await jobs.SubmitAsync(distinct, 2, default);
+            distinct = image.ToArray(); distinct[29] ^= 2;
+            var fourth = await jobs.SubmitAsync(distinct, 2, default);
             jobs.Cancel(second.Id);
+            jobs.Cancel(third.Id); jobs.Cancel(fourth.Id);
             Check(jobs.Get(second.Id)?.State == "cancelled", "queued cancellation must be immediate");
+            distinct = image.ToArray(); distinct[29] ^= 3;
+            var replacement = await jobs.SubmitAsync(distinct, 2, default);
+            Check(jobs.Get(replacement.Id)?.State == "queued", "cancelled queued jobs must immediately free capacity for another artwork");
+            jobs.Cancel(replacement.Id);
             jobs.Cancel(first.Id);
             await runner.Stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await Wait(() => jobs.Get(first.Id)?.State == "cancelled");

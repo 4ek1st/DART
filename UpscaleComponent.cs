@@ -247,6 +247,9 @@ internal sealed class UpscaleLease(string directory, Action release) : IDisposab
 
 internal static class UpscaleStorage
 {
+    internal static string DeviceRoot(string? dataDirectory, bool serverOnly, string localApplicationData) =>
+        serverOnly && !string.IsNullOrWhiteSpace(dataDirectory) ? Path.Combine(Path.GetFullPath(dataDirectory), "device-upscale")
+            : Path.Combine(localApplicationData, "DART", "Upscale");
     internal static string Child(string root, string relative)
     {
         var target = Path.GetFullPath(Path.Combine(root, relative));

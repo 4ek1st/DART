@@ -37,9 +37,9 @@ internal static class Program
         builder.Services.AddSingleton(store);
         builder.Services.AddSingleton(captureProtection);
         builder.Services.AddSingleton<CatalogService>();
-        var upscaleRoot = string.IsNullOrWhiteSpace(dataDirectory)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DART", "Upscale")
-            : Path.Combine(Path.GetFullPath(dataDirectory), "device-upscale");
+        var upscaleRoot = UpscaleStorage.DeviceRoot(dataDirectory,
+            args.Contains("--server-only", StringComparer.OrdinalIgnoreCase),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
         builder.Services.AddSingleton(new UpscaleComponent(Path.Combine(upscaleRoot, "component")));
         builder.Services.AddSingleton(provider => new ImageUpscaleService(Path.Combine(upscaleRoot, "cache"),
             provider.GetRequiredService<UpscaleComponent>()));

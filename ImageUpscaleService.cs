@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Security.Cryptography;
-using System.Threading.Channels;
 
 namespace ArtCatalog;
 
@@ -104,8 +103,8 @@ internal sealed class ImageUpscaleService : IDisposable
     private readonly IUpscaleRunner runner;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim submissions = new(1, 1);
-    private readonly Channel<Job> queue = Channel.CreateBounded<Job>(new BoundedChannelOptions(3)
-    { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+    private readonly LinkedList<Job> pending = new();
+    private readonly SemaphoreSlim available = new(0, 1);
     private readonly object sync = new();
     private readonly Dictionary<string, Job> jobs = new(StringComparer.Ordinal);
     private readonly Task worker;
@@ -117,6 +116,7 @@ internal sealed class ImageUpscaleService : IDisposable
         internal UpscaleJobStatus Status = new(id, "queued", scale, size.Width, size.Height);
         internal DateTimeOffset FinishedAt;
         internal bool Done;
+        internal LinkedListNode<Job>? Node;
     }
     internal ImageUpscaleService(string root, UpscaleComponent component, IUpscaleRunner? runner = null)
     {
@@ -158,11 +158,10 @@ internal sealed class ImageUpscaleService : IDisposable
             }
             Directory.CreateDirectory(directory);
             await File.WriteAllBytesAsync(UpscaleStorage.Child(directory, "input.png"), input, token);
-            lock (sync) jobs.Add(id, job);
-            if (!queue.Writer.TryWrite(job))
+            lock (sync)
             {
-                lock (sync) jobs.Remove(id);
-                job.Cancellation.Dispose(); throw new UpscaleException("queue-full");
+                jobs.Add(id, job); job.Node = pending.AddLast(job);
+                if (available.CurrentCount == 0) available.Release();
             }
             directory = null;
             return job.Status;
@@ -172,20 +171,34 @@ internal sealed class ImageUpscaleService : IDisposable
     internal UpscaleJobStatus? Get(string id) { lock (sync) return jobs.GetValueOrDefault(id)?.Status; }
     internal void Cancel(string id)
     {
+        string? cleanup = null;
         lock (sync)
         {
             if (!jobs.TryGetValue(id, out var job) || job.Status.State is not ("queued" or "processing")) return;
             job.Cancellation.Cancel();
             if (job.Status.State == "queued")
-            { job.Status = job.Status with { State = "cancelled" }; job.FinishedAt = DateTimeOffset.UtcNow; }
+            {
+                job.Status = job.Status with { State = "cancelled" }; job.FinishedAt = DateTimeOffset.UtcNow;
+                if (job.Node is not null)
+                { pending.Remove(job.Node); job.Node = null; job.Done = true; cleanup = job.Directory; }
+            }
         }
+        if (cleanup is not null) UpscaleStorage.TryDelete(workRoot, cleanup);
     }
     private async Task WorkAsync()
     {
         try
         {
-            await foreach (var job in queue.Reader.ReadAllAsync(lifetime.Token))
+            while (true)
             {
+                lifetime.Token.ThrowIfCancellationRequested();
+                Job? job;
+                lock (sync)
+                {
+                    job = pending.First?.Value;
+                    if (job is not null) { pending.RemoveFirst(); job.Node = null; }
+                }
+                if (job is null) { await available.WaitAsync(lifetime.Token); continue; }
                 using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
                 using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(job.Cancellation.Token, lifetime.Token, timeout.Token);
                 var token = cancellation.Token;
@@ -225,7 +238,9 @@ internal sealed class ImageUpscaleService : IDisposable
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         finally
         {
-            while (queue.Reader.TryRead(out var job)) UpscaleStorage.TryDelete(workRoot, job.Directory);
+            Job[] remaining;
+            lock (sync) { remaining = pending.ToArray(); pending.Clear(); }
+            foreach (var job in remaining) UpscaleStorage.TryDelete(workRoot, job.Directory);
         }
     }
     internal FileStream? OpenResult(string id)
@@ -269,9 +284,9 @@ internal sealed class ImageUpscaleService : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        lifetime.Cancel(); queue.Writer.TryComplete();
+        lifetime.Cancel();
         try { worker.GetAwaiter().GetResult(); } catch (OperationCanceledException) { }
         foreach (var job in jobs.Values) job.Cancellation.Dispose();
-        lifetime.Dispose(); submissions.Dispose();
+        lifetime.Dispose(); submissions.Dispose(); available.Dispose();
     }
 }

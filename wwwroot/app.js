@@ -3589,6 +3589,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
         imageLoader.reveal(image, entry.blobUrl);
         imageLoader.adopt(quickPreview);
         paintQuickPreview(true);
+        globalThis.DartUpscale?.applyVisible();
       } catch { /* Keep the available preview when full media is unavailable. */ }
     })();
   }

@@ -212,7 +212,7 @@
   }
   function label(item, url) {
     const entry = stateFor(item, url);
-    return busy(entry?.state) ? t('processing') : t('title') + ' ' + preferences.scale + '×';
+    return busy(entry?.state) ? t('processing') : t('title') + (moduleState ? ' ' + preferences.scale + '×' : '');
   }
   async function open({ item, url }) {
     if (!canUpscaleImage(item, url)) return false;
@@ -224,6 +224,11 @@
     if (busy(existing?.state)) return false;
     if (existing?.resultUrl && existing.completedScale === preferences.scale) {
       existing.hidden = false; applyVisible(); return true;
+    }
+    // Bound work before reading/decoding originals, not only after PNGs reach
+    // the native queue. Fast browsing cannot create unlimited image workers.
+    if ([...records.values()].filter(entry => busy(entry.state)).length >= 4) {
+      dependencies.toast?.(t('queue-full')); return false;
     }
     const entry = { item, url, scale: preferences.scale, state: 'preparing', resultUrl: existing?.resultUrl || '',
       completedScale: existing?.completedScale, hidden: false };
@@ -261,11 +266,21 @@
   }
   function removeOverlay(key) {
     const render = overlays.get(key); if (!render) return;
+    render.original?.classList.remove('upscale-original-suppressed');
+    for (const original of root.document.querySelectorAll('img.upscale-original-suppressed[data-image-url]'))
+      if (mediaKey(original.dataset.imageUrl) === key) original.classList.remove('upscale-original-suppressed');
     render.image.remove(); render.image.removeAttribute('src'); overlays.delete(key);
   }
   function syncPreview(original) {
     const render = overlays.get(mediaKey(original?.dataset?.imageUrl));
-    if (!render || render.original !== original) return;
+    if (!render) return;
+    if (render.original !== original) {
+      render.original?.classList.remove('upscale-original-suppressed'); render.original = original;
+      if (render.ready) {
+        if (render.image.parentElement !== original.parentElement) original.parentElement.append(render.image);
+        original.classList.add('upscale-original-suppressed');
+      }
+    }
     render.image.style.transform = original.style.transform;
     render.image.style.transitionDuration = original.style.transitionDuration;
   }
@@ -289,8 +304,12 @@
             current.image.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
         }).catch(() => { if (overlays.get(key) === current) { removeOverlay(key); entry.resultUrl = ''; dependencies.toast?.(t('not-found')); } });
       }
+      if (render.original !== original) render.original?.classList.remove('upscale-original-suppressed');
       render.original = original;
-      if (render.ready && render.image.parentElement !== original.parentElement) original.parentElement.append(render.image);
+      if (render.ready) {
+        if (render.image.parentElement !== original.parentElement) original.parentElement.append(render.image);
+        original.classList.add('upscale-original-suppressed');
+      }
       syncPreview(original);
     }
     for (const key of overlays.keys()) if (!visible.has(key)) removeOverlay(key);
