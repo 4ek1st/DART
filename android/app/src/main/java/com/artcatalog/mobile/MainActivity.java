@@ -259,14 +259,14 @@ public final class MainActivity extends Activity {
         view.postOnAnimation(()->{
             if(currentView!=view||outgoingPage!=previous)return;
             float width=Math.max(content.getWidth(),getResources().getDisplayMetrics().widthPixels);
-            view.setTranslationX(-direction*width);view.setVisibility(View.VISIBLE);
+            view.setTranslationX(direction*width);view.setVisibility(View.VISIBLE);
             animateTurn(previous,view,direction,()->{content.removeView(previous);releaseImages(previous);outgoingPage=null;});
         });
     }
     private void animateTurn(View previous,View next,int direction,Runnable cleanup){
         float width=Math.max(next.getWidth(),getResources().getDisplayMetrics().widthPixels);
         AnimatorSet animation=new AnimatorSet();pageAnimator=animation;turnTarget=next;
-        animation.playTogether(ObjectAnimator.ofFloat(previous,View.TRANSLATION_X,0,direction*width),ObjectAnimator.ofFloat(next,View.TRANSLATION_X,-direction*width,0));
+        animation.playTogether(ObjectAnimator.ofFloat(previous,View.TRANSLATION_X,0,-direction*width),ObjectAnimator.ofFloat(next,View.TRANSLATION_X,direction*width,0));
         animation.setDuration(ValueAnimator.areAnimatorsEnabled()?260:0);
         animation.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
         animation.addListener(new AnimatorListenerAdapter(){@Override public void onAnimationEnd(Animator ignored){if(pageAnimator!=animation)return;pageAnimator=null;turnTarget=null;next.setTranslationX(0);previous.setTranslationX(0);cleanup.run();finishNavigation(navigating);}});
@@ -412,14 +412,15 @@ public final class MainActivity extends Activity {
         });
     }
     private void recoverVisibleMedia(View view){
-        if(view==null)return;if(view instanceof Card){Card card=(Card)view;android.graphics.Rect rect=new android.graphics.Rect();if(card.post!=null&&card.getGlobalVisibleRect(rect)&&!rect.isEmpty())recoverPortableMedia(card.post);return;}
+        if(view==null)return;if(view instanceof Card){Card card=(Card)view;android.graphics.Rect rect=new android.graphics.Rect();if(card.post!=null&&card.getGlobalVisibleRect(rect)&&!rect.isEmpty())recoverPortableMedia(card.post,card.image.getTag() instanceof ImageLoader.Ticket&&((ImageLoader.Ticket)card.image.getTag()).failed);return;}
         if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)recoverVisibleMedia(((ViewGroup)view).getChildAt(i));
     }
-    private void recoverPortableMedia(Post post){
-        String candidate=cardPreview(post);if(!post.source.equals("sankaku")||CatalogLogic.isMediaUrl(candidate)&&!images.failed(candidate,720)||hydratingMedia.size()>=4||hydratingMedia.contains(post.key()))return;
+    private void recoverPortableMedia(Post post){recoverPortableMedia(post,false);}
+    private void recoverPortableMedia(Post post,boolean shownFailed){
+        String candidate=cardPreview(post);if(!post.source.equals("sankaku")||!shownFailed&&CatalogLogic.isMediaUrl(candidate)&&!images.failed(candidate,720)||hydratingMedia.size()>=4||hydratingMedia.contains(post.key()))return;
         long now=SystemClock.elapsedRealtime();if(now-mediaRecoveryAttempts.getOrDefault(post.key(),-60000L)<60000)return;
         mediaRecoveryAttempts.put(post.key(),now);while(mediaRecoveryAttempts.size()>256)mediaRecoveryAttempts.remove(mediaRecoveryAttempts.keySet().iterator().next());hydratingMedia.add(post.key());
-        mediaRepairs.execute(new CatalogClient.NetworkTask<Void>(()->{try{Post fresh=post.copy();client.enrich(fresh,2);main.post(()->{hydratingMedia.remove(post.key());if(destroyed)return;CatalogLogic.refreshSignedMedia(post,fresh);store.refreshCachedPost(post);List<Screen> affected=new ArrayList<>(Arrays.asList(screens));affected.add(activeRelated);affected.add(activeAuthor);for(Screen screen:affected)if(screen!=null&&screen.adapter!=null&&screen.posts.stream().anyMatch(item->!Collections.disjoint(FeedSession.keys(item),FeedSession.keys(post))))screen.adapter.notifyDataSetChanged();restoreCards(currentView);prepareVisibleContent();});}catch(Exception error){main.post(()->hydratingMedia.remove(post.key()));}}));
+        mediaRepairs.execute(new CatalogClient.NetworkTask<Void>(()->{try{Post fresh=post.copy();client.enrich(fresh,2);main.post(()->{hydratingMedia.remove(post.key());if(destroyed)return;CatalogLogic.refreshSignedMedia(post,fresh);store.refreshCachedPost(post);List<Screen> affected=new ArrayList<>(Arrays.asList(screens));affected.add(activeRelated);affected.add(activeAuthor);if(currentView!=null&&currentView.getTag() instanceof LocalCollectionRoute)affected.add(((LocalCollectionRoute)currentView.getTag()).screen);for(Screen screen:affected)if(screen!=null&&screen.adapter!=null&&screen.posts.stream().anyMatch(item->!Collections.disjoint(FeedSession.keys(item),FeedSession.keys(post))))screen.adapter.notifyDataSetChanged();restoreCards(currentView);prepareVisibleContent();});}catch(Exception error){main.post(()->hydratingMedia.remove(post.key()));}}));
     }
     private void prepareRecommendations(Screen s,int generation){
         List<Post> liked=store.likes();Map<String,String> choices=store.recommendationTags();int seed=store.recommendationSeed();
@@ -569,6 +570,7 @@ public final class MainActivity extends Activity {
     private void prepareVisibleContent(){
         if(destroyed||store==null)return;
         List<Screen> candidates=new ArrayList<>(Arrays.asList(screens));candidates.add(activeRelated);candidates.add(activeAuthor);
+        if(currentView!=null&&currentView.getTag() instanceof LocalCollectionRoute)candidates.add(((LocalCollectionRoute)currentView.getTag()).screen);
         for(Screen s:candidates)if(s!=null&&s.view==currentView){
             if(s.adapter!=null)s.adapter.refreshPrepared();recordFollowingExposure(s);recoverVisibleMedia(s.list);prefetchCards(s,0);recordRecommendationExposure(s);startRecommendationCalibration(s);applyPreparedRanking(s);applyPreparedArtistWorks(s);
             if(s.adapter!=null&&s.loaded&&!s.loading&&!s.failed&&s.more&&s.emptyRounds<6&&(s.posts.isEmpty()||needsPage(s)))load(s,false);
@@ -1171,8 +1173,9 @@ public final class MainActivity extends Activity {
     private void reseedRelated(Screen screen,Post post){if(screen!=activeRelated)return;List<String> queries=CatalogLogic.relatedQueries(post);Map<String,Job> existing=new LinkedHashMap<>();for(Job job:screen.jobs)existing.put(job.query,job);cancel(screen.task);screen.generation++;if(screen.retryRunnable!=null){main.removeCallbacks(screen.retryRunnable);screen.retryRunnable=null;}screen.loading=false;screen.publications.clear();screen.publishing=false;screen.roundSettled=false;cancel(screen.calibrationTask);screen.jobs.clear();for(String query:queries)screen.jobs.add(existing.containsKey(query)?existing.get(query):new Job(query,selectedPages()));screen.more=!screen.jobs.isEmpty();if(screen.more)load(screen,false);else updateStatus(screen);}
     private void prepareGalleryPage(){
         if(activeGallery==null||activeGallery.source==null||activePost==null)return;Screen source=activeGallery.source;
-        int index=-1;for(int i=0;i<activeGallery.posts.size();i++)if(activeGallery.posts.get(i).key().equals(activePost.key())||activeGallery.posts.get(i).memberKeys.contains(activePost.key())){index=i;break;}
-        if(index>=0&&activeGallery.posts.size()-index<=8&&source.more&&!source.loading&&!source.failed&&!source.authBlocked)load(source,false);
+        List<Post> published=source.posts.isEmpty()?activeGallery.posts:source.posts;
+        int index=-1;for(int i=0;i<published.size();i++)if(published.get(i).key().equals(activePost.key())||published.get(i).memberKeys.contains(activePost.key())){index=i;break;}
+        if(index>=0&&published.size()-index<=8&&source.more&&!source.loading&&!source.failed&&!source.authBlocked)load(source,false);
     }
     private void navigate(int delta){navigate(delta,null);}
     private void navigate(int delta,Runnable arrived){navigate(delta,arrived,()->true);}
@@ -1192,6 +1195,12 @@ public final class MainActivity extends Activity {
     private void continueNavigation(NavigationRequest request){
         if(!navigationAlive(request)){finishNavigation(request);return;}
         Gallery context=activeGallery;Post selected=activePost;Screen source=context==null?null:context.source;
+        // Already-published neighbors remain usable while background metadata/grouping catches up.
+        Post canonical=selected;
+        if(source!=null&&context.syncedRevision!=source.revision)for(Post published:source.posts)if(published.key().equals(selected.key())||published.memberKeys.contains(selected.key())){canonical=published;break;}
+        Set<String> selectedKeys=FeedSession.keys(canonical);
+        Post readyNeighbor=context==null?null:CatalogLogic.neighbor(context.posts,selected,request.delta,post->!store.isHidden(post)&&Collections.disjoint(selectedKeys,FeedSession.keys(post)));
+        if(readyNeighbor!=null){prepareNavigation(request,readyNeighbor);return;}
         if(source!=null&&context.syncedRevision!=source.revision){
             int revision=source.revision;List<Post> first=new ArrayList<>(context.posts),second=new ArrayList<>(source.posts);int protectedCount=context.followingReached;
             grouping.execute(()->{List<Post> grouped=CatalogLogic.merge(first,second);List<Post> sequence=following(source)?FollowingOrder.gallery(first,grouped,second,protectedCount):grouped;int reached=following(source)?FollowingOrder.protectedCount(first,sequence,protectedCount):protectedCount;main.post(()->{
@@ -1342,7 +1351,7 @@ public final class MainActivity extends Activity {
         Runnable previous=()->navigate(-1,()->turnFullscreen(image,frame,-1),dialog::isShowing);Runnable next=()->navigate(1,()->turnFullscreen(image,frame,1),dialog::isShowing);image.onPrevious=previous;image.onNext=next;
         TextView likedFeedback=likeFeedback(frame);likedFeedback.setTag("dart-viewer-like-feedback");
         MediaController mediaControls=new MediaController(this);mediaControls.setAnchorView(viewerVideo);viewerVideo.setMediaController(mediaControls);
-        GestureDetector videoGestures=new GestureDetector(this,new GestureDetector.SimpleOnGestureListener(){public boolean onDown(MotionEvent e){return true;}public boolean onSingleTapConfirmed(MotionEvent e){if(viewerVideo.failedVideo())image.performClick();else mediaControls.show();return true;}public boolean onDoubleTap(MotionEvent e){if(activePost!=null)likeArtwork(activePost,null,likedFeedback);return true;}public boolean onFling(MotionEvent first,MotionEvent last,float vx,float vy){if(first==null||Math.abs(last.getX()-first.getX())<dp(60)||Math.abs(last.getX()-first.getX())<Math.abs(last.getY()-first.getY())*1.3)return false;if(last.getX()>first.getX())next.run();else previous.run();return true;}});
+        GestureDetector videoGestures=new GestureDetector(this,new GestureDetector.SimpleOnGestureListener(){public boolean onDown(MotionEvent e){return true;}public boolean onSingleTapConfirmed(MotionEvent e){if(viewerVideo.failedVideo())image.performClick();else mediaControls.show();return true;}public boolean onDoubleTap(MotionEvent e){if(activePost!=null)likeArtwork(activePost,null,likedFeedback);return true;}public boolean onFling(MotionEvent first,MotionEvent last,float vx,float vy){if(first==null||Math.abs(last.getX()-first.getX())<dp(60)||Math.abs(last.getX()-first.getX())<Math.abs(last.getY()-first.getY())*1.3)return false;if(last.getX()<first.getX())next.run();else previous.run();return true;}});
         viewerVideo.setOnTouchListener((v,event)->videoGestures.onTouchEvent(event));image.onDoubleTapLike=()->{if(activePost!=null)likeArtwork(activePost,null,likedFeedback);};
         image.setOnClickListener(null);
         LinearLayout bar=row();bar.setTag("dart-viewer-controls");bar.setPadding(dp(8),dp(16),dp(8),0);bar.addView(artIconButton("back","Закрыть просмотр",dialog::dismiss),new LinearLayout.LayoutParams(dp(48),dp(48)));bar.addView(new Space(this),new LinearLayout.LayoutParams(0,1,1));bar.addView(artIconButton("download","Скачать оригинал",()->download(activePost)),new LinearLayout.LayoutParams(dp(48),dp(48)));frame.addView(bar,new FrameLayout.LayoutParams(-1,dp(72),Gravity.TOP));
@@ -1356,10 +1365,10 @@ public final class MainActivity extends Activity {
         Post p=activePost;int index=activeMediaIndex;if(p==null){finishNavigation(navigating);return;}
         ImageView previous=new ImageView(this);previous.setScaleType(image.getScaleType());previous.setImageDrawable(image.getDrawable());previous.setImageMatrix(image.getImageMatrix());outgoingMedia=previous;parent.addView(previous,1,new FrameLayout.LayoutParams(-1,-1));
         Post media=mediaPost(p,index);ArtworkVideoView video=parent.findViewWithTag("dart-viewer-video");if(video!=null)video.stopSession();
+        image.setContentDescription(tr("Иллюстрация #"+p.id+" · изображение "+(index+1)+" из "+p.media.size()+". Свайп листает работы, двойное нажатие ставит лайк, два пальца масштабируют."));
         if(media.isVideo()&&video!=null){startFullscreenVideo(image,parent,p,index,false,false);parent.removeView(previous);previous.setImageDrawable(null);outgoingMedia=null;return;}
         if(video!=null)video.setVisibility(View.GONE);image.setVisibility(View.VISIBLE);
         {image.setScaleType(ImageView.ScaleType.MATRIX);image.setOnClickListener(null);String url=index==0?(p.original.isBlank()?p.image:p.original):p.media.get(index);images.bindProgressive(image,index==0?p.preview:"",url,2400,0,()->image.post(image::fitSameMedia));image.fit();}
-        image.setContentDescription(tr("Иллюстрация #"+p.id+" · изображение "+(index+1)+" из "+p.media.size()+". Свайп листает работы, двойное нажатие ставит лайк, два пальца масштабируют."));
         animateTurn(previous,image,direction,()->{parent.removeView(previous);previous.setImageDrawable(null);outgoingMedia=null;});
     }
     private void startFullscreenVideo(ZoomImageView image,FrameLayout frame,Post owner,int index,boolean forceRenew,boolean renewed){
@@ -1384,7 +1393,7 @@ public final class MainActivity extends Activity {
         int index=owner==p?0:VideoPlaybackState.selectedIndex(owner.media,p.image,activeMediaIndex);activeMediaIndex=index;fullscreenMediaReady(owner,index);
     }
     private TextView likeFeedback(FrameLayout parent){TextView heart=text("♥",76,Color.WHITE);heart.setGravity(Gravity.CENTER);heart.setAlpha(0);heart.setVisibility(View.GONE);heart.setShadowLayer(dp(12),0,dp(3),Color.argb(150,0,0,0));parent.addView(heart,new FrameLayout.LayoutParams(dp(130),dp(130),Gravity.CENTER));return heart;}
-    private void likeArtwork(Post post,TextView action,TextView feedback){boolean added=store.like(post);if(added)likesChanged();if(action!=null)action.setText(tr("♥ Нравится"));if(activePost!=null&&activePost.key().equals(post.key())&&activeLikeButton!=null)activeLikeButton.setText(tr("♥ Нравится"));feedback.animate().cancel();feedback.setVisibility(View.VISIBLE);feedback.setAlpha(0);feedback.setScaleX(.65f);feedback.setScaleY(.65f);feedback.animate().alpha(1).scaleX(1.15f).scaleY(1.15f).setDuration(170).withEndAction(()->feedback.animate().alpha(0).scaleX(1f).scaleY(1f).setDuration(260).setStartDelay(570).withEndAction(()->feedback.setVisibility(View.GONE)).start()).start();}
+    private void likeArtwork(Post post,TextView action,TextView feedback){boolean added=store.like(post);if(added)likesChanged();if(action!=null)action.setText(tr("♥ Нравится"));if(activePost!=null&&activePost.key().equals(post.key())&&activeLikeButton!=null)activeLikeButton.setText(tr("♥ Нравится"));feedback.animate().cancel();feedback.setVisibility(View.VISIBLE);feedback.setAlpha(0);feedback.setScaleX(.65f);feedback.setScaleY(.65f);feedback.animate().setStartDelay(0).alpha(1).scaleX(1.15f).scaleY(1.15f).setDuration(170).withEndAction(()->feedback.animate().alpha(0).scaleX(1f).scaleY(1f).setDuration(260).setStartDelay(570).withEndAction(()->feedback.setVisibility(View.GONE)).start()).start();}
     private void likesChanged(){refreshCards();}
     private void refreshCards(){if(currentView!=null)updateCardHearts(currentView);}
     private boolean following(Screen screen){return screen!=null&&screen.tab==2&&screen.followingMode;}

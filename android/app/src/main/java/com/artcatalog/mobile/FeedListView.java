@@ -56,7 +56,7 @@ final class FeedListView extends RecyclerView {
         int action=event.getActionMasked();
         if(action==MotionEvent.ACTION_UP){float dx=event.getX()-swipeDownX,dy=event.getY()-swipeDownY;
             long elapsed=Math.max(1,event.getEventTime()-swipeDownTime);float density=getResources().getDisplayMetrics().density;
-            if(!multiTouch&&Math.abs(dx)>Math.abs(dy)*1.15f&&(Math.abs(dx)>56*density||Math.abs(dx)>28*density&&Math.abs(dx)*1000/elapsed>550*density))horizontalSwipe.accept(dx>0?1:-1);
+            if(!multiTouch&&Math.abs(dx)>Math.abs(dy)*1.15f&&(Math.abs(dx)>56*density||Math.abs(dx)>28*density&&Math.abs(dx)*1000/elapsed>550*density))horizontalSwipe.accept(dx<0?1:-1);
             swiping=false;return true;}
         if(action==MotionEvent.ACTION_CANCEL){swiping=false;return true;}return true;
     }
