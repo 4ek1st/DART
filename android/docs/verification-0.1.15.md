@@ -1,0 +1,11 @@
+# Android 0.1.15 candidate verification
+
+Scope: artwork action order and removal of the redundant Original publication row. No profile schema, provider, recommendation, updater permission, package or signing-identity change is included. This is a local candidate; the public Android feed remains 0.1.14 while its reported Play Protect classification is investigated.
+
+The action order is Like, Bookmark, Download original, Open source. The like/bookmark handlers retain their existing persistence behavior, and inner padding is reduced for compact screens. Artist/uploader attribution is retained. Original publication metadata is preserved; the existing Original link attribution preference now applies to the source action instead of adding a separate row. The preference description is updated in English, Russian and German, preserving previous translation aliases.
+
+The complete Android JVM suite passes 278 tests with zero failures or errors. Release lint has zero errors and 33 existing warnings. No tests that merely mirror the reordered view additions were added.
+
+Native verification uses the owned hidden ArtCatalogQA emulator, API35, in a fresh temporary Android user. The normal emulator, physical phone and personal profile are not used. Baseline and candidate UI trees confirm the changed order. Actual Like and Bookmark taps update their labels and persist the selected neutral artwork. A neutral file is imported through the real document picker and explicit consent dialog to give a saved artwork a real originalUrl field. The row is absent under both Creator and Original link preferences while that URL remains stored. With Original link selected, tapping the real Open source action emits an ACTION_VIEW intent with the expected neutral original-publication URL. Compact 320dp width with 130% font is visually checked; the affected buttons fit without overlap.
+
+Play Protect status is unresolved. The reported 0.1.14 APK matches the release hash and certificate, but those checks do not establish malware safety. See play-protect-appeal-0.1.14.md for exact package/hash/permission facts, the prepared English review request, and limitations. No Google appeal, external APK scan submission, new public APK release or update-feed change is made as part of this candidate.

@@ -3800,6 +3800,11 @@
     "Künstler, Originalveröffentlichung und Uploader werden beim Werk getrennt angezeigt. Wähle hier die vorrangige Angabe."
   ],
   [
+    "Choose the primary attribution. With Original link, the source button opens the original publication.",
+    "Выберите основную подпись. В режиме «Исходная ссылка» кнопка источника открывает исходную публикацию.",
+    "Wähle die vorrangige Urheberangabe. Bei „Originallink“ öffnet die Quellen-Schaltfläche die Originalveröffentlichung."
+  ],
+  [
     "Following uses the artist's tag. The original link opens the publication; the uploader may be a different person.",
     "Подписка создаётся на тег художника. Исходная ссылка открывает публикацию; загрузчик может быть другим человеком.",
     "Du folgst dem Künstler-Tag. Der Originallink öffnet die Veröffentlichung; der Uploader kann eine andere Person sein."
