@@ -266,7 +266,8 @@
   function show(item, url) { const entry = stateFor(item,url); if (entry?.resultUrl) { entry.hidden = false; applyVisible(); } }
   function download(item, url) {
     const result = resultFor(item,url); if (!result) return;
-    const link = root.document.createElement('a'); link.href = result.url + '?download=1'; link.download = 'DART-' + result.scale + 'x.png';
+    const filename = ('DART-' + item.source + '-' + item.id).replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,90) + '-' + result.scale + 'x.png';
+    const link = root.document.createElement('a'); link.href = result.url + '?download=1&filename=' + encodeURIComponent(filename); link.download = filename;
     root.document.body.append(link); link.click(); link.remove();
   }
   function removeOverlay(key) {

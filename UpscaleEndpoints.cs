@@ -60,8 +60,11 @@ internal static class UpscaleEndpoints
         {
             context.Response.Headers.CacheControl = "no-store";
             context.Response.Headers.XContentTypeOptions = "nosniff";
+            var filename = context.Request.Query["filename"].ToString();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(filename, @"\ADART-[A-Za-z0-9_-]{1,100}-[24]x\.png\z"))
+                filename = "DART-upscale-" + jobs.Get(id)?.Scale + "x.png";
             return jobs.OpenResult(id) is { } stream ? Results.File(stream, "image/png",
-                context.Request.Query["download"] == "1" ? "DART-upscale-" + jobs.Get(id)!.Scale + "x.png" : null,
+                context.Request.Query["download"] == "1" ? filename : null,
                 enableRangeProcessing: true) : Error("not-found", 404);
         });
     }

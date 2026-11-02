@@ -98,7 +98,8 @@ async function api(route, options = {}) {
       const downloadPromise = page.waitForEvent('download');
       await page.locator('[data-context-action="artwork-upscale-download"]').click();
       const download = await downloadPromise;
-      assert.equal(await download.failure(), null); assert.match(download.suggestedFilename(), /\.png$/i);
+      assert.equal(await download.failure(), null);
+      assert.equal(download.suggestedFilename(), `DART-${fixture.source}-${fixture.id}-${scale}x.png`);
       const bytes = fs.readFileSync(await download.path()); assert.deepEqual(pngSize(bytes), dimensions);
       await page.locator('[data-action="artwork-more"]').first().click();
       await page.locator('[data-context-action="artwork-upscale-restore"]').click();
