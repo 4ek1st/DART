@@ -4415,6 +4415,9 @@ function expireRetainedFeedWorks(tab) {
 }
 
 function curateFeedWorks(works, tab, gridKey = '') {
+  // Following already stages New/publication order and stable card positions.
+  // Quality scores must not turn that shared grid/viewer feed into a ranking.
+  if (tab?.kind === 'follows') return works;
   // A saved collection is ordered by the user's actions. Quality/popularity
   // ranking belongs to discovery feeds, including when opening their galleries.
   if (['likes', 'bookmarks', 'recent'].includes(tab?.kind)) return works;
@@ -4833,8 +4836,8 @@ function renderCurationSettings() {
       ['resolution', 'Original resolution', 'Uses original dimensions when available. Thumbnails, sketches, line art and pixel art are not penalized.']
     ].map(([key, title, hint]) => `<label class="settings-toggle"><input type="checkbox" name="curation-${key}" ${preferences[key] ? 'checked' : ''}><span><strong>${title}</strong><small>${hint}</small></span></label>`).join('')}
     </fieldset><p class="settings-hint">Ranks available results without extra image downloads. Works with missing data remain eligible.</p>
-    <p class="settings-hint">Works in the catalog, search, recommendations, related works, Following, artist profiles, Liked, Bookmarks and history.</p>
-    <p class="settings-hint">New works stay first in Following. New and Popular choose the source ordering; curation refines the available results.</p></div>`;
+    <p class="settings-hint">Works in the catalog, search, recommendations, related works, artist profiles, Liked, Bookmarks and history.</p>
+    <p class="settings-hint">Following keeps New first and its publication order. Curation does not reorder that feed.</p></div>`;
 }
 
 function profileTransferController() {

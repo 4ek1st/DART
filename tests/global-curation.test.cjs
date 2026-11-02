@@ -21,8 +21,7 @@ function feedFixture() {
 }
 
 test('one curation preference applies to discovery lists and both catalog sorts', () => {
-  for (const [kind, gridKey] of [['home', ''], ['search', 'search'], ['profile', 'profile'],
-    ['follows', 'follows']]) {
+  for (const [kind, gridKey] of [['home', ''], ['search', 'search'], ['profile', 'profile']]) {
     for (const sort of ['recent', 'popular']) {
       const context = feedFixture(), items = [work(1, 0), work(2, 30)];
       const tab = { kind, sort, rating: 'general', items };
@@ -41,11 +40,15 @@ test('liked, bookmarked and recently viewed lists retain their saved chronology 
   }
 });
 
-test('following keeps New first and ranks within the new and older groups', () => {
-  const context = feedFixture(), items = [work(1, 0), work(2, 10), work(3, 100)];
+test('Following keeps the existing chronological order within New and older groups', () => {
+  const context = feedFixture(), items = [
+    { ...work(1, 0), published: '2026-11-02T12:00:00Z' },
+    { ...work(2, 10), published: '2026-11-01T12:00:00Z' },
+    { ...work(3, 100), published: '2026-08-31T12:00:00Z' }
+  ];
   const tab = { kind: 'follows', rating: 'general', newKeys: new Set(['danbooru:1', 'danbooru:2']) };
   assert.deepEqual(keys(context.filterFeedWorks(items, tab, false, 'follows')),
-    ['danbooru:2', 'danbooru:1', 'danbooru:3']);
+    ['danbooru:1', 'danbooru:2', 'danbooru:3']);
 });
 
 test('global curation preserves existing feed positions when a better next page arrives', () => {
