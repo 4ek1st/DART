@@ -5,25 +5,43 @@
     'sex', 'female', 'male', 'original', 'original_character', 'highres', 'absurdres', 'artist_name',
     'signature', 'watermark', 'commentary_request', 'translation_request', 'looking_at_viewer']);
   const canonical = value => String(value || '').normalize('NFKC').trim().toLowerCase().replace(/\s+/g, '_');
+  function systemSuggestions(liked = [], preferences = {}, logic = root.CatalogLogic) {
+    if (!logic?.recommendationQueryGroups) return [];
+    const groups = logic.recommendationTagGroups(liked, 1, preferences);
+    const names = new Set(groups.names.map(entry => canonical(entry.query || entry.tag)));
+    const selected = logic.recommendationQueryGroups(liked, preferences);
+    const result = new Map();
+    for (const entry of [...selected.priority, ...selected.names, ...selected.copyright, ...selected.other]) {
+      const tag = canonical(entry.query || entry.tag);
+      if (!result.has(tag)) result.set(tag, { tag, kind: names.has(tag) ? 'character' : 'tag',
+        likedCount: entry.count, priority: preferences[entry.tag] === 'priority' });
+    }
+    return [...result.values()];
+  }
   function normalize(value) {
     const tag = String(value || '').normalize('NFKC').trim().toLowerCase();
     return tag.length > 0 && tag.length <= 100 && !/\s|[\x00-\x1f\x7f]/.test(tag) &&
       !tag.startsWith('-') && !/^(order|sort|rating|source|id|date|score|user|fav):/.test(tag) ? tag : '';
   }
   function ratingMatches(work, rating) {
+    if (root.CatalogLogic?.matchesRating) return root.CatalogLogic.matchesRating(work, rating || 'all');
     return !rating || rating === 'all' || (rating === 'general' ? ordinary.has(work.rating) : !ordinary.has(work.rating));
   }
-  function collections({ summary = {}, tags = [], recent = [], known = [], type = 'character', origin = 'mine',
-    rating = 'all', allowed = () => true } = {}) {
+  function collections({ summary = {}, tags = [], recent = [], known = [], liked = [], suggestions = null,
+    preferences = {}, type = 'character', origin = 'mine', rating = 'all', allowed = () => true } = {}) {
+    suggestions ||= systemSuggestions(liked, preferences);
     const characters = new Set();
     for (const work of [...known, ...recent]) for (const tag of work?.characterTags || []) characters.add(canonical(tag));
     const entries = new Map((summary.entries || []).map(entry => [canonical(entry.tag), entry]));
     for (const entry of entries.values()) if (entry.kind === 'character') characters.add(canonical(entry.tag));
     const manual = new Set(tags.map(canonical));
     const covers = new Map((summary.works || []).map(work => [work.key, work]));
+    const rich = new Map();
+    for (const work of [...recent, ...known, ...liked]) for (const key of [work?.key, ...(work?.memberKeys || [])])
+      if (key && !rich.has(key)) rich.set(key, work);
+    const suggested = new Map(suggestions.map(entry => [canonical(entry.tag), entry]));
     const kindFor = tag => summary.kinds?.[tag] || (characters.has(tag) ? 'character' : 'tag');
-    const selected = origin === 'system' ? [...entries.keys()].filter(tag => entries.get(tag).kind === type &&
-      entries.get(tag).count >= 3 && (type === 'character' || !generic.has(tag))) : [...manual].filter(tag => kindFor(tag) === type);
+    const selected = origin === 'system' ? [...suggested.keys()].filter(tag => suggested.get(tag).kind === type) : [...manual].filter(tag => kindFor(tag) === type);
     const recentByTag = new Map();
     for (const work of recent) for (const value of [...(work.characterTags || []), ...(work.allTags || []), ...(work.tags || [])]) {
       const tag = canonical(value); if (!recentByTag.has(tag)) recentByTag.set(tag, work);
@@ -31,19 +49,24 @@
     return selected.map(tag => {
       const entry = entries.get(tag);
       // A filtered latest cover stays blank; using an older cover would mislabel it as the latest view.
-      const candidate = entry ? covers.get(entry.lastWorkKey) : recentByTag.get(tag);
+      let candidate = entry ? covers.get(entry.lastWorkKey) : recentByTag.get(tag);
+      let coverOrigin = entry ? 'viewed' : 'recent';
+      if (!candidate) { candidate = liked.find(work => [...(work.characterTags || []), ...(work.copyrightTags || []), ...(work.tags || []), ...(work.allTags || [])].some(value => canonical(value) === tag)); coverOrigin = 'liked'; }
+      if (candidate && rich.has(candidate.key)) candidate = { ...candidate, ...rich.get(candidate.key) };
       const cover = candidate && candidate.filteringComplete !== false && candidate.thumbnail && ratingMatches(candidate, rating) && allowed(candidate) ? candidate : null;
-      return { tag, kind: origin === 'system' ? entry.kind : kindFor(tag), favorite: manual.has(tag), cover,
+      return { tag, kind: origin === 'system' ? suggested.get(tag).kind : kindFor(tag), favorite: manual.has(tag), cover, coverOrigin,
+        likedCount: suggested.get(tag)?.likedCount ?? null, priority: suggested.get(tag)?.priority || false,
         count: entry?.count ?? null, activeDays: entry?.activeDays || 0, lastViewedAt: entry?.lastViewedAt || null,
         share: entry && summary.totalWorks ? Math.min(100, Math.round(entry.count / summary.totalWorks * 100)) : null };
-    }).sort((a, b) => (b.count || 0) - (a.count || 0) ||
+    }).sort((a, b) => (origin === 'system' ? Number(b.priority)-Number(a.priority) || (b.likedCount||0)-(a.likedCount||0) : 0) || (b.count || 0) - (a.count || 0) ||
       String(b.lastViewedAt || '').localeCompare(String(a.lastViewedAt || '')) || a.tag.localeCompare(b.tag));
   }
   function slim(item) {
     if (!item?.key || !item.source || !item.id) return null;
     const result = {};
     for (const key of ['key', 'source', 'id', 'title', 'thumbnail', 'rating', 'contentHash', 'groupKey', 'pixivGroupKey',
-      'originalUrl', 'creatorTag', 'creatorName', 'uploaderId', 'uploaderName', 'artistId', 'artist']) if (typeof item[key] === 'string') result[key] = item[key].slice(0, key === 'title' ? 200 : 2000);
+      'originalUrl', 'creatorTag', 'creatorName', 'uploaderId', 'uploaderName', 'artistId', 'artist', 'published']) if (typeof item[key] === 'string') result[key] = item[key].slice(0, key === 'title' ? 200 : 2000);
+    for(const key of ['width','height','groupingVersion'])if(Number.isInteger(item[key]))result[key]=item[key];
     result.filteringComplete = true;
     for (const key of ['tags', 'allTags', 'characterTags', 'copyrightTags'])
       {
@@ -52,9 +75,9 @@
       }
     result.memberKeys = (item.memberKeys || []).slice(0, 128);
     result.participants = (item.participants || []).slice(0, 16).map(({ tag, name, role }) => ({ tag, name, role }));
-    result.images = (item.images || []).slice(0, 1);
-    result.imageRecords = (item.imageRecords || []).filter(record => /^[a-f0-9]{32}$/i.test(record?.hash || '')).slice(0, 32)
-      .map(record => ({ hash: record.hash }));
+    result.images = [...new Set((item.images || []).filter(value=>typeof value==='string'&&value.length<=2000))].slice(0,100);
+    result.imageRecords = (item.imageRecords || []).filter(record => record && (record.url || /^[a-f0-9]{32}$/i.test(record.hash || ''))).slice(0,100)
+      .map(record => ({ url: String(record.url||'').slice(0,2000), hash: /^[a-f0-9]{32}$/i.test(record.hash||'')?record.hash:'',owner:String(record.owner||'').slice(0,200) }));
     result.groupMembers = (item.groupMembers || []).slice(0, 32).map(member => {
       const value = {};
       for (const key of ['key', 'source', 'id', 'creatorTag', 'creatorName', 'uploaderId', 'uploaderName', 'artistId', 'artist'])
@@ -70,6 +93,8 @@
     for (const field of ['allTags', 'tags', 'copyrightTags', 'characterTags'])
       while (result[field].length && size() > 30000) { result[field].pop(); result.filteringComplete = false; }
     while (result.groupMembers.length && size() > 30000) { result.groupMembers.pop(); result.filteringComplete = false; }
+    while(result.imageRecords.length&&size()>30000)result.imageRecords.pop();
+    while(result.images.length>1&&size()>30000)result.images.pop();
     return result;
   }
   const escape = text => String(text ?? '').replace(/[&<>"']/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[value]));
@@ -96,7 +121,7 @@
       if (artworkLoading) return artworkLoading;
       const version = artworkRevision;
       artworkLoading = request('/api/favorite-artworks').then(items => {
-        if (version === artworkRevision) artworks = items;
+        if (version === artworkRevision && !pendingArtworks.size) artworks = items;
         artworkLoaded = true; changed(); return true;
       }).catch(() => false).finally(() => { artworkLoading = null; });
       return artworkLoading;
@@ -123,24 +148,19 @@
           const restore = previous.filter(saved => workTokens(saved).some(token => currentTokens.has(token)));
           artworks = [...artworks, ...restore];
           toast('Could not save Favorite. Please try again.'); return false;
-        } finally { pendingArtworks.delete(item.key); changed(); }
+        } finally { pendingArtworks.delete(item.key); artworkRevision++; changed(); }
       });
       artworkSaving = result.catch(() => {}); return result;
-    }
-    function artworkButton(item, extra = '') {
-      const favorite = isArtworkFavorite(item), label = t(favorite ? 'Remove favorite artwork' : 'Save favorite artwork');
-      return `<button type="button" class="favorite-artwork-button ${extra}" data-action="favorite-artwork" data-key="${escape(item.key)}"
-        aria-label="${label}" title="${label}" aria-pressed="${favorite}"${pendingArtworks.has(item.key) ? ' disabled' : ''}>${svg('star') || '☆'}</button>`;
     }
     async function load(tab, force = false) {
       if (tab.favoriteLoading) return;
       if (!force && tab.favoriteRevision === revision && tab.favoriteLoadedAt > Date.now() - 15000) return;
       tab.favoriteLoading = true; tab.favoriteError = ''; changed();
       try {
-        const rating = tab.rating || 'all', version = revision, choicesVersion = manualRevision;
+        const rating = deps.effectiveRating?.(tab) || tab.rating || 'all', version = revision, choicesVersion = manualRevision;
         const [summary, tags, worksReady] = await Promise.all([request(`/api/favorites?rating=${rating}`, { priority: 'background' }), request('/api/favorite-tags'), loadArtworks()]);
         if (!worksReady) throw new Error('Favorite artworks unavailable');
-        if ((tab.rating || 'all') !== rating) { tab.favoriteLoading = false; return load(tab, true); }
+        if ((deps.effectiveRating?.(tab) || tab.rating || 'all') !== rating) { tab.favoriteLoading = false; return load(tab, true); }
         tab.favoriteSummary = summary;
         const merged = new Set(tags);
         for (const [tag, favorite] of optimistic) favorite ? merged.add(tag) : merged.delete(tag);
@@ -254,58 +274,56 @@
     }
     function cards(tab) {
       const summary = { ...(tab.favoriteSummary || {}), kinds: { ...tab.favoriteSummary?.kinds, ...lastKinds } };
-      const key = [tab, summary.entries, getTags(), getRecent(), getKnown(), tab.favoriteType, tab.favoriteOrigin, tab.rating, revision, deps.getPreferences?.()];
+      const liked = deps.getLiked?.() || [], preferences = deps.getTagPreferences?.() || {};
+      const rating = deps.effectiveRating?.(tab) || tab.rating;
+      const key = [tab, summary.entries, getTags(), getRecent(), getKnown(), liked, JSON.stringify(preferences), tab.favoriteType, tab.favoriteOrigin, rating, revision, deps.getPreferences?.(), deps.visibilityRevision?.()];
       const old = cache.get(tab);
       if (old && key.every((value, i) => old.key[i] === value)) return old.cards;
-      const values = collections({ summary, tags: getTags(), recent: getRecent(), known: getKnown(),
-        type: tab.favoriteType || 'character', origin: tab.favoriteOrigin || 'mine', rating: tab.rating, allowed });
+      const eligibleLikes = rating === 'all' ? liked : liked.filter(item => ratingMatches(item, rating));
+      const values = collections({ summary, tags: getTags(), recent: getRecent(), known: getKnown(), liked: eligibleLikes, preferences,
+        type: tab.favoriteType || 'character', origin: tab.favoriteOrigin || 'mine', rating, allowed });
       cache.set(tab, { key, cards: values }); return values;
     }
     const button = (action, label, attrs = '') => `<button type="button" data-action="favorites-${action}" ${attrs}>${label}</button>`;
     function render(tab) {
       const type = tab.favoriteType || 'character', origin = tab.favoriteOrigin || 'mine';
-      if (type === 'artwork') {
-        tab.items = artworks.filter(item => ratingMatches(item, tab.rating) && allowed(item));
-        return `<section class="content favorites-page"><header class="favorites-heading"><div><h1>Favorites</h1><p>Favorite characters, tags and artworks</p></div></header>
-          <div class="favorites-toolbar"><div class="favorites-switch" aria-label="${t('Favorite category')}">
-          ${['character', 'tag', 'artwork'].map((value, i) => button('type', t(['Characters', 'Tags', 'Artworks'][i]), `data-value="${value}" aria-pressed="${value === type}"`)).join('')}</div>
-          <div class="favorites-rating" aria-label="${t('Rating')}">${['general', 'explicit', 'all'].map((rating, i) => button('rating', ['SFW', 'NSFW', t('All images')][i],
-          `data-value="${rating}" aria-pressed="${tab.rating === rating}"`)).join('')}</div></div>
-          <div class="favorites-caption"><p>Saved artworks. Use the star on an artwork to add or remove it.</p>${button('refresh', t('Refresh'), tab.favoriteLoading ? 'disabled' : '')}</div>
-          ${tab.favoriteError ? `<div class="favorites-message" role="alert"><p>${t(tab.favoriteError)}</p>${button('refresh', t('Try again'))}</div>` : ''}
-          ${!artworkLoaded && tab.favoriteLoading ? '<div class="favorites-message" role="status">Loading Favorites…</div>' : ''}
-          ${tab.items.length ? deps.renderArtworks?.(tab.items) || '' : !tab.favoriteLoading ? '<div class="favorites-empty"><h2>No favorite artworks yet</h2><p>Save an artwork with the star in its viewer or right-click menu.</p></div>' : ''}</section>`;
-      }
-      const values = cards(tab), summary = tab.favoriteSummary;
-      const select = (group, value, label) => button(group, t(label), `data-value="${value}" aria-pressed="${(group === 'type' ? type : origin) === value}"`);
-      return `<section class="content favorites-page"><header class="favorites-heading"><div><h1>Favorites</h1><p>Favorite characters, tags and artworks</p></div>
-        ${button('add', `${svg('plus')}<span>${t('Add Favorite')}</span>`, `aria-expanded="${!!tab.favoriteAdding}"`)}</header>
-        <div class="favorites-toolbar"><div class="favorites-switch" aria-label="${t('Favorite category')}">
-        ${select('type', 'character', 'Characters')}${select('type', 'tag', 'Tags')}${select('type', 'artwork', 'Artworks')}</div>
-        <div class="favorites-switch" aria-label="${t('Collection')}">${select('origin', 'mine', 'Mine')}${select('origin', 'system', 'System picks')}</div>
-        <div class="favorites-rating" aria-label="${t('Rating')}">${['general', 'explicit', 'all'].map((rating, i) => button('rating', ['SFW', 'NSFW', t('All images')][i],
-          `data-value="${rating}" aria-pressed="${tab.rating === rating}"`)).join('')}</div></div>
-        ${tab.favoriteAdding ? `<form class="favorites-add-form"><label for="favorite-new-tag">${type === 'character' ? t('Character tag') : t('Content tag')}</label>
-          <div><input id="favorite-new-tag" name="tag" required maxlength="100" autocomplete="off" placeholder="${type === 'character' ? 'fern_(sousou_no_frieren)' : 'rain'}" value="${escape(tab.favoriteDraft || '')}" data-no-i18n>
-          <button type="submit">${t('Add Favorite')}</button>${button('cancel', t('Cancel'))}</div><small>Use one tag with underscores, as on the source website.</small></form>` : ''}
-        <div class="favorites-caption"><p>${origin === 'mine' ? t('Saved by you. System picks never change this collection.') : t('Based on at least 3 different works you opened. Save any pick with the star.')}</p>
-          ${button('refresh', t('Refresh'), tab.favoriteLoading ? 'disabled' : '')}</div>
-        <div class="favorites-stats" aria-live="polite">${summary ? `<strong>${summary.totalWorks}</strong> <span>different works · Last 30 days</span>` : '<span>Last 30 days</span>'}
-          <small>Viewing statistics are collected from this update onward.</small>${summary?.incomplete ? '<small>Some activity could not be counted. Figures are partial.</small>' : ''}</div>
-        ${tab.favoriteError ? `<div class="favorites-message" role="alert"><p>${t(tab.favoriteError)}</p>${button('refresh', t('Try again'))}</div>` : ''}
-        ${tab.favoriteLoading && !summary ? '<div class="favorites-message" role="status">Loading Favorites…</div>' : ''}
-        <div class="favorites-grid">${values.map(card => `<article class="favorite-card" data-favorite-card="${escape(card.tag)}">
-          <div class="favorite-cover">${button('cover', card.cover ? `<img data-image-url="${escape(card.cover.thumbnail)}" alt="" decoding="async" draggable="false">` : `<span class="favorite-no-cover">${svg(type === 'character' ? 'users' : 'tag')}<span>${t('No viewed preview yet')}</span></span>`,
-            `class="favorite-cover-open" data-tag="${escape(card.tag)}" ${card.cover ? `aria-label="${t('Open last viewed artwork')}: ${escape(card.tag)}"` : `disabled aria-label="${t('No viewed preview yet')}"`}`)}
-          ${button('star', svg('star') || '☆', `class="favorite-star" data-tag="${escape(card.tag)}" aria-label="${t(card.favorite ? 'Remove Favorite' : 'Save Favorite')}: ${escape(card.tag)}" aria-pressed="${card.favorite}" ${pending.has(card.tag) ? 'disabled' : ''}`)}
-          ${card.cover ? `<span class="favorite-last-view">${t(card.lastViewedAt ? 'Last viewed artwork' : 'Earlier browsing history')}</span>` : ''}</div>
-          ${button('search', `<span data-no-i18n>${type === 'character' ? '' : '#'}${escape(card.tag.replaceAll('_', ' '))}</span>${svg('external')}`, `class="favorite-name" data-tag="${escape(card.tag)}" title="${escape(card.tag)}"`)}
-          <div class="favorite-card-stats"><span>${card.count === null ? t('No dated views yet') : `<b>${card.count}</b> ${t('different works')}`}</span><b>${card.share === null ? '—' : `${card.share}%`}</b></div>
-          <div class="favorite-share" aria-hidden="true"><i style="width:${card.share || 0}%"></i></div></article>`).join('')}</div>
-        ${!values.length && !tab.favoriteLoading ? `<div class="favorites-empty">${svg('star')}<h2>${t(origin === 'mine' ? 'Your Favorites start here' : 'Keep exploring')}</h2>
-          <p>${t(origin === 'mine' ? 'Add a character or tag, or save a System pick with the star.' : 'Open different artworks to discover your most viewed characters and tags.')}</p>
-          ${origin === 'mine' ? button('add', t('Add Favorite')) : ''}</div>` : ''}
-        <p class="favorites-footnote">Counts are different artworks, not repeated opens. Copies from different sources count once.</p></section>`;
+      const rating = deps.effectiveRating?.(tab) || tab.rating;
+      const values = type === 'artwork' ? [] : cards(tab);
+      tab.items = type === 'artwork' ? artworks.filter(item => ratingMatches(item, rating) && allowed(item)) :
+        [...new Map(values.filter(card => card.cover).map(card => [card.cover.key, card.cover])).values()];
+      const choose = (action, value, label, active) => button(action,t(label),`class="filter-button${action==='rating'&&value==='explicit'?' adult-filter':''}${active ? ' active' : ''}" data-value="${value}" aria-pressed="${active}"`);
+      const entity = card => {
+        const title = card.tag.replaceAll('_',' ');
+        const preview = deps.renderEntityCard?.(card) || '';
+        const fallback = `<article class="card"><div class="card-art favorite-empty-preview"><span>${t('No viewed preview yet')}</span></div><button type="button" class="card-title" data-action="query" data-query="${escape(card.tag)}" data-context-tag="${escape(card.tag)}" data-no-i18n>${escape(title)}</button></article>`;
+        return `<div class="favorite-entity" data-render-key="favorite:${escape(card.tag)}">${preview || fallback}
+          <div class="favorite-entity-stats">${card.likedCount !== null ? `<span>${card.likedCount} ${t('liked artworks')}</span>` : ''}
+          <span>${card.count === null ? t('No dated views yet') : `${card.count} ${t('viewed artworks')}`}</span>
+          ${card.priority ? '<span class="favorite-priority">Priority</span>' : ''}</div>
+          ${card.cover ? `<small class="favorite-preview-origin">${t(card.coverOrigin === 'liked' ? 'From liked artworks' : card.coverOrigin === 'recent' ? 'Earlier browsing history' : 'Last viewed artwork')}</small>` : ''}</div>`;
+      };
+      const summary = tab.favoriteSummary;
+      return `<section class="content favorites-page"><div class="section-head"><h1>Favorites</h1>
+        ${type !== 'artwork' ? button('add',t('Add Favorite'),`class="filter-button" aria-expanded="${!!tab.favoriteAdding}"`) : ''}</div>
+        <p class="subtitle">Favorite characters, tags and artworks</p>
+        <div class="search-tools"><div class="source-filters" aria-label="${t('Favorite category')}">
+          ${['character','tag','artwork'].map((value,i)=>choose('type',value,['Characters','Tags','Artworks'][i],type===value)).join('')}</div>
+          ${type !== 'artwork' ? `<div class="source-filters" aria-label="${t('Collection')}">${choose('origin','mine','Mine',origin==='mine')}${choose('origin','system','System picks',origin==='system')}</div>` : ''}
+          <div class="source-filters" aria-label="${t('Rating')}">${['general','explicit','all'].map((value,i)=>choose('rating',value,['SFW','NSFW','All images'][i],tab.rating===value)).join('')}</div></div>
+        ${tab.favoriteAdding && type !== 'artwork' ? `<form class="favorites-add-form"><label for="favorite-new-tag">${t(type==='character'?'Character tag':'Content tag')}</label>
+          <div><input id="favorite-new-tag" name="tag" required maxlength="100" autocomplete="off" placeholder="${type==='character'?'fern_(sousou_no_frieren)':'rain'}" value="${escape(tab.favoriteDraft||'')}" data-no-i18n>
+          <button type="submit" class="primary-button">${t('Add Favorite')}</button>${button('cancel',t('Cancel'),'class="secondary-button"')}</div>
+          <small>Use one tag with underscores, as on the source website.</small></form>` : ''}
+        <div class="section-head favorites-description"><p>${t(type==='artwork' ? 'Saved artworks. Right-click an artwork to manage Favorites.' : origin==='mine' ?
+          'Saved by you. System picks never change this collection.' : 'Based on your likes and recommendation tag preferences.')}</p>${button('refresh',t('Refresh'),`class="link-button"${tab.favoriteLoading?' disabled':''}`)}</div>
+        ${type !== 'artwork' ? `<p class="favorites-history-note">${summary ? `${summary.totalWorks} ${t('different works · Last 30 days')}` : t('Last 30 days')}. <span>Viewing statistics are collected from this update onward.</span></p>` : ''}
+        ${summary?.incomplete && type!=='artwork' ? '<p class="settings-hint">Some activity could not be counted. Figures are partial.</p>' : ''}
+        ${tab.favoriteError ? `<div class="error" role="alert">${t(tab.favoriteError)} ${button('refresh',t('Try again'),'class="inline-retry"')}</div>` : ''}
+        ${tab.favoriteLoading && !summary ? '<div class="empty" role="status">Loading Favorites…</div>' : ''}
+        ${rating==='none' ? deps.emptyRating?.()||'<div class="empty">No NSFW ratings selected. Right-click NSFW to enable Q or NSFW.</div>' : type==='artwork' ? (tab.items.length ? deps.renderArtworks?.(tab.items)||'' : !tab.favoriteLoading ? artworks.length ? '<div class="empty">No favorite artworks match these filters.</div>' : '<div class="empty">No favorite artworks yet<br>Right-click an artwork or use its more menu to add it.</div>' : '') :
+          values.length ? `<div class="grid favorites-entity-grid">${values.map(entity).join('')}</div>` : !tab.favoriteLoading ?
+            `<div class="empty"><h2>${t(origin==='mine'?'Your Favorites start here':'Keep exploring')}</h2><p>${t(origin==='mine'?'Add a character or tag, or save a System pick from its menu.':'Like artworks or prioritize tags in Recommendations to discover your favorites.')}</p></div>` : ''}
+      </section>`;
     }
     function handle(control, tab) {
       if (!control?.dataset?.action?.startsWith('favorites-') || !tab) return false;
@@ -330,12 +348,12 @@
       }
       return false;
     }
-    return { load, render, handle, add, toggle, cards, invalidate: mark, loadArtworks, toggleArtwork, isArtworkFavorite, artworkButton, outboxSnapshot, restoreOutbox,
-      isArtworkPending: item => pendingArtworks.has(item?.key),
+    return { load, render, handle, add, toggle, cards, invalidate: mark, loadArtworks, toggleArtwork, isArtworkFavorite, outboxSnapshot, restoreOutbox,
+      artworks:()=>artworks, isArtworkPending: item => pendingArtworks.has(item?.key),
       record: item => enqueue(item, false), metadata: item => enqueue(item, true), flush,
       dispose() { disposed = true; if (timer !== null) unschedule(timer); timer = null; } };
   }
-  const api = { normalize, collections, slim, create };
+  const api = { normalize, collections, slim, create, systemSuggestions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.DartFavorites = api;
 })(globalThis);

@@ -54,6 +54,22 @@ internal static class FavoritesFixtureTests
             Expect(Snapshot(empty)["totalWorks"]!.GetValue<int>() == 0 &&
                 Snapshot(empty)["trackedSince"] is null, "A fresh profile must not invent previous viewing dates");
             var batched = Open(Path.Combine(root, "batched"));
+            var precise = Open(Path.Combine(root, "precise"));
+            var questionable = Work("sankaku", "q1"); questionable.Rating = "q";
+            var explicitWork = Work("gelbooru", "810"); explicitWork.Rating = "e";
+            Record(precise, Now, (questionable, false), (explicitWork, false));
+            Expect(Snapshot(precise,"questionable")["totalWorks"]!.GetValue<int>() == 1 &&
+                Snapshot(precise,"explicit-only")["totalWorks"]!.GetValue<int>() == 1 && Snapshot(precise,"none")["totalWorks"]!.GetValue<int>() == 0,
+                "Favorite statistics must follow precise Q/NSFW choices");
+            var galleryStore = Open(Path.Combine(root, "gallery"));
+            var gallery = Work("danbooru", "899"); gallery.Images = ["https://cdn.donmai.us/a.jpg", "https://cdn.donmai.us/b.jpg"];
+            gallery.Published = "2026-11-02"; gallery.MemberKeys = ["danbooru:899", "gelbooru:899"];
+            gallery.ImageRecords = gallery.Images.Select(url => new CatalogImageRecord { Url = url, Owner = gallery.Key, Hash = new string('b',32) }).ToList();
+            Record(galleryStore, Now, (gallery, false));
+            var galleryCover = Snapshot(galleryStore)["works"]![0]!;
+            Expect(galleryCover["images"]!.AsArray().Count == 2 && galleryCover["imageRecords"]![1]!["owner"]!.GetValue<string>() == gallery.Key &&
+                galleryCover["memberKeys"]!.AsArray().Count == 2 && galleryCover["published"]!.GetValue<string>() == gallery.Published,
+                "Shared Favorite covers must retain galleries, source identities and dates");
             Record(batched, Now, (Work("danbooru", "101"), false), (Work("danbooru", "102"), false));
             var projected = Snapshot(batched)["works"]!.AsArray().OfType<JsonObject>().First();
             Expect(projected["allTags"] is JsonArray evidence && evidence.Any(tag => tag?.GetValue<string>() == "fern") &&

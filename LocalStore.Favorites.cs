@@ -16,6 +16,15 @@ public sealed class FavoriteViewUpdate
 
 public sealed class FavoriteArtwork
 {
+    public string ContentHash { get; set; } = "";
+    public List<string> MemberKeys { get; set; } = [];
+    public string OriginalUrl { get; set; } = "";
+    public string GroupKey { get; set; } = "";
+    public string PixivGroupKey { get; set; } = "";
+    public string Published { get; set; } = "";
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public List<CatalogImageRecord> ImageRecords { get; set; } = [];
     public bool FilteringComplete { get; set; } = true;
     public string UploaderId { get; set; } = "";
     public string UploaderName { get; set; } = "";
@@ -119,6 +128,13 @@ internal sealed partial class LocalStore
             Work = new FavoriteArtwork
             {
                 Key = item.Key, Source = item.Source, Id = item.Id,
+                ContentHash = item.ContentHash ?? "", MemberKeys = (item.MemberKeys ?? []).Take(128).ToList(),
+                OriginalUrl = (item.OriginalUrl ?? "")[..Math.Min(item.OriginalUrl?.Length ?? 0,2000)],
+                GroupKey = item.GroupKey ?? "", PixivGroupKey = item.PixivGroupKey ?? "", Published = item.Published ?? "",
+                Width = item.Width, Height = item.Height,
+                ImageRecords = (item.ImageRecords ?? []).Take(100).Select(record=>new CatalogImageRecord {
+                    Url = FavoriteMedia(record.Url), Hash = Regex.IsMatch(record.Hash ?? "", "^[a-fA-F0-9]{32}$") ? record.Hash! : "",
+                    Owner = record.Owner is { Length: <= 200 } ? record.Owner : null }).ToList(),
                 FilteringComplete = update.FilteringComplete,
                 UploaderId = item.UploaderId ?? "", UploaderName = item.UploaderName ?? "",
                 ArtistId = item.ArtistId ?? "", Artist = item.Artist ?? "",
@@ -134,7 +150,7 @@ internal sealed partial class LocalStore
                 Participants = (item.Participants ?? []).Where(person => person?.Tag is { Length: > 0 and <= 100 })
                     .Take(16).Select(person => new CatalogParticipant { Tag = NormalizeFavoriteTag(person.Tag),
                         Name = (person.Name ?? "")[..Math.Min(person.Name?.Length ?? 0, 100)], Role = person.Role }).ToList(),
-                Images = (item.Images ?? []).Select(FavoriteMedia).Where(url => url.Length > 0).Take(1).ToList(),
+                Images = (item.Images ?? []).Select(FavoriteMedia).Where(url => url.Length > 0).Distinct().Take(100).ToList(),
                 Tags = tags, CharacterTags = characters, CopyrightTags = copyrights
             }
         };
@@ -234,7 +250,7 @@ internal sealed partial class LocalStore
 
     public FavoriteActivitySummary GetFavoriteActivity(string rating = "all", DateTimeOffset? now = null)
     {
-        if (rating is not ("general" or "explicit" or "all")) throw new ArgumentException("Invalid rating.");
+        if (rating is not ("general" or "explicit" or "all" or "questionable" or "explicit-only" or "none")) throw new ArgumentException("Invalid rating.");
         var at = now ?? DateTimeOffset.UtcNow;
         var cutoff = at.AddDays(-30);
         lock (sync)
@@ -310,7 +326,9 @@ internal sealed partial class LocalStore
         foreach (var group in groups)
         {
             var adult = group.Any(record => !new[] { "g", "general", "s", "sensitive", "safe", "sfw" }.Contains(record.Work.Rating, StringComparer.OrdinalIgnoreCase));
-            if (rating == "general" && adult || rating == "explicit" && !adult) continue;
+            var explicitRating = group.Any(record => !new[] { "g", "general", "s", "sensitive", "safe", "sfw", "q", "questionable" }.Contains(record.Work.Rating, StringComparer.OrdinalIgnoreCase));
+            if (rating == "none" || rating == "general" && adult || rating == "explicit" && !adult ||
+                rating == "questionable" && (!adult || explicitRating) || rating == "explicit-only" && !explicitRating) continue;
             var opens = group.Where(record => !record.MetadataOnly).ToArray();
             var latest = opens.Max(record => record.At);
             var lastSequence = opens.Where(record => record.At == latest).Max(record => sequence[record]);

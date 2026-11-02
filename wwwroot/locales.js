@@ -244,7 +244,7 @@ Restore|Восстановить|Wiederherstellen
 Window controls|Управление окном|Fenstersteuerung
 For you|Для вас|Für Sie
 Favorite tags|Избранные теги|Lieblings-Tags
-Favorite tags appear here. Search for one tag and click ☆ beside its name.|Избранные теги появятся здесь. Найдите один тег и нажмите ☆ рядом с его названием.|Lieblings-Tags erscheinen hier. Suchen Sie nach einem Tag und klicken Sie auf ☆ neben seinem Namen.
+Right-click a tag and save it to Favorites.|Нажмите правой кнопкой на тег и сохраните его в избранное.|Klicke mit der rechten Maustaste auf einen Tag und speichere ihn in den Favoriten.
 SFW|Обычные|SFW
 Normal mode|Обычный режим|Normaler Modus
 All images|Все изображения|Alle Bilder
@@ -580,9 +580,10 @@ Update settings changed. Check the release again.|Настройки обнов�
 Favorites|Избранное|Favoriten
 Artworks|Арты|Werke
 Favorite characters, tags and artworks|Любимые персонажи, теги и арты|Lieblingscharaktere, Tags und Werke
-Saved artworks. Use the star on an artwork to add or remove it.|Сохранённые арты. Звезда на работе добавляет или убирает её из избранного.|Gespeicherte Werke. Mit dem Stern kannst du ein Werk hinzufügen oder entfernen.
+Saved artworks. Right-click an artwork to manage Favorites.|Сохранённые арты. Управляйте избранным через правую кнопку мыши.|Gespeicherte Werke. Verwalte Favoriten per Rechtsklick auf ein Werk.
 No favorite artworks yet|Пока нет избранных артов|Noch keine Lieblingswerke
-Save an artwork with the star in its viewer or right-click menu.|Сохраните арт звездой в просмотре или через меню правой кнопки мыши.|Speichere ein Werk mit dem Stern im Betrachter oder im Rechtsklickmenü.
+No favorite artworks match these filters.|Нет избранных работ с такими фильтрами.|Keine Lieblingswerke passen zu diesen Filtern.
+Right-click an artwork or use its more menu to add it.|Нажмите правой кнопкой на арт или откройте его меню, чтобы добавить в избранное.|Füge ein Werk per Rechtsklick oder über sein Mehr-Menü hinzu.
 Save favorite artwork|Сохранить арт в избранное|Werk als Favorit speichern
 Remove favorite artwork|Убрать арт из избранного|Werk aus Favoriten entfernen
 Could not load favorite artworks. Please try again.|Не удалось загрузить избранные арты. Попробуйте ещё раз.|Lieblingswerke konnten nicht geladen werden. Versuche es erneut.
@@ -597,7 +598,7 @@ Character tag|Тег персонажа|Charakter-Tag
 Content tag|Тег содержания|Inhalts-Tag
 Use one tag with underscores, as on the source website.|Укажите один тег с подчёркиваниями, как на сайте источника.|Verwende einen Tag mit Unterstrichen wie auf der Quellwebsite.
 Saved by you. System picks never change this collection.|Выбрано вами. Система не меняет эту коллекцию.|Von dir gespeichert. Die Systemauswahl verändert diese Sammlung nicht.
-Based on at least 3 different works you opened. Save any pick with the star.|На основе минимум 3 разных открытых работ. Нажмите звезду, чтобы сохранить выбор.|Basierend auf mindestens 3 verschiedenen geöffneten Werken. Speichere einen Vorschlag mit dem Stern.
+Based on your likes and recommendation tag preferences.|На основе лайков и настроек тегов в рекомендациях.|Basierend auf deinen Likes und Tag-Vorlieben für Empfehlungen.
 different works · Last 30 days|разных работ · Последние 30 дней|verschiedene Werke · Letzte 30 Tage
 Last 30 days|Последние 30 дней|Letzte 30 Tage
 Viewing statistics are collected from this update onward.|Статистика просмотров собирается начиная с этого обновления.|Die Betrachtungsstatistik wird ab diesem Update erfasst.
@@ -616,9 +617,49 @@ No dated views yet|Пока нет просмотров с датой|Noch keine
 different works|разных работ|verschiedene Werke
 Your Favorites start here|Здесь будет ваше избранное|Hier beginnen deine Favoriten
 Keep exploring|Продолжайте смотреть|Entdecke weitere Werke
-Add a character or tag, or save a System pick with the star.|Добавьте персонажа или тег либо сохраните предложение системы звездой.|Füge einen Charakter oder Tag hinzu oder speichere einen Systemvorschlag mit dem Stern.
+Add a character or tag, or save a System pick from its menu.|Добавьте персонажа или тег либо сохраните предложение системы через меню.|Füge einen Charakter oder Tag hinzu oder speichere einen Systemvorschlag über sein Menü.
 Open different artworks to discover your most viewed characters and tags.|Открывайте разные работы, чтобы увидеть частых персонажей и теги.|Öffne verschiedene Werke, um deine meistbetrachteten Charaktere und Tags zu entdecken.
 Counts are different artworks, not repeated opens. Copies from different sources count once.|Считаются разные работы. Повторные открытия и копии из разных источников не увеличивают счётчик.|Gezählt werden verschiedene Werke. Wiederholte Aufrufe und Kopien aus verschiedenen Quellen erhöhen den Zähler nicht.
+liked artworks|понравившихся работ|gelikte Werke
+viewed artworks|просмотренных работ|betrachtete Werke
+From liked artworks|Из понравившихся работ|Aus gelikten Werken
+Priority|Приоритет|Priorität
+Like artworks or prioritize tags in Recommendations to discover your favorites.|Ставьте лайки или выбирайте приоритетные теги в рекомендациях, чтобы находить любимое.|Like Werke oder priorisiere Tags in Empfehlungen, um deine Favoriten zu entdecken.
+More artwork actions|Другие действия с работой|Weitere Werkaktionen
+Copy tag|Копировать тег|Tag kopieren
+Copy author tag|Копировать тег автора|Urheber-Tag kopieren
+Copy image|Копировать изображение|Bild kopieren
+Copy artwork link|Копировать ссылку на работу|Werklink kopieren
+Copy image link|Копировать ссылку на изображение|Bildlink kopieren
+Artwork link copied.|Ссылка на работу скопирована.|Werklink kopiert.
+Image link copied.|Ссылка на изображение скопирована.|Bildlink kopiert.
+Image copied.|Изображение скопировано.|Bild kopiert.
+Copied.|Скопировано.|Kopiert.
+Download image|Скачать изображение|Bild herunterladen
+Could not copy. Please try again.|Не удалось скопировать. Попробуйте ещё раз.|Kopieren fehlgeschlagen. Versuche es erneut.
+Could not download this artwork. Please try again.|Не удалось скачать работу. Попробуйте ещё раз.|Das Werk konnte nicht heruntergeladen werden. Versuche es erneut.
+Sign in to the source to access this image.|Войдите в аккаунт источника для доступа к изображению.|Melde dich bei der Quelle an, um dieses Bild zu öffnen.
+This image requires additional access on the source website.|Для изображения требуется дополнительный доступ на сайте источника.|Dieses Bild erfordert zusätzlichen Zugriff auf der Quellwebsite.
+Don’t show this artwork again|Больше не показывать эту работу|Dieses Werk nicht mehr anzeigen
+Show again|Снова показывать|Wieder anzeigen
+Hidden artworks|Скрытые работы|Ausgeblendete Werke
+Hidden works and their known copies are excluded from discovery. Restore a work here.|Скрытые работы и их известные копии исключены из лент. Здесь их можно вернуть.|Ausgeblendete Werke und ihre bekannten Kopien erscheinen nicht in den Feeds. Hier kannst du sie wieder einblenden.
+Hidden artworks could not be loaded.|Не удалось загрузить скрытые работы.|Ausgeblendete Werke konnten nicht geladen werden.
+No hidden artworks.|Нет скрытых работ.|Keine ausgeblendeten Werke.
+Could not change artwork visibility. Please try again.|Не удалось изменить видимость работы. Попробуйте ещё раз.|Die Sichtbarkeit konnte nicht geändert werden. Versuche es erneut.
+This artwork is hidden.|Эта работа скрыта.|Dieses Werk ist ausgeblendet.
+Show more|Показать ещё|Mehr anzeigen
+Drag one artwork onto another to group them. Right-click for group actions.|Перетащите арт на другой, чтобы собрать группу. Действия с группой — правой кнопкой мыши.|Ziehe ein Werk auf ein anderes, um sie zu gruppieren. Gruppenaktionen findest du per Rechtsklick.
+Group with another Favorite|Сгруппировать с другим избранным артом|Mit einem anderen Favoriten gruppieren
+Grouped artworks|Группа работ|Gruppierte Werke
+Ungroup artworks|Разобрать группу|Gruppierung aufheben
+Groups could not be loaded.|Не удалось загрузить группы.|Gruppen konnten nicht geladen werden.
+Saving group…|Сохраняем группу…|Gruppe wird gespeichert…
+Could not save the group. Your Favorites were kept.|Не удалось сохранить группу. Избранные работы сохранены.|Die Gruppe konnte nicht gespeichert werden. Deine Favoriten bleiben erhalten.
+The chosen artwork becomes the group cover. All works keep their own likes and bookmarks.|Выбранный арт станет обложкой группы. У каждой работы сохранятся свои лайки и закладки.|Das gewählte Werk wird zum Gruppen-Cover. Alle Werke behalten ihre eigenen Likes und Lesezeichen.
+Find a favorite artwork|Найти избранный арт|Lieblingswerk suchen
+Save another artwork to Favorites first.|Сначала добавьте ещё одну работу в избранное.|Speichere zuerst ein weiteres Werk in den Favoriten.
+No matching favorite artworks.|Подходящих избранных работ нет.|Keine passenden Lieblingswerke.
 `; 
   root.DartMessages = rows.trim().split('\n').map(row => row.split('|'));
   if (typeof module !== 'undefined') module.exports = root.DartMessages;

@@ -10,7 +10,7 @@ const snapshot = { totalWorks: 10, trackedSince: '2026-11-01T12:00:00Z', kinds: 
     { tag: 'solo', kind: 'tag', count: 9, lastWorkKey: 'danbooru:1' },
     { tag: 'one_off', kind: 'character', count: 2, lastWorkKey: 'danbooru:1' }], works: [work(1)] };
 function entries(type, origin, more = {}) { return F.collections({ summary: snapshot, tags: ['fern', 'cloud'], recent: [],
-  known: [], type, origin, rating: 'all', allowed: () => true, ...more }); }
+  known: [], suggestions: [{tag:'fern',kind:'character',likedCount:4},{tag:'rain',kind:'tag',likedCount:3}], type, origin, rating: 'all', allowed: () => true, ...more }); }
 test('type and origin independently select four collections', () => {
   assert.deepEqual(entries('character', 'mine').map(x => x.tag), ['fern']);
   assert.deepEqual(entries('tag', 'mine').map(x => x.tag), ['cloud']);
@@ -43,6 +43,12 @@ test('slim activity retains strong identities and filter metadata without copyin
   const slim = F.slim(input); assert.equal(slim.contentHash, input.contentHash);
   assert.deepEqual(slim.memberKeys, ['gelbooru:2']); assert.equal(slim.images.length, 1);
   assert.equal(slim.creatorTag, 'artist');
+});
+test('activity covers retain gallery URLs, ownership and date for shared catalog actions', () => {
+  const images=['https://cdn.donmai.us/a.jpg','https://cdn.donmai.us/b.jpg'];
+  const value=F.slim({...work(4),images,published:'2026-11-02',imageRecords:images.map(url=>({url,owner:'danbooru:4',hash:'a'.repeat(32)}))});
+  assert.deepEqual(value.images,images);assert.equal(value.imageRecords[1].url,images[1]);
+  assert.equal(value.imageRecords[1].owner,'danbooru:4');assert.equal(value.published,'2026-11-02');
 });
 function controller(request, overrides = {}) {
   let tags = ['cloud']; let renders = 0; const notices = [];
@@ -166,4 +172,27 @@ test('a durable outbox replays the original view time after a new controller sta
   next.c.restoreOutbox(saved); await next.c.flush();
   assert.equal(sent[0].eventId, saved[0].eventId); assert.equal(sent[0].viewedAt, saved[0].viewedAt);
   assert.deepEqual(next.c.outboxSnapshot(), []);
+});
+test('system picks reuse existing recommendation evidence and manual priorities before dated viewing starts',()=>{
+ const liked=Array.from({length:24},(_,i)=>({...work(i+1,i<10?'fern':'other'),creatorTag:'artist_'+i,
+   title:'Artwork #'+i,tags:[i<12?'rain':'forest',i<10?'fern':'other'],characterTags:[i<10?'fern':'other']}));
+ const prefs={rain:'disabled',sunset:'priority'};
+ const suggestions=F.systemSuggestions(liked,prefs,Logic);
+ assert.ok(suggestions.some(x=>x.tag==='fern'&&x.kind==='character'&&x.likedCount===10));
+ assert.ok(suggestions.some(x=>x.tag==='sunset'&&x.priority));assert.ok(!suggestions.some(x=>x.tag==='rain'));
+ const cards=F.collections({summary:{},tags:[],liked,suggestions,type:'character',origin:'system'});
+ assert.ok(cards.length);assert.equal(cards.find(x=>x.tag==='fern').count,null);
+ assert.equal(cards.find(x=>x.tag==='fern').coverOrigin,'liked');assert.ok(cards.find(x=>x.tag==='fern').cover);
+});
+test('rich known metadata supplies the same gallery and attribution to shared Favorites cards',()=>{
+ const rich={...work(1),images:['https://cdn.donmai.us/1.jpg','https://cdn.donmai.us/2.jpg'],memberKeys:['gelbooru:22'],creatorName:'Artist'};
+ const card=entries('character','mine',{known:[rich]})[0];
+ assert.deepEqual(card.cover.images,rich.images);assert.equal(card.cover.creatorName,'Artist');
+});
+test('an artwork refresh started during a save cannot erase the confirmed Favorite',async()=>{
+ let reads=0,finishLoad,finishSave;
+ const env=controller((url,init)=>init?new Promise(resolve=>finishSave=resolve):++reads===1?Promise.resolve([]):new Promise(resolve=>finishLoad=resolve));
+ await env.c.loadArtworks();const saving=env.c.toggleArtwork(work(1));await Promise.resolve();
+ const loading=env.c.loadArtworks();finishSave([work(1)]);await saving;finishLoad([]);await loading;
+ assert.equal(env.c.isArtworkFavorite(work(1)),true);
 });

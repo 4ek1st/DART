@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
+const vm = require('./helpers/viewer-vm.cjs');
 const CatalogLogic = require('../wwwroot/catalog-logic.js');
 const Navigation = require('../wwwroot/artwork-navigation.js');
 const app = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
@@ -62,7 +62,7 @@ test('closing a preparing preview cancels its consumer and preserves the visible
     id: String(id), thumbnail: `https://fixture.test/${id}.jpg` }));
   const route = { warmed: new Map(), engine: Navigation.create({ items: works, current: works[0] }) };
   const tab = { id: 1, kind: 'detail', item: works[0], artworkRoute: route };
-  const quickPreview = { open: true, close() { this.open = false; }, replaceChildren() {} };
+  const quickPreview = { open: true, contains:()=>false, close() { this.open = false; }, replaceChildren() {} };
   Object.assign(f.context, { currentTab: () => tab, quickPreview,
     quickPreviewGeneration: 0, quickPreviewWork: works[0], quickPreviewRoute: route,
     quickPreviewZoomTimer: null, quickPreviewDrag: null, stopQuickPreviewMedia() {}, clearTimeout,

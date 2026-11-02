@@ -16,7 +16,9 @@ icons.pin = '<path d="m8 3 8 0-1 6 3 4H6l3-4-1-6ZM12 13v8"/>';
 icons.list = '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>';
 icons.bookmark = '<path d="M6 3h12v18l-6-4-6 4V3Z"/>';
 icons.hide = '<path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.8 5.2A10 10 0 0 1 12 5c6 0 10 7 10 7a18 18 0 0 1-3 3.8M6.2 6.2A20 20 0 0 0 2 12s4 7 10 7a11 11 0 0 0 5-1.3"/>';
-icons.star = '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>';
+icons.more = '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>';
+icons.close = '<path d="m6 6 12 12M18 6 6 18"/>';
+icons.collection = '<rect x="3" y="5" width="15" height="16" rx="2"/><path d="M7 2h12a2 2 0 0 1 2 2v13M7 10h7M7 14h7"/>';
 icons.plus = '<path d="M12 5v14M5 12h14"/>';
 icons.tag = '<path d="M3 3h8l10 10-8 8L3 11V3Z"/><circle cx="7.5" cy="7.5" r="1"/>';
 icons.image = '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5-7 7-3-3-3 3"/>';
@@ -114,6 +116,7 @@ function refreshNsfwTabs() {
   }
   for (const tab of feeds) {
     if (!tab) continue;
+    if (tab.kind === 'favorites' && tab.rating === 'explicit') { favoritesController.instance?.invalidate(); continue; }
     if (tab.rating !== 'explicit' || !['home', 'search', 'recommendations', 'follows', 'profile'].includes(tab.kind)) continue;
     abortTab(tab);
     tab.requestVersion = (tab.requestVersion || 0) + 1;
@@ -1280,6 +1283,80 @@ async function toggleFavoriteTag(query, requestedFavorite) {
   finally { favoriteTagPending.delete(tag); }
 }
 
+function artworkMoreButton(item) {
+  return `<button type="button" class="detail-save-button artwork-more-button" data-action="artwork-more" data-artwork-key="${escapeHtml(item.key)}" data-key="${escapeHtml(item.key)}" aria-label="More artwork actions" title="More artwork actions" aria-haspopup="menu" aria-expanded="false">${svg('more')}</button>`;
+}
+
+async function copyTextValue(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const focused = document.activeElement, input = document.createElement('textarea');
+    input.value = text; input.readOnly = true; input.style.cssText = 'position:fixed;left:-10000px'; document.body.append(input);
+    try { input.focus(); input.select(); if (!document.execCommand('copy')) throw Error('Clipboard unavailable'); }
+    finally { input.remove(); focused?.focus({preventScroll:true}); }
+  }
+}
+
+async function resolveArtworkActionMedia(item, selected) {
+  item = itemIndex.get(item.key) || item;
+  let url = DartArtworkActions.media(item, selected);
+  if (url && !CatalogLogic.signedMediaExpired(url) && (selected || item.images?.length)) return url;
+  const detail = await request(`/api/detail?${new URLSearchParams({source:item.source,id:item.id})}`, { cache:'reload',priority:'foreground' });
+  if (detail) item = rememberItem(CatalogLogic.mergeDetailPages(item,detail));
+  if (item.requiresAuthentication && !item.images?.length) {
+    const error = new Error(item.accessMessage || 'Sign in to the source to access this image.'); error.status = 401; throw error;
+  }
+  return DartArtworkActions.media(item, selected && !CatalogLogic.signedMediaExpired(selected) ? selected : null);
+}
+
+async function artworkPng(item, selected, element, resolve) {
+  const url = await resolve();
+  let image, release = () => {};
+  if (element?.matches?.('video') && element.readyState >= 2) image = element;
+  else if (element?.matches?.('img') && element.complete && element.naturalWidth && element.dataset.imageUrl === url) image = element;
+  else { image = await createImageBitmap(await readMediaBlob(url,undefined,{priority:'foreground'})); release = () => image.close(); }
+  try {
+    const width = image.videoWidth || image.naturalWidth || image.width, height = image.videoHeight || image.naturalHeight || image.height;
+    if (!width || !height) throw Error('Image unavailable');
+    const scale = Math.min(1,8192/width,8192/height,Math.sqrt(16*1024*1024/(width*height)));
+    const canvas = document.createElement('canvas'); canvas.width=Math.max(1,Math.round(width*scale)); canvas.height=Math.max(1,Math.round(height*scale));
+    canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+    return await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('Image conversion failed')),'image/png'));
+  } finally { release(); }
+}
+
+function artworkActionsController() {
+  return artworkActionsController.instance ||= DartArtworkActions.create({request,tokens:CatalogLogic.workHistoryTokens,toast,
+    favorite:item=>favoritesController().toggleArtwork(item),copyText:copyTextValue,copyTags:copyArtworkTags,
+    resolveMedia:resolveArtworkActionMedia,png:artworkPng,
+    copyImage:promise=>{
+      promise.catch(()=>{});
+      if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw Error('Image clipboard unavailable');
+      return navigator.clipboard.write([new ClipboardItem({'image/png':promise})]);
+    },
+    download:(url,name)=>{
+      const link=document.createElement('a');link.href=url;link.download=name;link.hidden=true;document.body.append(link);link.click();link.remove();
+    },
+    changed:()=>{
+      for(const route of artworkRoutes) { route.readPreferences=null; route.readRaw=null; }
+      favoritesController.instance?.invalidate();
+      if (quickPreview.open && artworkActionsController().isHidden(quickPreviewWork)) closeQuickPreview();
+      if(currentTab()) render();
+    }
+  });
+}
+
+function renderHiddenArtworksSettings() {
+  const actions=artworkActionsController(),items=actions.items();
+  const tab=currentTab(),limit=tab?.hiddenArtworkLimit||50;
+  return `<details class="settings-card" data-hidden-artworks${tab?.hiddenArtworksOpen?' open':''}><summary>Hidden artworks <span>${items.length}</span></summary>
+    <p>Hidden works and their known copies are excluded from discovery. Restore a work here.</p>
+    ${actions.loadError?'<p role="alert">Hidden artworks could not be loaded.</p><button class="secondary-button" data-action="hidden-artworks-retry">Retry</button>':''}
+    ${items.slice(0,limit).map(item=>{rememberItem(item);return `<div class="hidden-artwork-row"><span data-no-i18n>${escapeHtml(item.title||item.key)}</span><button class="secondary-button" data-action="artwork-restore" data-key="${escapeHtml(item.key)}">Show again</button></div>`;}).join('')}
+    ${!items.length?'<p class="muted">No hidden artworks.</p>':''}
+    ${items.length>limit?'<button class="secondary-button" data-action="hidden-artworks-more">Show more</button>':''}</details>`;
+}
+
 function favoritesKnownWorks() {
   const previous = favoritesKnownWorks.cache;
   if (previous?.likes === likes && previous.bookmarks === bookmarks && previous.recent === recent) return previous.items;
@@ -1290,27 +1367,71 @@ function favoritesKnownWorks() {
 function favoritesController() {
   return favoritesController.instance ||= DartFavorites.create({ request, svg,
     getTags: () => favoriteTags, setTags: value => { favoriteTags = value; },
-    getRecent: () => recent, getKnown: favoritesKnownWorks,
-    getPreferences: () => contentPreferences,
+    getRecent: () => recent, getKnown: favoritesKnownWorks, getLiked: recommendationLikedWorks,
+    getTagPreferences: () => recommendationTagPreferences, effectiveRating: selectedRating,
+    getPreferences: () => contentPreferences, visibilityRevision:()=>artworkActionsController.instance?.revision || 0,
+    emptyRating:emptyNsfwRatingsMessage,
     getActiveTab: currentTab, outboxChanged: () => { void saveSession(); },
     workTokens: item => CatalogLogic.workHistoryTokens(item),
-    renderArtworks: items => `<div class="grid favorites-art-grid">${items.map(item => `<div class="favorites-art-entry">${renderCard(item)}${favoritesController().artworkButton(item)}</div>`).join('')}</div>`,
-    allowed: item => !CatalogLogic.isWorkHidden(item, contentPreferences),
-    changed: () => {
-      if (['favorites', 'search', 'home'].includes(currentTab()?.kind)) render();
-      document.querySelectorAll('[data-action="favorite-artwork"]').forEach(button => {
-        const item = itemIndex.get(button.dataset.key) || (quickPreviewWork?.key === button.dataset.key ? quickPreviewWork : null);
-        if (item) {
-          const label = globalThis.DartI18n?.translate(favoritesController().isArtworkFavorite(item) ? 'Remove favorite artwork' : 'Save favorite artwork');
-          button.setAttribute('aria-pressed', String(favoritesController().isArtworkFavorite(item)));
-          button.setAttribute('aria-label', label); button.title = label;
-          button.disabled = favoritesController().isArtworkPending(item);
-        }
-      });
-    },
+    renderArtworks: items => renderFavoriteArtworkGrid(items),
+    renderEntityCard: card => card.cover ? renderCard(card.cover,false,{label:card.tag.replaceAll('_',' '),query:card.tag}) : '',
+    allowed: item => !CatalogLogic.isWorkHidden(item, contentPreferences) && !artworkActionsController().isHidden(item),
+    changed: () => { if (['favorites','search','home'].includes(currentTab()?.kind)) render(); },
     toast, save: saveSession, openSearch, openDetail,
     t: value => globalThis.DartI18n?.translate(value) || value
   });
+}
+
+function favoriteGroupsController() {
+  return favoriteGroupsController.instance ||= DartFavoriteGroups.create({request,toast,
+    changed:()=>{if(currentTab()?.kind==='favorites')render();}});
+}
+
+function renderFavoriteArtworkGrid(items) {
+  const groups=favoriteGroupsController(),rows=groups.layout(items),tab=currentTab();
+  if(tab)tab.favoriteGroupCards=new Map(rows.map(row=>[row.item.key,row]));
+  return `<p class="settings-hint">Drag one artwork onto another to group them. Right-click for group actions.</p>
+    ${groups.error?'<p class="error" role="alert">Groups could not be loaded. <button class="inline-retry" data-action="favorite-groups-retry">Try again</button></p>':''}
+    ${groups.pending?'<p class="settings-hint" role="status">Saving group…</p>':''}
+    ${renderGrid(rows.map(row=>row.item),'favorites-artworks',new Set(),true)}`;
+}
+
+function favoriteGroupFor(item, source=currentTab()) {
+  const tab=source?.kind==='detail'?source.artworkRoute?.source:source;
+  if(tab?.manualFavoriteGroup)return {groupId:tab.manualFavoriteGroup,items:tab.items,item:tab.items[0]};
+  if(tab?.kind!=='favorites'||tab.favoriteType!=='artwork')return null;
+  return favoriteGroupsController().layout(tab.items||[]).find(row=>row.groupId&&row.items.some(work=>CatalogLogic.sameWork(work,item)))||null;
+}
+
+function openFavoriteGroupPicker(item, trigger) {
+  const source=currentTab()?.kind==='detail'?currentTab().artworkRoute?.source:currentTab();
+  if(quickPreview.open)closeQuickPreview();
+  const rating=selectedRating(source?.rating?source:{rating:ratingFilterFor(item)}), actions=artworkActionsController();
+  const rows=favoriteGroupsController().layout(favoritesController().artworks().filter(work=>
+    CatalogLogic.matchesRating(work,rating)&&!CatalogLogic.isWorkHidden(work,contentPreferences)&&!actions.isHidden(work)))
+    .filter(row=>!row.items.some(work=>CatalogLogic.sameWork(work,item)));
+  const dialog=document.createElement('dialog');dialog.className='favorite-group-picker';
+  dialog.innerHTML=`<div class="section-head"><h2>Group with another Favorite</h2><button type="button" class="icon-button" data-group-close aria-label="Close">${svg('close')}</button></div>
+    <p class="settings-hint">The chosen artwork becomes the group cover. All works keep their own likes and bookmarks.</p>
+    <input type="search" aria-label="Find a favorite artwork" placeholder="Find a favorite artwork" autocomplete="off">
+    <div class="favorite-group-options">${rows.map((row,index)=>`<button type="button" class="favorite-group-option" data-group-target="${index}">
+      ${row.item.thumbnail?`<img src="/api/image?url=${encodeURIComponent(row.item.thumbnail)}" alt="" loading="lazy">`:''}<span data-no-i18n>${escapeHtml(row.item.title)}</span>${row.items.length>1?`<small>${row.items.length} works</small>`:''}</button>`).join('')||'<p class="empty">Save another artwork to Favorites first.</p>'}</div>
+    <p class="settings-hint" data-group-empty hidden>No matching favorite artworks.</p><p data-group-status role="status" aria-live="polite"></p>`;
+  document.body.append(dialog);
+  dialog.addEventListener('close',()=>{dialog.remove();if(trigger?.isConnected)trigger.focus({preventScroll:true});},{once:true});
+  dialog.addEventListener('click',async event=>{
+    if(event.target===dialog){const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.close();return;}
+    if(event.target.closest('[data-group-close]')){dialog.close();return;}
+    const choice=event.target.closest('[data-group-target]');if(!choice||favoriteGroupsController().pending)return;
+    const buttons=[...dialog.querySelectorAll('[data-group-target]')];buttons.forEach(button=>button.disabled=true);
+    dialog.querySelector('[data-group-status]').textContent='Saving group…';
+    const saved=await favoriteGroupsController().merge(item.key,rows[Number(choice.dataset.groupTarget)].item.key);
+    if(saved)dialog.close();else{buttons.forEach(button=>button.disabled=false);dialog.querySelector('[data-group-status]').textContent='Could not save the group. Your Favorites were kept.';}
+  });
+  dialog.querySelector('input').addEventListener('input',event=>{const query=event.target.value.toLocaleLowerCase();
+    for(const button of dialog.querySelectorAll('[data-group-target]'))button.hidden=!rows[Number(button.dataset.groupTarget)].item.title.toLocaleLowerCase().includes(query);
+    dialog.querySelector('[data-group-empty]').hidden=!rows.length||!!dialog.querySelector('[data-group-target]:not([hidden])');});
+  dialog.showModal();globalThis.DartI18n?.translateTree(dialog);dialog.querySelector('input').focus();
 }
 
 async function loadViewedTokens() {
@@ -2790,7 +2911,7 @@ let nextArtworkSourceId = -1, quickPreviewRoute = null;
 
 function artworkSourceSignature(source) {
   return JSON.stringify([source.kind, source.query, source.rating, source.sort,
-    source.selectedSources, source.profileRef]);
+    source.selectedSources, source.profileRef, source.favoriteType, source.favoriteOrigin]);
 }
 
 function copyArtworkSource(source) {
@@ -2876,7 +2997,7 @@ function artworkSourceItems(route) {
 
 function artworkSourceHasMore(route) {
   const source = artworkRouteSource(route);
-  if (['likes', 'bookmarks', 'recent'].includes(source.kind)) return false;
+  if (['likes', 'bookmarks', 'recent', 'favorites'].includes(source.kind)) return false;
   if (route.list === 'related') return !source.relatedStarted || source.relatedLoading ||
     source.relatedHasMore || source.relatedError || Object.keys(source.relatedPaused || {}).length > 0;
   if (source.kind === 'follows') return !source.started || source.loading || source.followLoadingMore ||
@@ -2928,6 +3049,10 @@ async function loadArtworkSource(route) {
 
 function createArtworkRoute(from, item, origin = null) {
   if (!from) return null;
+  const pack=favoriteGroupFor(item,from);
+  if(pack&&(origin?.closest?.('[data-favorite-group]')||from.kind==='favorites'&&from.favoriteType==='artwork')&&!from.manualFavoriteGroup)
+    from={id:nextArtworkSourceId--,artworkDetached:true,kind:'favorites',favoriteType:'artwork',
+      manualFavoriteGroup:pack.groupId,items:[...pack.items],rating:from.rating,started:true,artworkLists:new Map()};
   const related = from.kind === 'detail';
   const creator = related && !!origin?.closest?.('.author-strip');
   const list = related ? creator ? 'creator' : 'related' : from.kind;
@@ -2942,7 +3067,7 @@ function createArtworkRoute(from, item, origin = null) {
     profileRef: CatalogLogic.creatorProfileRef(from.item), title: from.title,
     rating: ratingFilterFor(from.item), items: [], errors: {}, hasMore: true,
     selectedSources: [...defaultSources], page: 0, loading: false };
-  const pageable = !['likes', 'bookmarks', 'recent'].includes(source.kind);
+  const pageable = !['likes', 'bookmarks', 'recent', 'favorites'].includes(source.kind);
   const raw = list === 'related' ? source.related || [] : source.kind === 'recent' ? recent :
     source.kind === 'follows' ? artworkFollowItems(source) : source.items || [];
   const route = { source, signature: artworkSourceSignature(source),
@@ -2956,8 +3081,8 @@ function createArtworkRoute(from, item, origin = null) {
     readVersions: new Map(raw.map(item => [item.key, item])), readItems: [] };
   const selected = snapshot.some(entry => entry.key === item.key || entry.memberKeys?.includes(item.key));
   const initial = selected ? snapshot : related ? [item, ...snapshot] : [...snapshot, item];
-  route.isAllowed = entry => !CatalogLogic.isWorkHidden(entry, contentPreferences) &&
-    (route.source.rating !== 'explicit' || !['home', 'search', 'profile', 'recommendations', 'follows'].includes(route.source.kind) ||
+  route.isAllowed = entry => !artworkActionsController().isHidden(entry) && !CatalogLogic.isWorkHidden(entry, contentPreferences) &&
+    (route.source.rating !== 'explicit' || !['home', 'search', 'profile', 'recommendations', 'follows', 'favorites'].includes(route.source.kind) ||
      CatalogLogic.matchesRating(entry, selectedRating(route.source))) &&
     (!contentPreferences.hideFollowedArtists || !isFollowedArtistHidden(entry, route.source, route.list) ||
      [entry.key, ...(entry.memberKeys || [])].some(key => route.visitedKeys.has(key))) &&
@@ -3383,7 +3508,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
     </div>
     <span class="quick-preview-zoom" aria-live="off">100%</span>`}
     <button type="button" class="quick-preview-close" data-preview-action="close" title="Close preview" aria-label="Close preview">×</button>
-    <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}${favoritesController().artworkButton(item, 'detail-save-button')}</div>
+    <div class="quick-preview-actions">${savedWorkButton(item, 'likes', true)}${savedWorkButton(item, 'bookmarks', true)}${artworkMoreButton(item)}</div>
   </div>`;
   if (!quickPreview.open) quickPreview.showModal();
   globalThis.DartI18n?.translateTree(quickPreview);
@@ -3443,6 +3568,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
 }
 
 function closeQuickPreview() {
+  if (quickPreview.contains(recommendationTagMenu)) closeRecommendationTagMenu();
   if (!quickPreview.open) return;
   ++quickPreviewGeneration;
   stopQuickPreviewMedia();
@@ -3857,7 +3983,7 @@ function renderHome(tab) {
     tab.rating === 'all' ? 'Все изображения' :
     `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} иллюстрации`;
   return `<div class="content">
-    <div class="favorite-tags">${favoriteTags.length ? favoriteTags.map((tag, i) => `<button class="tag-chip chip-${i % 6}" data-action="query" data-query="${escapeHtml(tag)}">${escapeHtml(tag.replaceAll('_', ' '))}<small>#${escapeHtml(tag)}</small></button>`).join('') : '<span class="favorite-tags-empty">Избранные теги появятся здесь. Найдите один тег и нажмите ☆ рядом с его названием.</span>'}</div>
+    <div class="favorite-tags">${favoriteTags.length ? favoriteTags.map((tag, i) => `<button class="tag-chip chip-${i % 6}" data-action="query" data-query="${escapeHtml(tag)}">${escapeHtml(tag.replaceAll('_', ' '))}<small>#${escapeHtml(tag)}</small></button>`).join('') : '<span class="favorite-tags-empty">Right-click a tag and save it to Favorites.</span>'}</div>
     <div class="mode-tabs">
       ${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([mode, label]) => `<button class="mode-tab ${mode === tab.rating && tab.feed === 'illustrations' || mode === tab.feed ? 'active' : ''}" data-action="mode" data-mode="${mode}">${label}</button>`).join('')}
     </div>
@@ -3876,7 +4002,7 @@ function renderSearch(tab) {
   const title = tab.rating === 'explicit' ? 'NSFW иллюстрации' :
     tab.rating === 'all' ? 'Все изображения' : 'Иллюстрации';
   return `<div class="content">
-    <div class="search-heading"><h1>${title}${tab.query ? ` · <span data-no-i18n>${escapeHtml(tab.query)}</span>` : ''}</h1>${favoriteTag ? `<button class="favorite-tag-button ${isFavorite ? 'active' : ''}" data-action="favorite-tag" data-tag="${escapeHtml(favoriteTag)}" aria-label="${isFavorite ? 'Убрать тег из избранного' : 'Добавить тег в избранное'}" title="${isFavorite ? 'Убрать из избранных тегов' : 'Добавить в избранные теги'}" aria-pressed="${!!isFavorite}">${isFavorite ? '★' : '☆'}</button>` : ''}</div>
+    <div class="search-heading"><h1>${title}${tab.query ? ` · <span data-no-i18n>${escapeHtml(tab.query)}</span>` : ''}</h1>${favoriteTag ? `<button class="icon-button" data-action="content-more" data-context-tag="${escapeHtml(favoriteTag)}" aria-label="Tag actions" title="Tag actions" aria-haspopup="menu">${svg('more')}</button>` : ''}</div>
     <p class="section-sub">Ищите по тегам, выбирайте источники и рейтинг.</p>
     <div class="search-tools">
       <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="category" data-category="${rating}">${label}</button>`).join('')}</div>
@@ -3945,10 +4071,10 @@ function closeRecommendationTagMenu(returnFocus = false) {
     let trigger = recommendationTagMenu.trigger;
     const context = recommendationTagMenu.context;
     if (!trigger?.isConnected && context) {
-      trigger = [...document.querySelectorAll(contentTagSelector + ', [data-context-author-id], ' + nsfwFilterSelector)]
+      trigger = [...document.querySelectorAll(contentTagSelector + ', [data-context-author-id], [data-artwork-key], .card[data-work-key], ' + nsfwFilterSelector)]
         .find(element => {
           const candidate = contentContextTarget(element);
-          return candidate?.kind === context.kind && (context.kind === 'nsfw' || (context.kind === 'tag'
+          return candidate?.kind === context.kind && (context.kind === 'artwork' ? candidate.item?.key === context.item?.key : context.kind === 'nsfw' || (context.kind === 'tag'
             ? candidate.tag === context.tag
             : CatalogLogic.hiddenAuthorKey(candidate.author) === CatalogLogic.hiddenAuthorKey(context.author)));
         });
@@ -3957,32 +4083,46 @@ function closeRecommendationTagMenu(returnFocus = false) {
   }
   recommendationTagMenu.trigger = null;
   recommendationTagMenu.context = null;
+  if (recommendationTagMenu.parentElement !== document.body) document.body.append(recommendationTagMenu);
 }
 
 const contentTagSelector = '.tag-link[data-query], .tag-chip[data-query], [data-recommendation-tag], .tag-suggestion[data-tag], .favorite-tag-button[data-tag], .excluded-tag[data-tag], [data-context-tag]';
-const nsfwFilterSelector = '[data-action="category"][data-category="explicit"], [data-action="mode"][data-mode="explicit"], [data-action="recommendation-rating"][data-rating="explicit"], [data-action="follow-rating"][data-rating="explicit"], [data-action="profile-rating"][data-rating="explicit"]';
+const nsfwFilterSelector = '[data-action="category"][data-category="explicit"], [data-action="mode"][data-mode="explicit"], [data-action="recommendation-rating"][data-rating="explicit"], [data-action="follow-rating"][data-rating="explicit"], [data-action="profile-rating"][data-rating="explicit"], [data-action="favorites-rating"][data-value="explicit"]';
 function contentContextTarget(target) {
-  const nsfw = target.closest(nsfwFilterSelector);
-  if (nsfw) return { trigger: nsfw, kind: 'nsfw' };
-  const artwork = target.closest('[data-artwork-tags-key]');
-  const item = artwork && itemIndex.get(artwork.dataset.artworkTagsKey);
-  const chip = target.closest(contentTagSelector);
-  if (chip) {
-    const raw = chip.dataset.contextTag || chip.dataset.query || chip.dataset.tag;
-    const tag = CatalogLogic.favoriteTagFromQuery(String(raw || '').trim().replace(/\s+/g, '_'));
-    if (tag) return { trigger: chip, kind: 'tag', tag, item,
-      recommendationTag: chip.dataset.recommendationTag };
-  }
-  if (item) return { trigger: artwork, kind: 'artwork-tags', item };
-  const author = target.closest('[data-context-author-id]');
-  if (!author) return null;
-  const identity = { source: author.dataset.contextAuthorSource,
-    artistId: author.dataset.contextAuthorId, name: author.dataset.contextAuthorName };
-  return CatalogLogic.hiddenAuthorKey(identity) ? { trigger: author, kind: 'author', author: identity } : null;
+  const nsfw=target.closest(nsfwFilterSelector); if(nsfw)return{trigger:nsfw,kind:'nsfw'};
+  const author=target.closest('[data-context-author-id]');
+  if(author){const identity={source:author.dataset.contextAuthorSource,artistId:author.dataset.contextAuthorId,name:author.dataset.contextAuthorName};
+    if(CatalogLogic.hiddenAuthorKey(identity))return{trigger:author,kind:'author',author:identity};}
+  const preview=target.closest('#quick-preview');
+  const artwork=target.closest('[data-artwork-key], [data-artwork-tags-key], .card[data-work-key]');
+  const key=artwork?.dataset.artworkKey||artwork?.dataset.artworkTagsKey||artwork?.dataset.workKey;
+  const item=preview?quickPreviewWork:itemIndex.get(key)||
+    (currentTab()?.kind==='detail'&&main.contains(target)?currentTab().item:null);
+  const chip=target.closest(contentTagSelector);
+  if(chip){const raw=chip.dataset.contextTag||chip.dataset.query||chip.dataset.tag;
+    const tag=CatalogLogic.favoriteTagFromQuery(String(raw||'').trim().replace(/\s+/g,'_'));
+    if(tag)return{trigger:chip,kind:'tag',tag,item,recommendationTag:chip.dataset.recommendationTag};}
+  if(!item)return null;
+  const detailMedia=preview?target.closest('img,video')||preview.querySelector('.quick-preview-image'):target.closest('.detail-image img, .detail-video video');
+  return{trigger:target.closest('button')||artwork?.querySelector?.('[data-action="open"]')||artwork||preview||target,
+    kind:'artwork',item,mediaUrl:detailMedia?.dataset.imageUrl||detailMedia?.dataset.videoUrl,mediaElement:detailMedia};
 }
 
 function openContentContextMenu(context, x, y) {
   closeRecommendationTagMenu();
+  (quickPreview.open && quickPreview.contains(context.trigger) ? quickPreview : document.body).append(recommendationTagMenu);
+  if (context.kind === 'artwork') {
+    const item=context.item,hidden=artworkActionsController().isHidden(item);
+    recommendationTagMenu.context={...context,hidden};recommendationTagMenu.trigger=context.trigger;context.trigger.setAttribute('aria-expanded','true');
+    const row=(action,label,icon)=>`<button type="button" role="menuitem" data-context-action="artwork-${action}"${['group','ungroup'].includes(action)&&favoriteGroupsController().pending?' disabled':''}>${svg(icon)}<span>${label}</span></button>`;
+    recommendationTagMenu.innerHTML=`<div class="recommendation-tag-menu-title" data-no-i18n>${escapeHtml(item.title)}</div>`+
+      row('favorite',favoritesController().isArtworkFavorite(item)?'Remove favorite artwork':'Save favorite artwork','collection')+
+      (favoritesController().isArtworkFavorite(item)?row('group','Group with another Favorite','collection'):'')+
+      (favoriteGroupFor(item)?row('ungroup','Ungroup artworks','collection'):'')+
+      row('hide',hidden?'Show again':'Don’t show this artwork again','hide')+'<div class="recommendation-tag-menu-separator" role="separator"></div>'+
+      row('download','Download image','download')+row('copy-image','Copy image','copy')+row('copy-link','Copy artwork link','external')+row('copy-image-link','Copy image link','external')+row('copy-tags','Copy all artwork tags','copy');
+    positionContentContextMenu(context,x,y);return;
+  }
   if (context.kind === 'nsfw') {
     recommendationTagMenu.context = context;
     recommendationTagMenu.trigger = context.trigger;
@@ -4001,10 +4141,10 @@ function openContentContextMenu(context, x, y) {
   recommendationTagMenu.tag = context.recommendationTag;
   recommendationTagMenu.trigger = context.trigger;
   recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title"${context.kind === 'artwork-tags' ? '' : ' data-no-i18n'}>${escapeHtml(tag ? '#' + tag.replaceAll('_', ' ') : context.author?.name || 'Artwork tags')}</div>
+    ${context.kind === 'tag' || context.kind === 'author' ? `<button type="button" role="menuitem" data-context-action="copy-value">${svg('copy')}<span>${context.kind === 'tag' ? 'Copy tag' : 'Copy author tag'}</span></button>` : ''}
     ${context.item ? `<button type="button" role="menuitem" data-context-action="copy" title="Copy all artwork tags">${svg('copy')}<span>Copy</span></button>` : ''}
-    ${context.item ? `<button type="button" role="menuitem" data-context-action="artwork-favorite">${svg('star')}<span>${favoritesController().isArtworkFavorite(context.item) ? 'Remove favorite artwork' : 'Save favorite artwork'}</span></button>` : ''}
     ${context.kind !== 'artwork-tags' ? `<button type="button" role="menuitem" data-context-action="hide"${contentPreferencesSaving ? ' disabled' : ''}>${svg('hide')}<span>${hidden ? 'Unhide' : 'Hide'}</span></button>` : ''}
-    ${tag ? `<button type="button" role="menuitem" data-context-action="favorite"${favoriteTagPending.has(tag) ? ' disabled' : ''}>${svg('star')}<span>${favoriteTags.includes(tag) ? 'Unfavorite' : 'Favorite'}</span></button>` : ''}
+    ${tag ? `<button type="button" role="menuitem" data-context-action="favorite"${favoriteTagPending.has(tag) ? ' disabled' : ''}>${svg('collection')}<span>${favoriteTags.includes(tag) ? 'Unfavorite' : 'Favorite'}</span></button>` : ''}
     ${context.recommendationTag ? `<div class="recommendation-tag-menu-separator" role="separator"></div>
     <button type="button" role="menuitemradio" aria-checked="${current === 'priority'}" data-tag-mode="priority"><span class="recommendation-menu-dot priority-dot"></span>Показывать чаще</button>
     <button type="button" role="menuitemradio" aria-checked="${current === 'disabled'}" data-tag-mode="disabled"><span class="recommendation-menu-dot disabled-dot"></span>Выключить тег</button>
@@ -4013,13 +4153,15 @@ function openContentContextMenu(context, x, y) {
 }
 
 function positionContentContextMenu(context, x, y) {
+  recommendationTagMenu.sourceScrollTop=main.scrollTop;recommendationTagMenu.sourceScrollLeft=main.scrollLeft;
   globalThis.DartI18n?.translateTree(recommendationTagMenu);
   recommendationTagMenu.hidden = false;
   if (!x && !y) { const rect = context.trigger.getBoundingClientRect(); x = rect.left; y = rect.bottom; }
+  const bounds = quickPreview.open && quickPreview.contains(recommendationTagMenu) ? quickPreview.getBoundingClientRect() : {left:0,top:0,right:window.innerWidth,bottom:window.innerHeight};
   const width = recommendationTagMenu.offsetWidth;
   const height = recommendationTagMenu.offsetHeight;
-  recommendationTagMenu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - width - 8))}px`;
-  recommendationTagMenu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - height - 8))}px`;
+  recommendationTagMenu.style.left = `${Math.max(bounds.left+8, Math.min(x, bounds.right - width - 8))}px`;
+  recommendationTagMenu.style.top = `${Math.max(bounds.top+8, Math.min(y, bounds.bottom - height - 8))}px`;
   recommendationTagMenu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
 }
 
@@ -4453,6 +4595,7 @@ function curateFeedWorks(works, tab, gridKey = '') {
 
 function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepOrder = false) {
   let supported = CatalogLogic.filterCatalogItems(items);
+  if (!['likes','bookmarks','recent'].includes(tab?.kind)) supported = supported.filter(item=>!artworkActionsController().isHidden(item));
   if (tab?.rating === 'explicit' && ['home', 'search', 'recommendations', 'follows', 'profile'].includes(tab.kind))
     supported = DartViewerPreferences.filterItems(supported, selectedRating(tab),
       CatalogLogic.matchesRating, CatalogLogic.groupingRevision(supported));
@@ -4518,7 +4661,9 @@ function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false
 
 function renderFeedCard(item, tab, newKeys, gridKey = '') {
   rememberRenderedFeedWork(tab, item, gridKey);
-  return renderCard(item, (item.memberKeys || [item.key]).some(key => newKeys.has(key)));
+  const pack=gridKey==='favorites-artworks'?tab?.favoriteGroupCards?.get(item.key):null;
+  return renderCard(item, (item.memberKeys || [item.key]).some(key => newKeys.has(key)),
+    gridKey==='favorites-artworks'?{draggable:true,groupId:pack?.groupId,groupCount:pack?.items.length}:null);
 }
 
 function measureVirtualGrids(tab) {
@@ -4553,7 +4698,7 @@ function measureVirtualGrids(tab) {
   }
 }
 
-function renderCard(item, isNew = false) {
+function renderCard(item, isNew = false, presentation = null) {
   item = rememberItem(item);
   const media = galleryImages(item);
   const imageCount = media.length;
@@ -4573,7 +4718,7 @@ function renderCard(item, isNew = false) {
     .map(([source, count]) => `${names[source] || source}: ${count}`).join(' · ');
   const sourceTitle = provenance.extra
     ? `Объединено ${provenance.total} записей · ${sourceDetails}` : sourceName;
-  return `<article class="card" data-work-key="${escapeHtml(item.key)}" data-work-members="${escapeHtml(JSON.stringify([item.key, ...(item.memberKeys || [])]))}"><div class="card-art ${isNew ? 'new-item' : ''}">
+  return `<article class="card" data-work-key="${escapeHtml(item.key)}"${presentation?.draggable?' draggable="true" data-favorite-draggable="true"':''}${presentation?.groupId?` data-favorite-group="${escapeHtml(presentation.groupId)}"`:''} data-work-members="${escapeHtml(JSON.stringify([item.key, ...(item.memberKeys || [])]))}"><div class="card-art ${isNew ? 'new-item' : ''}">
     <button class="card-art" data-action="open" data-key="${escapeHtml(item.key)}"${previewVideo ? ` data-video-preview="${escapeHtml(previewVideo)}"` : ''} data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" aria-label="Открыть ${escapeHtml(item.title)} · ${escapeHtml(sourceTitle)}">
       ${item.thumbnail ? `<img data-image-url="${escapeHtml(item.thumbnail)}" alt="" decoding="async" draggable="false">` : `<span class="text-preview"${/^(Работа|Artwork|Werk) #/.test(item.title) ? '' : ' data-no-i18n'}>${escapeHtml(item.title.slice(0, 180))}</span>`}
       ${previewVideo ? '<img class="video-preview-frame" alt="" aria-hidden="true" decoding="async" hidden>' : ''}
@@ -4582,10 +4727,11 @@ function renderCard(item, isNew = false) {
       ${isNew ? '<span class="new-badge">Новое</span>' : ''}
       ${isAdultRating(item.rating) ? `<span class="rating-badge" title="${ratingLabel(item.rating) === 'Q' ? 'Questionable — пограничный контент' : 'NSFW — откровенный контент'}">${ratingLabel(item.rating)}</span>` : ''}
       ${imageCount > 1 ? `<span class="image-count" data-count-confirmed="${countConfirmed}" title="${countConfirmed ? `Images: ${imageCount}` : 'Multiple images · Count verified when opened'}">▣${countConfirmed ? ` ${imageCount}` : ''}</span>` : ''}
+      ${presentation?.groupId?`<span class="favorite-group-badge" title="Grouped artworks"><span aria-hidden="true">▤</span> ${presentation.groupCount}</span>`:''}
       ${previewVideo ? '<span class="video-badge" role="img" aria-label="Видео" title="Video · Hover for 5 preview frames">▶</span>' : ''}
     </button>
     ${savedWorkButton(item, 'likes')}
-  </div><button class="card-title" data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</button>
+  </div><button class="card-title" ${presentation?.query ? `data-action="query" data-query="${escapeHtml(presentation.query)}" data-context-tag="${escapeHtml(presentation.query)}" data-no-i18n` : `data-action="open" data-key="${escapeHtml(item.key)}" data-i18n-keep="${escapeHtml(JSON.stringify(/^(Работа|Artwork|Werk) #/.test(item.title) ? [] : [item.title]))}"`} title="${escapeHtml(presentation?.label || item.title)}">${escapeHtml(presentation?.label || item.title)}</button>
   <button class="card-artist" data-action="${taggedArtist && primary.role === 'unknown' ? 'follow-tag-search' : 'attribution-primary'}" data-key="${escapeHtml(item.key)}" ${['creator', 'contributor'].includes(primary.role) ? creatorActionData(item) : workAuthorContextData(item, primary)} data-i18n-keep="${escapeHtml(JSON.stringify(primary.role === 'unknown' && !taggedArtist ? [] : [artistLabel]))}" title="${escapeHtml(roleLabel)}: ${escapeHtml(artistLabel)}"><span class="artist-avatar">${escapeHtml((taggedArtist && primary.role === 'unknown' ? artistLabel.slice(1) : artistLabel)[0].toUpperCase())}</span><span><small>${escapeHtml(roleLabel)}</small>${escapeHtml(artistLabel)}</span></button>${currentTab()?.sort === 'popular' && Number.isInteger(item.popularityCount) ? `<div class="card-popularity">Голоса: ${item.popularityCount}</div>` : ''}</article>`;
 }
 
@@ -4594,6 +4740,7 @@ function skeletons(count) {
 }
 
 function renderDetail(tab) {
+  if (artworkActionsController().isHidden(tab.item)) return `<div class="content" data-artwork-key="${escapeHtml(tab.item.key)}"><h1 data-no-i18n>${escapeHtml(tab.item.title)}</h1><div class="empty">This artwork is hidden. <button class="inline-retry" data-action="artwork-restore" data-key="${escapeHtml(tab.item.key)}">Show again</button></div></div>`;
   let item = tab.item = rememberItem(tab.item);
   if (item.groupingVersion === 2 && item.groupMembers?.length) {
     const groups = CatalogLogic.groupWorks([item]);
@@ -4621,8 +4768,7 @@ function renderDetail(tab) {
       <div class="detail-meta"><h1>${escapeHtml(item.title)}</h1>
         <div class="muted">${escapeHtml(sourceLabel)} · ${escapeHtml(formatDate(item.published))}${item.rating ? ` · <span${ratingLabel(item.rating) === 'Q' ? ' title="Questionable — пограничный контент"' : ''}>${escapeHtml(ratingLabel(item.rating))}</span>` : ''}</div>
         <div class="detail-actions">${savedWorkButton(item, 'bookmarks', true)}${savedWorkButton(item, 'likes', true)}
-          ${favoritesController().artworkButton(item, 'detail-save-button')}
-          <button class="secondary-button" data-action="external" data-key="${escapeHtml(item.key)}">Открыть на сайте ↗</button></div>
+          <button class="secondary-button" data-action="external" data-key="${escapeHtml(item.key)}">Открыть на сайте ↗</button>${artworkMoreButton(item)}</div>
         ${tags.length ? renderArtworkTags(tab, tags, visibleTags) : ''}
       </div>
     </div>
@@ -4631,6 +4777,7 @@ function renderDetail(tab) {
       ${attribution.original ? `<div class="attribution-entry"><strong>Исходная ссылка</strong><button class="attribution-link" data-action="original" data-key="${escapeHtml(item.key)}" data-no-i18n title="${escapeHtml(attribution.original.url)}">${escapeHtml(attribution.original.name)} ↗</button></div>` : ''}
       <dl><dt>${sourceLabel.includes(' · ') ? 'Каталоги' : 'Каталог'}</dt><dd class="work-sources">${renderWorkSources(item)}</dd><dt>ID работы · ${escapeHtml(names[item.source] || item.source)}</dt><dd>${escapeHtml(item.id)}</dd></dl></aside>
   </div>
+    ${tab.artworkRoute?.source.manualFavoriteGroup?`<section class="section"><div class="section-head"><h2>Grouped artworks</h2><button class="text-button" data-action="favorite-ungroup" data-group-id="${escapeHtml(tab.artworkRoute.source.manualFavoriteGroup)}">Ungroup artworks</button></div><div class="favorite-group-strip" data-favorite-group="${escapeHtml(tab.artworkRoute.source.manualFavoriteGroup)}">${tab.artworkRoute.source.items.filter(entry=>!artworkActionsController().isHidden(entry)&&!CatalogLogic.isWorkHidden(entry,contentPreferences)&&CatalogLogic.matchesRating(entry,selectedRating(tab.artworkRoute.source))).map(entry=>renderCard(entry)).join('')}</div></section>`:''}
     ${images.length && attribution.creator ? `<section class="section creator-works-section"><div class="section-head"><h2>Ещё работы автора</h2><button class="text-button" data-action="creator-profile" data-key="${escapeHtml(item.key)}" ${creatorActionData(item)}>Все работы автора</button></div>
       ${visibleCreatorWorks.length ? `<div class="author-strip">${visibleCreatorWorks.map(entry => renderCard(entry)).join('')}</div>` : tab.creatorLoading || !tab.creatorStarted ? skeletons(6) : `<p class="muted">${Object.keys(tab.creatorPages || {}).some(source => !tab.creatorPaused?.[source]) ? 'Больше работ можно посмотреть в профиле автора.' : 'Других работ в доступных источниках пока не найдено.'}</p>`}
       ${renderErrors(tab.creatorErrors, 'creator-retry')}</section>` : ''}
@@ -4955,7 +5102,7 @@ function renderSettings() {
             <option value="ru" ${contentPreferences.language === 'ru' ? 'selected' : ''}>Русский</option>
             <option value="de" ${contentPreferences.language === 'de' ? 'selected' : ''}>Deutsch</option>
           </select></label><p class="settings-hint">Выбор сохраняется в этом профиле и применяется сразу.</p><p class="settings-hint">Английский — язык по умолчанию.</p></div>` : ''}
-        ${section === 'content' ? `
+        ${section === 'content' ? `${renderHiddenArtworksSettings()}
         <div class="settings-card"><h2 class="settings-heading">${svg('image')}<span>AI изображения</span></h2><p>Выберите, какие работы показывать в поиске, рекомендациях, профилях, похожих работах, понравившихся и закладках. Сохранённые работы остаются на месте.</p>
           <label class="settings-toggle"><input type="checkbox" name="hideGenerated" ${hideGenerated ? 'checked' : ''} ${contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать AI-generated</strong><small>Работы с метками AI генерации и известных генераторов.</small></span></label>
           <label class="settings-toggle settings-toggle-child"><input type="checkbox" name="hideAssisted" ${hideAssisted ? 'checked' : ''} ${!hideGenerated || contentPreferencesSaving ? 'disabled' : ''}><span><strong>Скрывать также AI-assisted</strong><small>Если выключено, работы с участием AI остаются видимыми.</small></span></label>
@@ -5827,7 +5974,7 @@ quickPreview.addEventListener('click', event => {
   if (button && quickPreviewWork) {
     if (button.dataset.action === 'like') void toggleSavedWork(quickPreviewWork, 'likes');
     if (button.dataset.action === 'bookmark') void toggleSavedWork(quickPreviewWork, 'bookmarks');
-    if (button.dataset.action === 'favorite-artwork') void favoritesController().toggleArtwork(quickPreviewWork);
+    if (button.dataset.action === 'artwork-more') openContentContextMenu({...contentContextTarget(button),mediaUrl:quickPreview.querySelector('.quick-preview-image')?.dataset.imageUrl||quickPreview.querySelector('.quick-preview-image')?.dataset.videoUrl,mediaElement:quickPreview.querySelector('.quick-preview-image')},0,0);
   } else if (event.target === quickPreview) {
     const bounds = quickPreview.getBoundingClientRect();
     if (event.clientX < bounds.left || event.clientX > bounds.right ||
@@ -5861,6 +6008,7 @@ document.addEventListener('keydown', event => {
 
 document.addEventListener('keydown', event => {
   if (quickPreview.open) {
+    if(!recommendationTagMenu.hidden)return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -6062,6 +6210,10 @@ recommendationTagMenu.addEventListener('click', async event => {
   const context = recommendationTagMenu.context;
   if (action && context) {
     closeRecommendationTagMenu(true);
+    if(action==='artwork-group'){openFavoriteGroupPicker(context.item,context.trigger);return;}
+    if(action==='artwork-ungroup'){const pack=favoriteGroupFor(context.item);if(pack)await favoriteGroupsController().ungroup(pack.groupId);return;}
+    if (action?.startsWith('artwork-')) { await artworkActionsController().run(action.slice(8),context); return; }
+    if (action === 'copy-value') { await artworkActionsController().run(action,context); return; }
     if (action === 'copy') await copyArtworkTags(context.item);
     else if (action === 'artwork-favorite') await favoritesController().toggleArtwork(context.item);
     else if (action === 'favorite') await toggleFavoriteTag(context.tag, !context.favorite);
@@ -6116,7 +6268,12 @@ document.addEventListener('keydown', event => {
     (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]
     ?.focus({ preventScroll: true });
 });
-main.addEventListener('scroll', () => closeRecommendationTagMenu());
+function handleContentMenuScroll() {
+  if(!recommendationTagMenu.hidden&&(main.scrollTop!==recommendationTagMenu.sourceScrollTop||main.scrollLeft!==recommendationTagMenu.sourceScrollLeft))
+    closeRecommendationTagMenu();
+}
+main.addEventListener('scroll', handleContentMenuScroll);
+main.addEventListener('toggle',event=>{if(event.target.matches?.('[data-hidden-artworks]')&&currentTab())currentTab().hiddenArtworksOpen=event.target.open;},true);
 window.addEventListener('resize', () => closeRecommendationTagMenu());
 window.addEventListener('blur', () => closeRecommendationTagMenu());
 
@@ -6303,7 +6460,33 @@ main.addEventListener('auxclick', event => {
   const item = control && itemForControl(control);
   if (item) { event.preventDefault(); openDetail(item, { separate: true, background: !event.shiftKey, origin: control }); }
 });
+let favoriteDraggedKey=null,favoriteDropClickUntil=0;
+function clearFavoriteDropTargets(){for(const card of main.querySelectorAll('.favorite-drop-target'))card.classList.remove('favorite-drop-target');}
+main.addEventListener('dragstart',event=>{
+  const card=event.target.closest('[data-favorite-draggable]');
+  if(!card)return;
+  if(favoriteGroupsController().pending||!event.dataTransfer){event.preventDefault();return;}
+  favoriteDraggedKey=card.dataset.workKey;
+  event.dataTransfer.setData('application/x-dart-favorite',favoriteDraggedKey);event.dataTransfer.effectAllowed='move';
+  card.classList.add('favorite-dragging');closeRecommendationTagMenu();
+});
+main.addEventListener('dragover',event=>{
+  const card=event.target.closest('[data-favorite-draggable]');
+  if(!card||!event.dataTransfer?.types.includes('application/x-dart-favorite')||favoriteGroupsController().pending||card.dataset.workKey===favoriteDraggedKey)return;
+  event.preventDefault();event.dataTransfer.dropEffect='move';clearFavoriteDropTargets();card.classList.add('favorite-drop-target');
+});
+main.addEventListener('dragleave',event=>{const card=event.target.closest('.favorite-drop-target');if(card&&!card.contains(event.relatedTarget))card.classList.remove('favorite-drop-target');});
+main.addEventListener('drop',event=>{
+  const card=event.target.closest('[data-favorite-draggable]');
+  const from=event.dataTransfer?.getData('application/x-dart-favorite');
+  if(!card||!from)return;
+  event.preventDefault();favoriteDropClickUntil=Date.now()+300;clearFavoriteDropTargets();favoriteDraggedKey=null;
+  void favoriteGroupsController().merge(from,card.dataset.workKey);
+});
+main.addEventListener('dragend',()=>{favoriteDraggedKey=null;clearFavoriteDropTargets();for(const card of main.querySelectorAll('.favorite-dragging'))card.classList.remove('favorite-dragging');});
+
 main.addEventListener('click', event => {
+  if(Date.now()<favoriteDropClickUntil&&event.target.closest('[data-favorite-draggable]')){event.preventDefault();return;}
   const control = event.target.closest('[data-action]');
   if (!control) return;
   const tab = currentTab();
@@ -6313,7 +6496,12 @@ main.addEventListener('click', event => {
     return;
   }
   const item = itemForControl(control);
-  if (action === 'favorite-artwork' && item) { void favoritesController().toggleArtwork(item); return; }
+  if (action === 'artwork-more' || action === 'content-more') { const context=contentContextTarget(control); if(context)openContentContextMenu(context,0,0); return; }
+  if (action === 'favorite-groups-retry') { void favoriteGroupsController().load(); return; }
+  if (action === 'favorite-ungroup') { void favoriteGroupsController().ungroup(control.dataset.groupId); return; }
+  if (action === 'artwork-restore' && item) { void artworkActionsController().setHidden(item,false); return; }
+  if (action === 'hidden-artworks-retry') { void artworkActionsController().load(); return; }
+  if (action === 'hidden-artworks-more') { tab.hiddenArtworksOpen=true;tab.hiddenArtworkLimit=(tab.hiddenArtworkLimit||50)+50;render();return; }
   if (action === 'zoom-image' && tab?.kind === 'detail') {
     const artwork = quickPreviewArtworkAt(control, tab, itemIndex);
     if (artwork) openQuickPreview(artwork, 'fullscreen');
@@ -6541,7 +6729,7 @@ window.addEventListener('beforeunload', () => {
 
 Promise.allSettled([refreshBookmarks(), refreshLikes(), refreshFollows(), loadSettings(),
   loadContentPreferences(), loadClientState(), loadRecommendationTagPreferences(),
-  loadViewedTokens(), loadFavoriteTags(), favoritesController().loadArtworks()]).finally(() => {
+  loadViewedTokens(), loadFavoriteTags(), favoritesController().loadArtworks(), artworkActionsController().load(), favoriteGroupsController().load()]).finally(() => {
   void recordViewedWorks([...recent, ...likes, ...bookmarks]);
   if (!restoreSession()) createTab('home', 'Главная');
 });

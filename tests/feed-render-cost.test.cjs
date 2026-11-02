@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs'), vm = require('node:vm');
+const fs = require('node:fs'), vm = require('./helpers/viewer-vm.cjs');
 const logic = require('../wwwroot/catalog-logic.js');
 const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
 const slice = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));

@@ -74,10 +74,12 @@ const server = http.createServer(async (req, res) => {
     await page.mouse.click(20, 20);
     const bytes = await page.evaluate(async () => {
       const canvas = document.createElement('canvas'); canvas.width = 128; canvas.height = 96;
+      document.body.append(canvas);
       canvas.getContext('2d').fillRect(0, 0, 128, 96);
       const audio = new AudioContext(), tone = audio.createOscillator(), output = audio.createMediaStreamDestination();
       tone.connect(output); tone.start(); await audio.resume();
-      const stream = new MediaStream([...canvas.captureStream(5).getTracks(), ...output.stream.getTracks()]);
+      const videoTrack = canvas.captureStream(0).getVideoTracks()[0];
+      const stream = new MediaStream([videoTrack, ...output.stream.getTracks()]);
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' }), chunks = [];
       const complete = new Promise(resolve => { recorder.ondataavailable = event => chunks.push(event.data);
         recorder.onstop = () => resolve(new Blob(chunks).arrayBuffer()); });
@@ -85,6 +87,7 @@ const server = http.createServer(async (req, res) => {
       for (let frame = 0; frame < 10; frame++) {
         canvas.getContext('2d').fillStyle = frame % 2 ? '#329cff' : '#174875';
         canvas.getContext('2d').fillRect(0, 0, 128, 96);
+        videoTrack.requestFrame();
         await new Promise(resolve => setTimeout(resolve, 80));
       }
       recorder.stop();
@@ -92,6 +95,7 @@ const server = http.createServer(async (req, res) => {
       tone.stop(); stream.getTracks().forEach(track => track.stop()); await audio.close(); return data;
     });
     media = Buffer.from(bytes);
+    assert.ok(media.length > 500, 'The generated audiovisual fixture must contain encoded frames');
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     const nsfw = () => page.locator('[data-action="category"][data-category="explicit"]');
     const toggle = async rating => {
@@ -117,9 +121,9 @@ const server = http.createServer(async (req, res) => {
     await page.waitForFunction(() => !currentTab().loading && currentTab().items.length === 0 && !currentTab().hasMore);
     assert.equal(calls.filter(call => call.route === '/api/search').length, beforeEmpty, 'both off must not contact catalogs');
     await toggle('e');
-    await page.waitForFunction(() => currentTab().items.length === 4 && currentTab().items.every(item => item.rating === 'e'));
+    await page.waitForFunction(() => currentTab()?.items?.length === 4 && currentTab().items.every(item => item.rating === 'e'));
     await page.reload();
-    await page.waitForFunction(() => currentTab().items.length === 4 && currentTab().items.every(item => item.rating === 'e'));
+    await page.waitForFunction(() => currentTab()?.items?.length === 4 && currentTab().items.every(item => item.rating === 'e'));
     await page.locator('#settings-button').click(); await page.locator('#settings-tab-appearance').click();
     assert.equal(await page.locator('[name="videoSound"]').isChecked(), false);
     await page.locator('[name="videoSound"]').check();

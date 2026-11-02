@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
+const vm = require('./helpers/viewer-vm.cjs');
 const CatalogLogic = require('../wwwroot/catalog-logic.js');
 const DartResourceCache = require('../wwwroot/resource-cache.js');
 const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
@@ -32,7 +32,7 @@ function fixture(t, { transportSlots = Infinity } = {}) {
     replaceWith(next) { this.isConnected = false; next.isConnected = true; media = next; }
     closest() { return null; }
   }
-  const preview = { open: false, classList: { toggle() {}, contains() { return false; } }, setAttribute() {},
+  const preview = { open: false, contains:()=>false, classList: { toggle() {}, contains() { return false; } }, setAttribute() {},
     set innerHTML(html) { media = new Image(); media.isConnected = true; const src = html.match(/<img[^>]*\ssrc="([^"]*)"/); if (src) media.src = src[1]; },
     querySelector: () => media,
     querySelectorAll: selector => selector === 'video' ? [] : media ? [media] : [],

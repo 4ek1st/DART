@@ -84,7 +84,8 @@
           await deps.download(`/api/${route}?url=${encodeURIComponent(url)}`,filename(item,url)); return true;
         }
         return false;
-      } catch { toast(action.startsWith('copy') ? 'Could not copy. Please try again.' : 'Could not download this artwork. Please try again.'); return false; }
+      } catch(error) { toast(error?.status===401 ? 'Sign in to the source to access this image.' : error?.status===403 ?
+        'This image requires additional access on the source website.' : action.startsWith('copy') ? 'Could not copy. Please try again.' : 'Could not download this artwork. Please try again.'); return false; }
       finally { busy.delete(key); }
     }
     return { load, restore, isHidden, setHidden, run, items:()=>current, pending:item=>pending.has(item?.key),
