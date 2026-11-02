@@ -25,7 +25,7 @@ internal sealed record UpscalePackage(Uri DownloadUri, long DownloadBytes, strin
 
 internal sealed record UpscaleComponentStatus(string State, bool Installed, long ReceivedBytes,
     long TotalBytes, long InstalledBytes, string? Error, string Engine, string Version);
-internal sealed record UpscalePreferences(int Scale = 2);
+internal sealed record UpscalePreferences(int Scale = 2, bool Auto = false);
 
 /// <summary>Only explicitly requested, pinned upstream bytes may become an executable component.</summary>
 internal sealed class UpscaleComponent : IDisposable
@@ -73,17 +73,21 @@ internal sealed class UpscaleComponent : IDisposable
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or UpscaleException) { }
         return new();
     }
-    internal UpscalePreferences SetScale(int scale)
+    internal UpscalePreferences SetScale(int scale) => SetPreferences(scale: scale);
+
+    internal UpscalePreferences SetPreferences(int? scale = null, bool? auto = null)
     {
-        if (scale is not (2 or 4)) throw new UpscaleException("scale");
+        if (scale is not null and not (2 or 4)) throw new UpscaleException("scale");
         lock (sync)
         {
+            var value = preferences with { Scale = scale ?? preferences.Scale, Auto = auto ?? preferences.Auto };
+            if (value == preferences) return preferences;
             UpscaleStorage.CheckParents(root); Directory.CreateDirectory(root);
             var path = UpscaleStorage.Child(root, "preferences.json");
             var temporary = UpscaleStorage.Child(root, ".preferences-" + Guid.NewGuid().ToString("N"));
-            try { File.WriteAllText(temporary, JsonSerializer.Serialize(new UpscalePreferences(scale))); File.Move(temporary, path, true); }
+            try { File.WriteAllText(temporary, JsonSerializer.Serialize(value)); File.Move(temporary, path, true); }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
-            return preferences = new(scale);
+            return preferences = value;
         }
     }
 

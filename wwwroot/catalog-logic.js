@@ -1542,7 +1542,7 @@
     return groups;
   }
 
-  function recommendationQueryGroups(liked, preferences = {}, background = []) {
+  function recommendationQueryGroups(liked, preferences = {}, background = [], { includeCombinations = true } = {}) {
     let groups = recommendationTagGroups(liked, 2, preferences);
     const weights = recommendationWeights(liked, preferences, background);
     const usable = ({ tag }) => preferences[tag] !== 'disabled' &&
@@ -1566,7 +1566,7 @@
     if (!priority.length && !names.length && !copyright.length && !other.length)
       names.push(...active(groups.names).filter(({ tag }) =>
         preferences[tag] !== 'priority').slice(0, 1));
-    const pending = [...recommendationCombinations(liked, preferences, background)];
+    const pending = includeCombinations ? [...recommendationCombinations(liked, preferences, background)] : [];
     const combinations = [], usedTags = new Map();
     while (pending.length && combinations.length < 24) {
       let best = 0, bestScore = -1;

@@ -2,7 +2,12 @@ using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using ArtCatalog;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 internal static class UpscaleFixtureTests
 {
@@ -35,6 +40,7 @@ internal static class UpscaleFixtureTests
             using var http = new HttpClient(new Reply(archive));
             using var component = new UpscaleComponent(Path.Combine(root, "component"), http, package);
             Check(!component.Status.Installed, "a missing optional module must stay absent");
+            await PreferencesAsync(Path.Combine(root, "preferences"), http, package);
             Check(component.Preferences.Scale == 2, "default enlargement is 2x until the user chooses otherwise");
             component.SetScale(4);
             using (var restarted = new UpscaleComponent(Path.Combine(root, "component"), http, package))
@@ -124,6 +130,75 @@ internal static class UpscaleFixtureTests
             Console.WriteLine("Optional upscale integrity, limits, installation and queue cancellation: PASS");
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static async Task PreferencesAsync(string root, HttpClient http, UpscalePackage package)
+    {
+        using var component = new UpscaleComponent(root, http, package);
+        using var jobs = new ImageUpscaleService(Path.Combine(root, "jobs"), component, new PngRunner());
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddSingleton(component);
+        builder.Services.AddSingleton(jobs);
+        await using var app = builder.Build();
+        UpscaleEndpoints.Map(app);
+        await app.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+        client.DefaultRequestHeaders.Add("Origin", client.BaseAddress.GetLeftPart(UriPartial.Authority));
+        async Task<JsonDocument> Status()
+        {
+            using var response = await client.GetAsync("/api/upscale"); response.EnsureSuccessStatusCode();
+            return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        }
+        async Task<JsonDocument> Update(string body)
+        {
+            using var response = await client.PostAsync("/api/upscale/preferences", new StringContent(body, Encoding.UTF8, "application/json"));
+            response.EnsureSuccessStatusCode(); return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        }
+        using (var initial = await Status())
+            Check(initial.RootElement.GetProperty("preferences").TryGetProperty("auto", out var auto) && !auto.GetBoolean(),
+                "auto enlargement defaults off and is exposed by native status");
+        using (var enabled = await Update("{\"auto\":true}"))
+            Check(enabled.RootElement.GetProperty("auto").GetBoolean() && enabled.RootElement.GetProperty("scale").GetInt32() == 2,
+                "enabling auto enlargement preserves the existing default scale");
+        using (var scaled = await Update("{\"scale\":4}"))
+            Check(scaled.RootElement.GetProperty("auto").GetBoolean() && scaled.RootElement.GetProperty("scale").GetInt32() == 4,
+                "changing scale must preserve enabled auto enlargement");
+        using (var restarted = new UpscaleComponent(root, http, package))
+        {
+            using var saved = JsonDocument.Parse(JsonSerializer.Serialize(restarted.Preferences, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            Check(saved.RootElement.GetProperty("auto").GetBoolean() && saved.RootElement.GetProperty("scale").GetInt32() == 4,
+                "both enlargement preferences survive a native restart");
+            restarted.SetScale(2);
+            using var scaled = JsonDocument.Parse(JsonSerializer.Serialize(restarted.Preferences, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            Check(scaled.RootElement.GetProperty("auto").GetBoolean(), "legacy SetScale callers preserve the auto preference");
+        }
+        using (var disabled = await Update("{\"auto\":false}"))
+            Check(!disabled.RootElement.GetProperty("auto").GetBoolean() && disabled.RootElement.GetProperty("scale").GetInt32() == 4,
+                "turning auto off preserves the saved scale");
+        using (var unchanged = await Update("{}"))
+            Check(!unchanged.RootElement.GetProperty("auto").GetBoolean() && unchanged.RootElement.GetProperty("scale").GetInt32() == 4,
+                "omitted fields do not reset saved preferences");
+        var before = File.ReadAllBytes(Path.Combine(root, "preferences.json"));
+        foreach (var invalid in new[] { "{\"auto\":null}", "{\"auto\":\"true\"}", "{\"auto\":1}", "{\"scale\":null}",
+            "{\"scale\":3}", "{\"scale\":\"4\"}", "{\"scale\":2,\"auto\":0}", "null", "[]", "{broken" })
+        {
+            using var rejected = await client.PostAsync("/api/upscale/preferences", new StringContent(invalid, Encoding.UTF8, "application/json"));
+            Check(rejected.StatusCode == HttpStatusCode.BadRequest, "invalid preference payload is rejected: " + invalid);
+            Check(File.ReadAllBytes(Path.Combine(root, "preferences.json")).SequenceEqual(before), "invalid payload cannot change saved preferences");
+        }
+        Check(!component.Status.Installed, "saving an auto preference never installs the optional component");
+        await app.StopAsync();
+
+        var legacy = Path.Combine(root, "legacy"); Directory.CreateDirectory(legacy);
+        File.WriteAllText(Path.Combine(legacy, "preferences.json"), "{\"Scale\":4}");
+        using (var restarted = new UpscaleComponent(legacy, http, package))
+        {
+            using var saved = JsonDocument.Parse(JsonSerializer.Serialize(restarted.Preferences, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            Check(saved.RootElement.GetProperty("scale").GetInt32() == 4 && !saved.RootElement.GetProperty("auto").GetBoolean(),
+                "legacy scale-only preferences retain their scale and start auto disabled");
+        }
     }
 
     private static string Hash(byte[] data) => Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();

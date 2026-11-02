@@ -196,3 +196,85 @@ test('an artwork refresh started during a save cannot erase the confirmed Favori
  const loading=env.c.loadArtworks();finishSave([work(1)]);await saving;finishLoad([]);await loading;
  assert.equal(env.c.isArtworkFavorite(work(1)),true);
 });
+test('Favorites reuses rated recommendation evidence across renders, tabs and collection switches',()=>{
+ const previous=global.CatalogLogic, likes=[work(1),{...work(2),rating:'e'}], tags=['fern'];
+ let analysis=0, grouping=0, visibility=0; const seen=[];
+ global.CatalogLogic={...Logic,groupingRevision:()=>grouping,
+  recommendationTagGroups:()=>({names:[{tag:'fern'}],copyright:[],other:[]}),
+  recommendationQueryGroups:(items,prefs,background,options)=>{
+   analysis++;seen.push({items,options});return {priority:[],names:[{tag:'fern',count:items.length}],copyright:[],other:[]};
+  }};
+ try {
+  const env=controller(async()=>[],{getTags:()=>tags,getLiked:()=>likes,getKnown:()=>likes,getRecent:()=>likes,
+   visibilityRevision:()=>visibility});
+  const tab={rating:'explicit',favoriteType:'character',favoriteOrigin:'mine'};
+  assert.equal(env.c.cards(tab)[0].likedCount,1);
+  visibility++;env.c.cards(tab);tab.favoriteOrigin='system';env.c.cards(tab);
+  env.c.cards({...tab});env.c.invalidate();env.c.cards(tab);
+  assert.equal(analysis,1,'view statistics and display changes must not rebuild like evidence');
+  assert.equal(seen[0].options.includeCombinations,false,'Favorites never consumes recommendation combinations');
+  tab.rating='all';env.c.cards(tab);assert.equal(analysis,2);
+  tab.rating='explicit';env.c.cards(tab);assert.equal(analysis,2,'returning to a rating must reuse its snapshot');
+  likes.push({...work(3),rating:'e'});assert.equal(env.c.cards(tab)[0].likedCount,2);assert.equal(analysis,3);
+  grouping++;env.c.cards(tab);assert.equal(analysis,4,'learned metadata invalidates same-array evidence');
+ } finally {global.CatalogLogic=previous;}
+});
+test('Favorites invalidates recommendation evidence when a tag preference changes in place',()=>{
+ const previous=global.CatalogLogic, likes=[work(1)], tags=['fern'], preferences={};let calls=0;
+ global.CatalogLogic={...Logic,recommendationTagGroups:()=>({names:[{tag:'fern'}],copyright:[],other:[]}),
+  recommendationQueryGroups:(items,prefs)=>{calls++;return {priority:prefs.fern==='priority'?[{tag:'fern',count:1}]:[],
+   names:prefs.fern?[ ]:[{tag:'fern',count:1}],copyright:[],other:[]};}};
+ try {
+  const env=controller(async()=>[],{getTags:()=>tags,getKnown:()=>likes,getRecent:()=>likes,getLiked:()=>likes,getTagPreferences:()=>preferences});
+  const tab={rating:'all',favoriteType:'character',favoriteOrigin:'system'};
+  env.c.cards(tab);preferences.fern='priority';assert.equal(env.c.cards(tab)[0].priority,true);assert.equal(calls,2);
+  preferences.fern='disabled';assert.equal(env.c.cards(tab).length,0);assert.equal(calls,3);
+ } finally {global.CatalogLogic=previous;}
+});
+test('missing Favorite covers scan liked tag metadata once instead of once per favorite',()=>{
+ let reads=0;const liked=Array.from({length:120},(_,i)=>({...work(i),get tags(){reads++;return ['rain','forest'];}}));
+ const cards=F.collections({liked,tags:Array.from({length:80},(_,i)=>'missing_'+i),suggestions:[],type:'tag'});
+ assert.equal(cards.length,80);assert.ok(cards.every(card=>card.cover===null));
+ assert.ok(reads<=liked.length*2,`expected one liked-metadata pass, read ${reads} tag arrays`);
+});
+test('Character Favorites skip ensemble covers and retain counts with the latest matching single-character history',()=>{
+ const ensemble={...work(1),characterTags:['fern','other_character'],tags:['solo','rain']};
+ const recent=[{...work(2),characterTags:['fern','other_character']},work(3),work(4)];
+ const input={summary:{...snapshot,works:[ensemble]},tags:['fern'],recent,
+  suggestions:[{tag:'fern',kind:'character',likedCount:9}],type:'character',rating:'all'};
+ for(const origin of ['mine','system']){
+  const [card]=F.collections({...input,origin});
+  assert.equal(card.cover.key,'danbooru:3');assert.equal(card.coverOrigin,'recent');
+  assert.equal(card.count,4);assert.equal(card.likedCount,9);
+ }
+ const [tag]=F.collections({...input,type:'tag',tags:['rain']});
+ assert.equal(tag.cover.key,'danbooru:1','Tag Favorites retain their existing latest-work cover');
+});
+test('Character Favorite covers require the sole requested typed name, with solo optional',()=>{
+ const tags=['fern'],suggestions=[],type='character',summary={kinds:{fern:'character'}};
+ for(const candidate of [work(1),{...work(2),characterTags:[' Fern ','fern'],tags:['solo']},
+   {...work(3),characterTags:['fern'],tags:['2girls']}]){
+  assert.equal(F.collections({tags,suggestions,type,summary,recent:[candidate]})[0].cover.key,candidate.key);
+ }
+ for(const candidate of [{...work(4),characterTags:['wrong'],tags:['solo','fern']},
+  {...work(5),characterTags:['fern','other'],tags:['solo']},{...work(6),characterTags:[],tags:['solo','fern']}]){
+  const [card]=F.collections({tags,suggestions,type,summary,recent:[candidate]});
+  assert.equal(card.cover,null);assert.equal(card.tag,'fern');
+ }
+});
+test('Character Favorite fallback applies complete metadata, rating and hidden-work filters before choosing',()=>{
+ const first={...work(1),rating:'e'},hidden=work(2),incomplete={...work(3),filteringComplete:false},liked=work(4);
+ const input={tags:['fern'],suggestions:[],type:'character',recent:[first,hidden,incomplete],liked:[liked],rating:'general',allowed:item=>item.key!==hidden.key};
+ const [card]=F.collections(input);assert.equal(card.cover.key,liked.key);assert.equal(card.coverOrigin,'liked');
+ assert.equal(F.collections({...input,liked:[]})[0].cover,null);
+ // Known rich metadata must reject an apparently eligible stale snapshot.
+ assert.equal(F.collections({...input,known:[{...liked,characterTags:['fern','other']}],recent:[]})[0].cover,null);
+});
+test('older already-loaded dated single-character works remain usable when recent history no longer contains them',()=>{
+ const summary={...snapshot,entries:[...snapshot.entries,
+  {tag:'old_content',kind:'tag',lastWorkKey:'danbooru:7',lastViewedAt:'2026-11-01T00:00:00Z'},
+  {tag:'new_content',kind:'tag',lastWorkKey:'danbooru:8',lastViewedAt:'2026-11-01T12:00:00Z'}],
+  works:[{...work(1),characterTags:['fern','other']},work(7),work(8)]};
+ const [card]=F.collections({summary,tags:['fern'],suggestions:[],type:'character'});
+ assert.equal(card.cover.key,'danbooru:8');assert.equal(card.coverOrigin,'viewed');
+});

@@ -9,7 +9,9 @@
     if (!logic?.recommendationQueryGroups) return [];
     const groups = logic.recommendationTagGroups(liked, 1, preferences);
     const names = new Set(groups.names.map(entry => canonical(entry.query || entry.tag)));
-    const selected = logic.recommendationQueryGroups(liked, preferences);
+    // Favorites uses the same entity evidence as recommendations, but never
+    // consumes their joint search streams. Avoid building those unused pairs.
+    const selected = logic.recommendationQueryGroups(liked, preferences, [], { includeCombinations: false });
     const result = new Map();
     for (const entry of [...selected.priority, ...selected.names, ...selected.copyright, ...selected.other]) {
       const tag = canonical(entry.query || entry.tag);
@@ -43,17 +45,64 @@
     const kindFor = tag => summary.kinds?.[tag] || (characters.has(tag) ? 'character' : 'tag');
     const selected = origin === 'system' ? [...suggested.keys()].filter(tag => suggested.get(tag).kind === type) : [...manual].filter(tag => kindFor(tag) === type);
     const recentByTag = new Map();
-    for (const work of recent) for (const value of [...(work.characterTags || []), ...(work.allTags || []), ...(work.tags || [])]) {
+    if (type !== 'character') for (const work of recent) for (const value of [...(work.characterTags || []), ...(work.allTags || []), ...(work.tags || [])]) {
       const tag = canonical(value); if (!recentByTag.has(tag)) recentByTag.set(tag, work);
+    }
+    const enrich = work => work && rich.has(work.key) ? { ...work, ...rich.get(work.key) } : work;
+    const eligible = work => work && work.filteringComplete !== false && work.thumbnail && ratingMatches(work, rating) && allowed(work);
+    const characterCovers = new Map();
+    if (type === 'character') {
+      const wanted = new Set(selected);
+      const choose = (work, coverOrigin, expected = null) => {
+        const candidate = enrich(work); if (!candidate) return;
+        const names = new Set((candidate.characterTags || []).map(canonical).filter(Boolean));
+        if (names.size !== 1) return;
+        const tag = names.values().next().value;
+        if (!wanted.has(tag) || expected && expected !== tag || characterCovers.has(tag) || !eligible(candidate)) return;
+        characterCovers.set(tag, { cover: candidate, coverOrigin });
+      };
+      // The dated latest view wins when it belongs only to this character.
+      // Otherwise choose an older eligible history cover, then a like. A solo
+      // content tag is optional and cannot override another typed character.
+      for (const tag of selected) choose(covers.get(entries.get(tag)?.lastWorkKey), 'viewed', tag);
+      const scan = (works, origin) => {
+        for (const work of works) { if (characterCovers.size === wanted.size) break; choose(work, origin); }
+      };
+      scan(recent, 'recent');
+      if (characterCovers.size < wanted.size && covers.size) {
+        const dates = new Map();
+        for (const entry of entries.values()) {
+          const at = Date.parse(entry.lastViewedAt) || 0;
+          if (at > (dates.get(entry.lastWorkKey) || 0)) dates.set(entry.lastWorkKey, at);
+        }
+        scan([...covers.values()].sort((a, b) => (dates.get(b.key) || 0) - (dates.get(a.key) || 0)), 'viewed');
+      }
+      scan(liked, 'liked');
+    }
+    const likedByTag = new Map();
+    const neededLikes = new Set(type === 'character' ? [] : selected.filter(tag => {
+      const entry = entries.get(tag);
+      return !(entry ? covers.get(entry.lastWorkKey) : recentByTag.get(tag));
+    }));
+    // Keep the first matching like, including an ineligible one: falling back
+    // to an older work after filtering would misrepresent the selected cover.
+    for (const work of liked) {
+      if (!neededLikes.size) break;
+      for (const value of [...(work.characterTags || []), ...(work.copyrightTags || []), ...(work.tags || []), ...(work.allTags || [])]) {
+        const tag = canonical(value);
+        if (neededLikes.delete(tag)) likedByTag.set(tag, work);
+      }
     }
     return selected.map(tag => {
       const entry = entries.get(tag);
-      // A filtered latest cover stays blank; using an older cover would mislabel it as the latest view.
-      let candidate = entry ? covers.get(entry.lastWorkKey) : recentByTag.get(tag);
-      let coverOrigin = entry ? 'viewed' : 'recent';
-      if (!candidate) { candidate = liked.find(work => [...(work.characterTags || []), ...(work.copyrightTags || []), ...(work.tags || []), ...(work.allTags || [])].some(value => canonical(value) === tag)); coverOrigin = 'liked'; }
-      if (candidate && rich.has(candidate.key)) candidate = { ...candidate, ...rich.get(candidate.key) };
-      const cover = candidate && candidate.filteringComplete !== false && candidate.thumbnail && ratingMatches(candidate, rating) && allowed(candidate) ? candidate : null;
+      const character = characterCovers.get(tag);
+      // Tag covers retain the latest-view rule. Character covers instead use
+      // the newest eligible single-character candidate selected above.
+      let candidate = type === 'character' ? character?.cover : entry ? covers.get(entry.lastWorkKey) : recentByTag.get(tag);
+      let coverOrigin = type === 'character' ? character?.coverOrigin || 'recent' : entry ? 'viewed' : 'recent';
+      if (type !== 'character' && !candidate) { candidate = likedByTag.get(tag); coverOrigin = 'liked'; }
+      if (type !== 'character') candidate = enrich(candidate);
+      const cover = eligible(candidate) ? candidate : null;
       return { tag, kind: origin === 'system' ? suggested.get(tag).kind : kindFor(tag), favorite: manual.has(tag), cover, coverOrigin,
         likedCount: suggested.get(tag)?.likedCount ?? null, priority: suggested.get(tag)?.priority || false,
         count: entry?.count ?? null, activeDays: entry?.activeDays || 0, lastViewedAt: entry?.lastViewedAt || null,
@@ -103,6 +152,8 @@
       changed = () => {}, toast = () => {}, allowed = () => true, save = () => {}, svg = () => '',
       openSearch = () => {}, openDetail = () => {}, schedule = setTimeout, unschedule = clearTimeout } = deps;
     const pending = new Set(), optimistic = new Map(), observed = new Map(), cache = new Map();
+    const ratedEvidence = new Map();
+    let evidenceInputs = null;
     let saving = Promise.resolve(), queue = [], timer = null, sending = null, inFlight = [], revision = 0, manualRevision = 0, disposed = false;
     let outboxSequence = 0;
     let lastKinds = {};
@@ -276,11 +327,26 @@
       const summary = { ...(tab.favoriteSummary || {}), kinds: { ...tab.favoriteSummary?.kinds, ...lastKinds } };
       const liked = deps.getLiked?.() || [], preferences = deps.getTagPreferences?.() || {};
       const rating = deps.effectiveRating?.(tab) || tab.rating;
-      const key = [tab, summary.entries, getTags(), getRecent(), getKnown(), liked, JSON.stringify(preferences), tab.favoriteType, tab.favoriteOrigin, rating, revision, deps.getPreferences?.(), deps.visibilityRevision?.()];
+      const tags = getTags(), recent = getRecent(), known = getKnown();
+      const preferenceKey = JSON.stringify(preferences), grouping = root.CatalogLogic?.groupingRevision?.(liked) || 0;
+      const key = [tab, summary.entries, tags, recent, known, liked, liked.length, grouping, preferenceKey,
+        tab.favoriteType, tab.favoriteOrigin, rating, revision, deps.getPreferences?.(), deps.visibilityRevision?.()];
       const old = cache.get(tab);
       if (old && key.every((value, i) => old.key[i] === value)) return old.cards;
-      const eligibleLikes = rating === 'all' ? liked : liked.filter(item => ratingMatches(item, rating));
-      const values = collections({ summary, tags: getTags(), recent: getRecent(), known: getKnown(), liked: eligibleLikes, preferences,
+      // Rating filtering used to allocate a new likes array on every render,
+      // invalidating recommendationProfile's WeakMap and rebuilding the whole
+      // library even when only a view counter or collection switch changed.
+      const inputs = [liked, liked.length, grouping, preferenceKey];
+      if (!evidenceInputs || !inputs.every((value, index) => evidenceInputs[index] === value)) {
+        evidenceInputs = inputs; ratedEvidence.clear();
+      }
+      let evidence = ratedEvidence.get(rating);
+      if (!evidence) {
+        const items = rating === 'all' ? liked : liked.filter(item => ratingMatches(item, rating));
+        evidence = { items, suggestions: systemSuggestions(items, preferences) };
+        ratedEvidence.set(rating, evidence);
+      }
+      const values = collections({ summary, tags, recent, known, liked: evidence.items, suggestions: evidence.suggestions, preferences,
         type: tab.favoriteType || 'character', origin: tab.favoriteOrigin || 'mine', rating, allowed });
       cache.set(tab, { key, cards: values }); return values;
     }
@@ -300,16 +366,16 @@
           <div class="favorite-entity-stats">${card.likedCount !== null ? `<span>${card.likedCount} ${t('liked artworks')}</span>` : ''}
           <span>${card.count === null ? t('No dated views yet') : `${card.count} ${t('viewed artworks')}`}</span>
           ${card.priority ? '<span class="favorite-priority">Priority</span>' : ''}</div>
-          ${card.cover ? `<small class="favorite-preview-origin">${t(card.coverOrigin === 'liked' ? 'From liked artworks' : card.coverOrigin === 'recent' ? 'Earlier browsing history' : 'Last viewed artwork')}</small>` : ''}</div>`;
+          ${card.cover ? `<small class="favorite-preview-origin">${t(card.coverOrigin === 'liked' ? 'From liked artworks' : card.coverOrigin === 'recent' ? 'Earlier browsing history' : type === 'character' ? 'Last matching viewed artwork' : 'Last viewed artwork')}</small>` : ''}</div>`;
       };
       const summary = tab.favoriteSummary;
       return `<section class="content favorites-page"><div class="section-head"><h1>Favorites</h1>
         ${type !== 'artwork' ? button('add',t('Add Favorite'),`class="filter-button" aria-expanded="${!!tab.favoriteAdding}"`) : ''}</div>
         <p class="subtitle">Favorite characters, tags and artworks</p>
-        <div class="search-tools"><div class="source-filters" aria-label="${t('Favorite category')}">
+        <div class="search-tools favorites-filters"><div class="source-filters control-group favorites-category" aria-label="${t('Favorite category')}">
           ${['character','tag','artwork'].map((value,i)=>choose('type',value,['Characters','Tags','Artworks'][i],type===value)).join('')}</div>
-          ${type !== 'artwork' ? `<div class="source-filters" aria-label="${t('Collection')}">${choose('origin','mine','Mine',origin==='mine')}${choose('origin','system','System picks',origin==='system')}</div>` : ''}
-          <div class="source-filters" aria-label="${t('Rating')}">${['general','explicit','all'].map((value,i)=>choose('rating',value,['SFW','NSFW','All images'][i],tab.rating===value)).join('')}</div></div>
+          ${type !== 'artwork' ? `<div class="source-filters control-group favorites-origin" aria-label="${t('Collection')}">${choose('origin','mine','Mine',origin==='mine')}${choose('origin','system','System picks',origin==='system')}</div>` : ''}
+          <div class="source-filters control-group favorites-rating" aria-label="${t('Rating')}">${['general','explicit','all'].map((value,i)=>choose('rating',value,['SFW','NSFW','All images'][i],tab.rating===value)).join('')}</div></div>
         ${tab.favoriteAdding && type !== 'artwork' ? `<form class="favorites-add-form"><label for="favorite-new-tag">${t(type==='character'?'Character tag':'Content tag')}</label>
           <div><input id="favorite-new-tag" name="tag" required maxlength="100" autocomplete="off" placeholder="${type==='character'?'fern_(sousou_no_frieren)':'rain'}" value="${escape(tab.favoriteDraft||'')}" data-no-i18n>
           <button type="submit" class="primary-button">${t('Add Favorite')}</button>${button('cancel',t('Cancel'),'class="secondary-button"')}</div>

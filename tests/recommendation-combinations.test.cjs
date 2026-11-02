@@ -14,6 +14,16 @@ const recurring = () => [
 const loaderSource = app.slice(app.indexOf('function createRecommendationPools('),
   app.indexOf('\nfunction decorateFollowItems('));
 
+test('Favorites can omit unused combinations without changing recommendation entity evidence', () => {
+  const preferences = { latex: 'priority', 'other character': 'disabled' };
+  const likes = recurring();
+  const lean = logic.recommendationQueryGroups(likes, preferences, [], { includeCombinations: false });
+  const complete = logic.recommendationQueryGroups(likes, preferences);
+  assert.ok(complete.combinations.length > 0, 'ordinary recommendations retain their combination queries');
+  assert.deepEqual(lean.combinations, []);
+  for (const kind of ['priority', 'names', 'copyright', 'other']) assert.deepEqual(lean[kind], complete[kind]);
+});
+
 test('recurring character and content combinations distinguish equal marginal interests', () => {
   const likes = recurring();
   const pairs = logic.recommendationCombinations(likes);

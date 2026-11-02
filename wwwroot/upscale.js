@@ -3,7 +3,8 @@
   const messages = {
     en: {
       title: 'Upscale', settingsTitle: 'Image upscaling', description: 'Choose your default once. Then right-click an artwork or use ⋮ and select Upscale. The result appears in the current viewer.',
-      defaultScale: 'Default enlargement', oneClick: 'One action per image, with no extra window or repeated choices. U also starts upscaling in the viewer.', done: 'Upscaled',
+      defaultScale: 'Default enlargement', oneClick: 'One action per image, with no extra window or repeated choices. U starts upscaling, then switches between the original and result in the viewer.', done: 'Upscaled',
+      automatic: 'Automatically upscale opened images', automaticHint: 'Uses the saved enlargement for visible images in artwork pages, quick preview and fullscreen. Requires the installed module. U switches to the original; that choice is kept for the image.',
       optional: 'Optional module. Download once; DART connects it automatically. Images stay on this computer.',
       install: 'Download module · 36 MB', repair: 'Download again', remove: 'Remove module', clear: 'Clear result cache',
       ready: 'Ready to upscale', checking: 'Checking module…', downloading: 'Downloading module…', verifying: 'Checking download…', installing: 'Installing module…',
@@ -24,7 +25,8 @@
     },
     ru: {
       title: 'Апскейл', settingsTitle: 'Увеличение изображений', description: 'Один раз выберите масштаб. Затем нажмите правой кнопкой на арт или ⋮ и выберите «Апскейл». Результат появится прямо в текущем просмотре.',
-      defaultScale: 'Масштаб по умолчанию', oneClick: 'Одно действие для изображения, без отдельного окна и повторных решений. Клавиша U также запускает апскейл в просмотре.', done: 'Увеличено',
+      defaultScale: 'Масштаб по умолчанию', oneClick: 'Одно действие для изображения, без отдельного окна и повторных решений. Клавиша U запускает апскейл, а затем переключает оригинал и результат в просмотре.', done: 'Увеличено',
+      automatic: 'Автоматически увеличивать открытые изображения', automaticHint: 'Применяет выбранный масштаб к видимым изображениям на странице арта, в быстром и полноэкранном просмотре. Нужен установленный модуль. Клавиша U возвращает оригинал; выбор сохраняется для этого изображения.',
       optional: 'Дополнительный модуль. Скачайте один раз — DART подключит его автоматически. Изображения остаются на этом компьютере.',
       install: 'Скачать модуль · 36 МБ', repair: 'Скачать заново', remove: 'Удалить модуль', clear: 'Очистить кэш результатов',
       ready: 'Готово к увеличению', checking: 'Проверяем модуль…', downloading: 'Скачиваем модуль…', verifying: 'Проверяем загрузку…', installing: 'Устанавливаем модуль…',
@@ -45,7 +47,8 @@
     },
     de: {
       title: 'Hochskalieren', settingsTitle: 'Bilder hochskalieren', description: 'Standard einmal auswählen. Danach per Rechtsklick oder ⋮ Hochskalieren wählen. Das Ergebnis erscheint direkt im aktuellen Betrachter.',
-      defaultScale: 'Standardvergrößerung', oneClick: 'Eine Aktion pro Bild, ohne zusätzliches Fenster oder erneute Auswahl. U startet die Vergrößerung im Betrachter.', done: 'Hochskaliert',
+      defaultScale: 'Standardvergrößerung', oneClick: 'Eine Aktion pro Bild, ohne zusätzliches Fenster oder erneute Auswahl. U startet die Vergrößerung und wechselt danach im Betrachter zwischen Original und Ergebnis.', done: 'Hochskaliert',
+      automatic: 'Geöffnete Bilder automatisch hochskalieren', automaticHint: 'Verwendet den gespeicherten Maßstab für sichtbare Bilder auf Werkseiten, in der Schnellvorschau und im Vollbild. Das installierte Modul ist erforderlich. U zeigt das Original; diese Auswahl bleibt für das Bild erhalten.',
       optional: 'Optionales Modul. Einmal herunterladen, DART verbindet es automatisch. Bilder bleiben auf diesem Computer.',
       install: 'Modul herunterladen · 36 MB', repair: 'Erneut herunterladen', remove: 'Modul entfernen', clear: 'Ergebnis-Cache leeren',
       ready: 'Bereit zum Hochskalieren', checking: 'Modul wird geprüft…', downloading: 'Modul wird heruntergeladen…', verifying: 'Download wird geprüft…', installing: 'Modul wird installiert…',
@@ -101,6 +104,7 @@
       try {
         update({ state: 'preparing', scale });
         const original = await readImage(item, url, signal);
+        if (active !== run || signal.aborted) return;
         const normalized = await normalize(original, scale, signal);
         if (active !== run || signal.aborted) return;
         const base = { scale, width: normalized.width, height: normalized.height, originalBlob: normalized.blob };
@@ -138,19 +142,25 @@
     });
   }
 
-  let dependencies = {}, moduleState = null, preferences = { scale: 2 }, cacheBytes = 0;
-  let moduleError = '', pollTimer = null, statusRequest = null, savingScale = false;
+  let dependencies = {}, moduleState = null, preferences = { scale: 2, auto: false }, cacheBytes = 0;
+  let moduleError = '', pollTimer = null, statusRequest = null, savingScale = false, statusInitialized = false;
   let scaleSave = Promise.resolve();
   const records = new Map(), overlays = new Map();
+  const autoTargets = new Map(), autoAttempts = new Set();
+  let autoObserver = null, autoListening = false, autoSyncing = false, disposed = false;
+  const imageSelector = '.detail-image > img[data-image-url], .quick-preview-stage > img[data-image-url]';
   const request = (url, options) => json(root.fetch.bind(root), url, options);
   const mediaKey = url => root.CatalogLogic?.mediaCacheKey(url) || url;
   const active = () => [...records.values()].some(entry => busy(entry.state));
+  const moduleReady = () => moduleState?.installed && !moduleState.error && moduleState.state === 'ready';
   function configure(options) { dependencies = { ...dependencies, ...options }; }
   function settingsMarkup() {
     return '<section class="settings-card upscale-settings" data-no-i18n><h2>' + escape(t('settingsTitle')) + '</h2><p>' + escape(t('description')) + '</p>' +
       '<fieldset class="upscale-defaults"><legend>' + escape(t('defaultScale')) + '</legend><div class="upscale-scales">' +
       [2,4].map(value => '<button type="button" data-upscale-scale="' + value + '" aria-pressed="' + (preferences.scale === value) + '">' + value + '×</button>').join('') +
-      '</div><p class="settings-hint">' + escape(t('oneClick')) + '</p></fieldset><p>' + escape(t('optional')) + '</p>' +
+      '</div><p class="settings-hint">' + escape(t('oneClick')) + '</p></fieldset>' +
+      '<label class="settings-toggle"><input type="checkbox" data-upscale-auto aria-describedby="upscale-auto-hint"' + (preferences.auto ? ' checked' : '') +
+      (savingScale || !moduleReady() ? ' disabled' : '') + '><span><strong>' + escape(t('automatic')) + '</strong><small id="upscale-auto-hint">' + escape(t('automaticHint')) + '</small></span></label><p>' + escape(t('optional')) + '</p>' +
       '<div data-upscale-module>' + moduleMarkup() + '</div><div class="upscale-cache"><span>' + escape(t('cache')) + ': <span data-upscale-cache>' + formatBytes(cacheBytes) +
       '</span></span><button type="button" class="secondary-button" data-upscale-action="clear"' + (active() ? ' disabled' : '') + '>' + escape(t('clear')) + '</button></div>' +
       '<p class="settings-hint"><a href="https://github.com/nihui/waifu2x-ncnn-vulkan" target="_blank" rel="noopener noreferrer">' + escape(t('source')) + '</a> · MIT · waifu2x CUnet</p></section>';
@@ -180,6 +190,9 @@
     for (const button of root.document.querySelectorAll('[data-upscale-scale]')) {
       button.setAttribute('aria-pressed', String(Number(button.dataset.upscaleScale) === preferences.scale)); button.disabled = savingScale;
     }
+    for (const input of root.document.querySelectorAll('[data-upscale-auto]')) {
+      input.checked = preferences.auto; input.disabled = savingScale || !moduleReady();
+    }
     for (const button of root.document.querySelectorAll('[data-upscale-action="clear"]')) button.disabled = active();
   }
   async function refresh() {
@@ -188,10 +201,10 @@
       try {
         const value = await request('/api/upscale', { signal: AbortSignal.timeout(8000) });
         moduleState = value.component; cacheBytes = value.cacheBytes;
-        if (!savingScale && [2,4].includes(value.preferences?.scale)) preferences = value.preferences;
+        if (!savingScale && [2,4].includes(value.preferences?.scale)) preferences = { ...value.preferences, auto: value.preferences.auto === true };
         moduleError = '';
       } catch { moduleError = 'network'; }
-      finally { statusRequest = null; paintModule(); schedulePoll(); }
+      finally { statusInitialized = true; statusRequest = null; paintModule(); schedulePoll(); syncAutomatic(); }
     })();
     return statusRequest;
   }
@@ -199,14 +212,72 @@
     clearTimeout(pollTimer); pollTimer = null;
     if (root.document.querySelector('.upscale-settings')) pollTimer = setTimeout(refresh, installing(moduleState?.state) ? 500 : 5000);
   }
-  function mounted() { applyVisible(); if (root.document.querySelector('.upscale-settings')) void refresh(); }
-  async function setScale(scale) {
-    if (savingScale || ![2,4].includes(scale)) return;
-    savingScale = true; paintModule();
-    scaleSave = request('/api/upscale/preferences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scale }) });
-    try { preferences = await scaleSave; }
-    catch (error) { dependencies.toast?.(t(error.message in messages.en ? error.message : 'storage')); }
-    finally { savingScale = false; paintModule(); }
+  function mounted() {
+    applyVisible();
+    if (!statusInitialized || root.document.querySelector('.upscale-settings')) void refresh();
+  }
+  async function savePreferences(patch) {
+    if (savingScale) return;
+    const previous = preferences;
+    preferences = { ...preferences, ...patch }; savingScale = true; paintModule(); syncAutomatic();
+    scaleSave = request('/api/upscale/preferences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    try { preferences = { ...preferences, ...await scaleSave }; }
+    catch (error) { preferences = previous; dependencies.toast?.(t(error.message in messages.en ? error.message : 'storage')); }
+    finally { savingScale = false; paintModule(); syncAutomatic(); }
+  }
+  function setScale(scale) { if ([2,4].includes(scale)) return savePreferences({ scale }); }
+  function automaticLoaded(event) { if (autoTargets.has(event.target)) syncAutomatic(); }
+  function automaticVisibilityChanged() { if (preferences.auto) syncAutomatic(); }
+  function stopAutomatic() {
+    autoObserver?.disconnect(); autoTargets.clear();
+    if (autoListening) { root.document.removeEventListener('load', automaticLoaded, true); autoListening = false; }
+    for (const entry of records.values()) if (entry.autoOwned && busy(entry.state)) entry.controller?.cancel();
+  }
+  function syncAutomatic() {
+    if (autoSyncing) return;
+    autoSyncing = true;
+    try {
+      if (disposed || !preferences.auto || !moduleReady() || root.document.hidden) { stopAutomatic(); return; }
+      const selected = dependencies.currentImage?.(), preview = root.document.querySelector('.quick-preview[open]');
+      const candidates = selected && !root.document.querySelector('dialog[open]:not(.quick-preview)') ?
+        [...root.document.querySelectorAll(imageSelector)].filter(image => image.isConnected &&
+          !image.closest('[hidden], dialog:not([open])') &&
+          (preview ? image.closest('.quick-preview[open]') : !image.closest('.quick-preview') && image.closest('#main')) &&
+          canUpscaleImage(selected.item, image.dataset.imageUrl)) : [];
+      const wanted = new Set(candidates);
+      for (const image of autoTargets.keys()) if (!wanted.has(image)) { autoObserver?.unobserve(image); autoTargets.delete(image); }
+      if (candidates.length && !autoObserver && root.IntersectionObserver) autoObserver = new root.IntersectionObserver(entries => {
+        for (const entry of entries) {
+          const target = autoTargets.get(entry.target);
+          if (target) target.visible = entry.isIntersecting && entry.intersectionRatio > 0;
+        }
+        syncAutomatic();
+      }, { threshold: 0 });
+      if (candidates.length && !autoListening) { root.document.addEventListener('load', automaticLoaded, true); autoListening = true; }
+      for (const image of candidates) {
+        const url = image.dataset.imageUrl, key = mediaKey(url), target = autoTargets.get(image);
+        if (target?.key === key) { target.item = selected.item; target.url = url; continue; }
+        autoTargets.set(image, { item: selected.item, url, key, visible: null, attempts: new Set() }); autoObserver?.observe(image);
+      }
+      const visible = new Map(), retained = new Set();
+      for (const [image,target] of autoTargets) if (image.complete && image.naturalWidth) {
+        if (target.visible) visible.set(target.key,target);
+        // Moving the same original into Space replaces its DOM node. Keep its
+        // pending job until the observer reports the new node's visibility.
+        if (target.visible !== false) retained.add(target.key);
+      }
+      for (const [key,entry] of records) if (entry.autoOwned && busy(entry.state) && !retained.has(key)) entry.controller?.cancel();
+      if (savingScale) return;
+      for (const [key,target] of visible) {
+        const existing = records.get(key), attempt = key + '|' + preferences.scale;
+        if (existing?.resultUrl || existing?.hidden || busy(existing?.state) || target.attempts.has(preferences.scale) || autoAttempts.has(attempt)) continue;
+        if ([...records.values()].filter(entry => busy(entry.state)).length >= 4) break;
+        target.attempts.add(preferences.scale); autoAttempts.add(attempt);
+        // Keep failure/cancellation metadata bounded without retaining decoded images.
+        if (autoAttempts.size > 128) autoAttempts.delete(autoAttempts.values().next().value);
+        void open(target, true);
+      }
+    } finally { autoSyncing = false; }
   }
   function stateFor(item, url) { return records.get(mediaKey(url)) || null; }
   function resultFor(item, url) {
@@ -217,41 +288,42 @@
     const entry = stateFor(item, url);
     return busy(entry?.state) ? t('processing') : t('title') + (moduleState ? ' ' + preferences.scale + '×' : '');
   }
-  async function open({ item, url }) {
+  async function open({ item, url }, automatic = false) {
     if (!canUpscaleImage(item, url)) return false;
     if (savingScale) { try { await scaleSave; } catch { return false; } }
     if (!moduleState) await refresh();
     if (!moduleState?.installed || moduleState.error || installing(moduleState.state)) {
-      dependencies.openSettings?.('upscale'); dependencies.toast?.(t(moduleError || 'not-installed')); return false;
+      if (!automatic) { dependencies.openSettings?.('upscale'); dependencies.toast?.(t(moduleError || 'not-installed')); }
+      return false;
     }
     const key = mediaKey(url), existing = records.get(key);
-    if (busy(existing?.state)) return false;
+    if (busy(existing?.state)) { if (!automatic) existing.autoOwned = false; return false; }
     if (existing?.resultUrl && existing.completedScale === preferences.scale) {
       existing.hidden = false; applyVisible(); return true;
     }
     // Bound work before reading/decoding originals, not only after PNGs reach
     // the native queue. Fast browsing cannot create unlimited image workers.
     if ([...records.values()].filter(entry => busy(entry.state)).length >= 4) {
-      dependencies.toast?.(t('queue-full')); return false;
+      if (!automatic) dependencies.toast?.(t('queue-full')); return false;
     }
     const entry = { item, url, scale: preferences.scale, state: 'preparing', resultUrl: existing?.resultUrl || '',
-      completedScale: existing?.completedScale, hidden: false };
+      completedScale: existing?.completedScale, hidden: false, userHidden: false, autoOwned: automatic };
     records.set(key, entry);
     entry.controller = createJobController({ readImage: dependencies.readImage, normalize: normalizeInWorker, onChange: next => {
       if (records.get(key) !== entry) return;
       entry.state = next.state; entry.error = next.error;
       if (next.state === 'completed') {
-        entry.resultUrl = next.resultUrl; entry.completedScale = next.scale; entry.hidden = false;
-        dependencies.toast?.(t('done') + ' ' + next.scale + '×'); applyVisible();
+        entry.resultUrl = next.resultUrl; entry.completedScale = next.scale; entry.hidden = entry.userHidden;
+        if (!entry.autoOwned) dependencies.toast?.(t('done') + ' ' + next.scale + '×'); applyVisible();
       } else if (next.state === 'error') {
-        dependencies.toast?.(t(next.error));
+        if (!entry.autoOwned) dependencies.toast?.(t(next.error));
         if (['integrity','not-installed'].includes(next.error)) {
           moduleState = { ...moduleState, installed: false, error: next.error }; void refresh();
         }
       }
-      paintModule(); dependencies.changed?.();
+      paintModule(); dependencies.changed?.(); syncAutomatic();
     } });
-    dependencies.toast?.(t('processing') + ' ' + entry.scale + '×');
+    if (!automatic) dependencies.toast?.(t('processing') + ' ' + entry.scale + '×');
     await entry.controller.start({ item, url, scale: entry.scale });
     // Keep only URL/status metadata for recent results. Decoded images belong to
     // visible viewers, never to every cached or browsed artwork.
@@ -262,8 +334,8 @@
     return entry.state === 'completed';
   }
   function cancel(item, url) { const entry = stateFor(item,url); entry?.controller?.cancel(); }
-  function restore(item, url) { const entry = stateFor(item,url); if (entry) { entry.hidden = true; applyVisible(); } }
-  function show(item, url) { const entry = stateFor(item,url); if (entry?.resultUrl) { entry.hidden = false; applyVisible(); } }
+  function restore(item, url) { const entry = stateFor(item,url); if (entry) { entry.hidden = entry.userHidden = true; applyVisible(); } }
+  function show(item, url) { const entry = stateFor(item,url); if (entry?.resultUrl) { entry.hidden = entry.userHidden = false; applyVisible(); } }
   function download(item, url) {
     const result = resultFor(item,url); if (!result) return;
     const filename = ('DART-' + item.source + '-' + item.id).replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,90) + '-' + result.scale + 'x.png';
@@ -292,9 +364,10 @@
     render.image.style.transitionDuration = original.style.transitionDuration;
   }
   function applyVisible() {
+    syncAutomatic();
     if (!records.size && !overlays.size) return;
     const visible = new Set();
-    for (const original of root.document.querySelectorAll('.detail-image > img[data-image-url], .quick-preview-stage > img[data-image-url]')) {
+    for (const original of root.document.querySelectorAll(imageSelector)) {
       const key = mediaKey(original.dataset.imageUrl), entry = records.get(key);
       if (!entry?.resultUrl || entry.hidden || original.closest('[hidden], dialog:not([open])')) continue;
       visible.add(key);
@@ -333,6 +406,8 @@
     await refresh();
   }
   function dispose() {
+    disposed = true; stopAutomatic();
+    root.document.removeEventListener?.('visibilitychange', automaticVisibilityChanged);
     clearTimeout(pollTimer);
     for (const entry of records.values()) entry.controller?.cancel(false);
     for (const key of overlays.keys()) removeOverlay(key);
@@ -342,11 +417,18 @@
   if (typeof module !== 'undefined') module.exports = api;
   else {
     root.DartUpscale = api;
+    root.document.addEventListener('visibilitychange', automaticVisibilityChanged);
     root.document.addEventListener('click', event => {
       const target = event.target.closest('[data-upscale-action], [data-upscale-scale]'); if (!target) return;
       event.preventDefault();
       if (target.dataset.upscaleAction) void action(target.dataset.upscaleAction);
       else void setScale(Number(target.dataset.upscaleScale));
+    });
+    root.document.addEventListener('change', event => {
+      if (event.target.matches('[data-upscale-auto]')) {
+        if (savingScale || !moduleReady()) { paintModule(); return; }
+        void savePreferences({ auto: event.target.checked });
+      }
     });
     root.document.addEventListener('keydown', event => {
       if (event.code !== 'KeyU' || event.repeat || event.ctrlKey || event.metaKey || event.altKey ||
@@ -354,7 +436,11 @@
           root.document.querySelector('dialog[open]:not(.quick-preview)')) return;
       const selected = dependencies.currentImage?.();
       if (!selected || !canUpscaleImage(selected.item, selected.url)) return;
-      event.preventDefault(); void open(selected);
+      event.preventDefault();
+      const result = resultFor(selected.item, selected.url);
+      if (result?.visible) restore(selected.item, selected.url);
+      else if (result) show(selected.item, selected.url);
+      else void open(selected);
     });
     root.addEventListener('beforeunload', dispose);
   }

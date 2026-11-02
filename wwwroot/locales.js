@@ -610,6 +610,7 @@ Enter one tag with underscores, without search commands.|Введите один
 No viewed preview yet|Пока нет просмотренной обложки|Noch keine betrachtete Vorschau
 Open last viewed artwork|Открыть последнюю просмотренную работу|Zuletzt betrachtetes Werk öffnen
 Last viewed artwork|Последняя просмотренная работа|Zuletzt betrachtetes Werk
+Last matching viewed artwork|Последняя подходящая просмотренная работа|Zuletzt betrachtetes passendes Werk
 Earlier browsing history|Из прежней истории просмотров|Aus dem bisherigen Verlauf
 Remove Favorite|Убрать из избранного|Favorit entfernen
 Save Favorite|Сохранить в избранное|Als Favorit speichern

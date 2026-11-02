@@ -4014,7 +4014,7 @@ function renderHome(tab) {
     `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} иллюстрации`;
   return `<div class="content">
     <div class="favorite-tags">${favoriteTags.length ? favoriteTags.map((tag, i) => `<button class="tag-chip chip-${i % 6}" data-action="query" data-query="${escapeHtml(tag)}">${escapeHtml(tag.replaceAll('_', ' '))}<small>#${escapeHtml(tag)}</small></button>`).join('') : '<span class="favorite-tags-empty">Right-click a tag and save it to Favorites.</span>'}</div>
-    <div class="mode-tabs">
+    <div class="mode-tabs control-group">
       ${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([mode, label]) => `<button class="mode-tab ${mode === tab.rating && tab.feed === 'illustrations' || mode === tab.feed ? 'active' : ''}" data-action="mode" data-mode="${mode}">${label}</button>`).join('')}
     </div>
     <section class="section"><div class="section-head"><h2>${headline}</h2><div class="section-head-actions">${`<button class="text-button ${tab.sort === 'popular' ? 'selected' : ''}" data-action="sort" data-sort="${tab.sort === 'popular' ? 'recent' : 'popular'}">${tab.sort === 'popular' ? 'Сначала новые' : 'Популярные'}</button>`}<button class="text-button" data-action="all">Показать все</button></div></div>
@@ -4035,9 +4035,9 @@ function renderSearch(tab) {
     <div class="search-heading"><h1>${title}${tab.query ? ` · <span data-no-i18n>${escapeHtml(tab.query)}</span>` : ''}</h1>${favoriteTag ? `<button class="icon-button" data-action="content-more" data-context-tag="${escapeHtml(favoriteTag)}" aria-label="Tag actions" title="Tag actions" aria-haspopup="menu">${svg('more')}</button>` : ''}</div>
     <p class="section-sub">Ищите по тегам, выбирайте источники и рейтинг.</p>
     <div class="search-tools">
-      <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="category" data-category="${rating}">${label}</button>`).join('')}</div>
-       ${`<div class="source-filters">${Object.entries(names).map(([source, name]) => `<button class="filter-button ${tab.selectedSources.includes(source) ? 'active' : ''}" data-action="filter" data-source="${source}" aria-pressed="${tab.selectedSources.includes(source)}">${name}${sourceKeyHint(source)}</button>`).join('')}</div>`}
-      ${`<div class="sort-row"><button class="sort-button ${tab.sort === 'recent' ? 'active' : ''}" data-action="sort" data-sort="recent">Новые</button><button class="sort-button ${tab.sort === 'popular' ? 'active' : ''}" data-action="sort" data-sort="popular">Популярные</button><span>${tab.sort === 'popular' ? 'Danbooru, Gelbooru и Rule34 — по оценкам за всё время. Sankaku — официальный порядок популярности сайта.' : 'Последние публикации всех выбранных источников.'}</span></div>`}
+      <div class="source-filters control-group">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="category" data-category="${rating}">${label}</button>`).join('')}</div>
+       ${`<div class="source-filters control-group">${Object.entries(names).map(([source, name]) => `<button class="filter-button ${tab.selectedSources.includes(source) ? 'active' : ''}" data-action="filter" data-source="${source}" aria-pressed="${tab.selectedSources.includes(source)}">${name}${sourceKeyHint(source)}</button>`).join('')}</div>`}
+      ${`<div class="sort-row"><div class="control-group"><button class="sort-button ${tab.sort === 'recent' ? 'active' : ''}" data-action="sort" data-sort="recent">Новые</button><button class="sort-button ${tab.sort === 'popular' ? 'active' : ''}" data-action="sort" data-sort="popular">Популярные</button></div><span>${tab.sort === 'popular' ? 'Danbooru, Gelbooru и Rule34 — по оценкам за всё время. Sankaku — официальный порядок популярности сайта.' : 'Последние публикации всех выбранных источников.'}</span></div>`}
     </div>
     ${renderErrors(tab.errors)}
     ${!blockedQuery && (tab.items.length || Object.keys(tab.searchPageStats || {}).length) ? renderSearchSummary(tab) : ''}
@@ -4157,7 +4157,7 @@ function openContentContextMenu(context, x, y) {
       row('hide',hidden?'Show again':'Don’t show this artwork again','hide')+'<div class="recommendation-tag-menu-separator" role="separator"></div>'+
       (upscaleAllowed ? row(upscaleBusy ? 'upscale-cancel' : 'upscale', upscaleBusy ? 'Cancel upscale' : DartUpscale.label(item,upscaleUrl) + ' · U', 'image') : '')+
       (upscaleResult ? row('upscale-restore', upscaleResult.visible ? 'Show original' : 'Show upscaled image', 'image') + row('upscale-download','Save upscaled PNG','download') : '')+
-      row('download',upscaleResult?.visible?'Download original':'Download image','download')+row('copy-image',upscaleResult?.visible?'Copy original image':'Copy image','copy')+row('copy-link','Copy artwork link','external')+row('copy-image-link','Copy image link','external')+row('copy-tags','Copy all artwork tags','copy');
+      row('download',upscaleResult?.visible?'Download original':'Download image','download')+row('copy-image',upscaleResult?.visible?'Copy original image':'Copy image','copy')+row('copy-link','Copy artwork link','external');
     positionContentContextMenu(context,x,y);return;
   }
   if (context.kind === 'nsfw') {
@@ -4271,8 +4271,8 @@ function renderRecommendations(tab) {
       ${copyrights.length ? `<div class="recommendation-tags recommendation-copyright-tags"><span>Copyright</span>${renderRecommendationTagChips(visibleCopyrights, 'copyright')}${hiddenCopyrightCount ? `<button class="filter-button" data-action="recommendation-copyright-more" aria-expanded="${!!tab.showMoreRecommendationCopyright}">${tab.showMoreRecommendationCopyright ? 'Свернуть' : `Ещё +${hiddenCopyrightCount}`}</button>` : ''}</div>` : ''}
       ${tab.otherTagsOpen ? `<div class="recommendation-other-panel" id="recommendation-other-panel"><div class="recommendation-other-heading"><strong>Теги содержания</strong><span class="recommendation-other-count">${filteredRecommendationOtherTags(tab).length} из ${groups.other.length}</span></div><p class="recommendation-other-note">Частые необычные теги влияют на подбор. Приглушённые общие теги учитываются только с жёлтым приоритетом. Настройка — правой кнопкой мыши.</p><input class="recommendation-other-filter" type="search" data-recommendation-other-filter value="${escapeHtml(tab.otherTagFilter || '')}" placeholder="Найти тег, например group_sex" aria-label="Найти тег содержания"><div class="recommendation-other-list">${renderRecommendationOtherList(tab)}</div></div>` : ''}
       <div class="search-tools">
-        <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="recommendation-rating" data-rating="${rating}">${label}</button>`).join('')}</div>
-        <div class="source-filters">${Object.entries(names).map(([source, name]) => `<button class="filter-button ${tab.selectedSources.includes(source) ? 'active' : ''}" data-action="recommendation-source" data-source="${source}" aria-pressed="${tab.selectedSources.includes(source)}">${name}${sourceKeyHint(source)}</button>`).join('')}</div>
+        <div class="source-filters control-group">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="recommendation-rating" data-rating="${rating}">${label}</button>`).join('')}</div>
+        <div class="source-filters control-group">${Object.entries(names).map(([source, name]) => `<button class="filter-button ${tab.selectedSources.includes(source) ? 'active' : ''}" data-action="recommendation-source" data-source="${source}" aria-pressed="${tab.selectedSources.includes(source)}">${name}${sourceKeyHint(source)}</button>`).join('')}</div>
       </div>
       <section class="section"><div class="section-head"><h2>Для вас</h2><button class="text-button" data-action="recommendation-refresh">Обновить</button></div>
         ${renderErrors(tab.errors, 'recommendation-more-retry')}
@@ -4330,7 +4330,7 @@ function renderFollows(tab) {
       ${follows.length ? `<div class="followed-artists">${follows.map(follow => renderFollowArtist(follow, tab)).join('')}</div>` : ''}</div>` : ''}
     ${!settings.hasApiKey ? '<div class="source-notice">Для работ Gelbooru укажите API key в настройках.</div>' : ''}
     ${!follows.length ? '<div class="empty feature-empty">Добавьте тег художника или нажмите «Подписаться» на его работе.</div>' : `
-      <div class="search-tools"><div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="follow-rating" data-rating="${rating}">${label}</button>`).join('')}</div></div>
+      <div class="search-tools"><div class="source-filters control-group">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="follow-rating" data-rating="${rating}">${label}</button>`).join('')}</div></div>
       <section class="section"><div class="section-head"><h2>Последние работы${tab.newKeys?.size ? ` · ${tab.newKeys.size} новых` : ''}</h2><div class="follow-feed-actions">${sourceIcon}<button class="text-button" data-action="follow-refresh">Обновить</button></div></div>
         ${tab.followSourceNotices?.sankaku || tab.followSourceErrors?.sankaku ? renderErrors({ sankaku: tab.followSourceErrors?.sankaku || tab.followSourceNotices.sankaku }, 'follow-refresh') : ''}
         ${tab.seenError ? '<div class="source-notice">Не удалось сохранить отметку просмотра. При следующем открытии метка «Новое» может повториться.</div>' : ''}
@@ -4406,7 +4406,7 @@ function renderProfile(tab) {
       <div><h1 data-no-i18n>${escapeHtml(name)}</h1><p class="section-sub">${escapeHtml(profile?.role || (['gelbooru', 'rule34', 'sankaku'].includes(ref.source) ? 'Загрузчик' : 'Художник'))}${sourceLabel ? ` · ${escapeHtml(sourceLabel)}` : ''}</p></div>
       <div class="profile-actions">${followButton({ source: artistProfile ? 'danbooru' : ref.source, artistId: ref.artist,
         service: ref.service, name })}${profile?.url ? `<button class="secondary-button" data-action="profile-external">Открыть на сайте ↗</button>` : ''}</div></div>
-    <div class="source-filters">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все']].map(([rating, label]) => `<button class="filter-button ${tab.rating === rating ? 'active' : ''}" data-action="profile-rating" data-rating="${rating}">${label}</button>`).join('')}</div>
+    <div class="source-filters control-group">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все']].map(([rating, label]) => `<button class="filter-button ${tab.rating === rating ? 'active' : ''}" data-action="profile-rating" data-rating="${rating}">${label}</button>`).join('')}</div>
     <section class="section"><div class="section-head"><h2>Работы</h2></div>
       ${renderErrors(tab.errors)}
       ${tab.profileError ? '<div class="error-box">Не удалось загрузить профиль. <button class="inline-retry" data-action="profile-retry">Повторить</button></div>' : ''}

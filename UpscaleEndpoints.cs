@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
+using System.Text.Json;
 
 namespace ArtCatalog;
 
@@ -16,8 +17,31 @@ internal static class UpscaleEndpoints
             try
             {
                 if (context.Request.ContentLength > 1024) return Error("scale", 400);
-                var value = await context.Request.ReadFromJsonAsync<UpscalePreferences>(context.RequestAborted);
-                return value is null ? Error("scale", 400) : Results.Json(module.SetScale(value.Scale));
+                using var data = new MemoryStream();
+                var buffer = new byte[1025]; int count;
+                while ((count = await context.Request.Body.ReadAsync(buffer, context.RequestAborted)) > 0)
+                {
+                    if (data.Length + count > 1024) return Error("scale", 400);
+                    data.Write(buffer, 0, count);
+                }
+                using var document = JsonDocument.Parse(data.ToArray());
+                if (document.RootElement.ValueKind != JsonValueKind.Object) return Error("scale", 400);
+                int? scale = null; bool? auto = null;
+                foreach (var field in document.RootElement.EnumerateObject())
+                {
+                    if (field.Name.Equals("scale", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (scale.HasValue || field.Value.ValueKind != JsonValueKind.Number || !field.Value.TryGetInt32(out var number) || number is not (2 or 4))
+                            return Error("scale", 400);
+                        scale = number;
+                    }
+                    else if (field.Name.Equals("auto", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (auto.HasValue || field.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return Error("preferences", 400);
+                        auto = field.Value.GetBoolean();
+                    }
+                }
+                return Results.Json(module.SetPreferences(scale, auto));
             }
             catch (UpscaleException e) { return Error(e.Code, 400); }
             catch (System.Text.Json.JsonException) { return Error("scale", 400); }
