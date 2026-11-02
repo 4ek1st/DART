@@ -61,7 +61,8 @@ public sealed class FavoriteActivitySummary
 internal sealed partial class LocalStore
 {
     private const long FavoriteDailyLimit = 16 * 1024 * 1024;
-    private static readonly JsonSerializerOptions FavoriteJson = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions FavoriteJson = new(JsonSerializerDefaults.Web)
+    { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly Dictionary<string, (string Stamp, DateTimeOffset At, FavoriteActivitySummary Summary)> favoriteSummaryCache = [];
     private string FavoriteActivityDirectory => Path.Combine(directory, "favorite-activity-v1");
     private string FavoriteActivityLock => Path.Combine(directory, "favorite-activity.lock");
@@ -147,7 +148,7 @@ internal sealed partial class LocalStore
             viewed >= at.AddDays(-31) && viewed <= at.AddMinutes(1) ? viewed : at)).ToArray();
         var bytes = Encoding.UTF8.GetBytes(string.Join('\n', prepared.Select(record =>
             JsonSerializer.Serialize(record, FavoriteJson))) + "\n");
-        if (bytes.Length > 160_000) throw new ArgumentException("Activity batch is too large.");
+        if (bytes.Length > 512_000) throw new ArgumentException("Activity batch is too large.");
         lock (sync)
         {
             using var fileLock = AcquireFileLock(FavoriteActivityLock);
@@ -260,7 +261,7 @@ internal sealed partial class LocalStore
                 {
                     if (records.Count >= 50_000) { incomplete = true; break; }
                     if (string.IsNullOrWhiteSpace(line)) continue;
-                    if (line.Length > 160_000) { incomplete = true; continue; }
+                    if (line.Length > 512_000) { incomplete = true; continue; }
                     try
                     {
                         var record = JsonSerializer.Deserialize<FavoriteActivityRecord>(line, FavoriteJson);

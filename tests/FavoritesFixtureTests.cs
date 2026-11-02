@@ -150,6 +150,14 @@ internal static class FavoritesFixtureTests
                 throw new Exception("A damaged classification must reject a write"); }
             catch (TargetInvocationException error) when (error.InnerException is IOException or JsonException) { }
             Expect(File.ReadAllBytes(Path.Combine(choicesPath, "favorite-tags.json")).SequenceEqual(protectedTags), "Corruption must not replace existing favorites");
+            var unicode = Open(Path.Combine(root, "unicode"));
+            var unicodeWorks = Enumerable.Range(700, 5).Select(index => {
+                var item = Work("danbooru", index.ToString());
+                item.Tags = Enumerable.Range(0, 128).Select(tag => new string('語', 65) + "_" + tag).ToList();
+                return (item, false);
+            }).ToArray();
+            Record(unicode, Now, unicodeWorks);
+            Expect(Snapshot(unicode)["totalWorks"]!.GetValue<int>() == 5, "Valid compact Unicode batches must not fail after private filtering metadata expands");
             Console.WriteLine("Favorites: dated views, mirrors, metadata, rating, restart, damaged-tail recovery and manual choices PASS");
         }
         finally

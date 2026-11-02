@@ -38,3 +38,7 @@ original fields. The quarantined optional `tests/chrome` harness was not run.
 
 Final review, combined-source verification and publication evidence are appended
 after their actual completion.
+
+The final independent code review raised five Important findings and no Critical or Minor findings. All five received reproducing regressions and fixes: complete cover filtering evidence, A/B/A event ordering, stale refresh rejection, immediate shutdown delivery with durable session outbox, and visible-summary refresh. The final feature suite passed 808/808 Node tests and all native fixtures. A real slim-to-native-API-to-summary-to-catalog-filter check passed four exclusion cases: character, copyright, uploader and mirror uploader. Artwork Favorites remained present after restarting the isolated native process. A 130,426-byte Unicode request also exposed private JSON expansion; compact UTF-8 logging and separately bounded private envelopes correct it while the network API retains its 160,000-byte limit.
+Publication moved to 0.2.59 so the other chat could release its completed 0.2.58 rating/audio changes independently.
+
