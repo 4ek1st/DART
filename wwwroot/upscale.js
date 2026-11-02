@@ -277,6 +277,7 @@
     render.image.remove(); render.image.removeAttribute('src'); overlays.delete(key);
   }
   function syncPreview(original) {
+    if (!overlays.size) return;
     const render = overlays.get(mediaKey(original?.dataset?.imageUrl));
     if (!render) return;
     if (render.original !== original) {
@@ -290,6 +291,7 @@
     render.image.style.transitionDuration = original.style.transitionDuration;
   }
   function applyVisible() {
+    if (!records.size && !overlays.size) return;
     const visible = new Set();
     for (const original of root.document.querySelectorAll('.detail-image > img[data-image-url], .quick-preview-stage > img[data-image-url]')) {
       const key = mediaKey(original.dataset.imageUrl), entry = records.get(key);
