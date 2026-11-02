@@ -26,6 +26,7 @@ RatingSelectionFixtureTests.Run();
 CurationFixtureTests.Run();
 SavedWorksFixtureTests.Run();
 FavoritesFixtureTests.Run();
+ArtworkActionsFixtureTests.Run();
 ProfileTransferFixtureTests.Run();
 ImageContentFixtureTests.Run();
 await GelbooruAliasFixtureTests.RunAsync();

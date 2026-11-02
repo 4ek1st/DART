@@ -161,6 +161,7 @@ internal static class Program
             return Results.Ok(snapshot.Items);
         });
         FavoriteEndpoints.Map(app, IsSameOrigin);
+        ArtworkActionEndpoints.Map(app, IsSameOrigin);
         app.MapGet("/api/favorite-tags", (LocalStore store) =>
             Results.Ok(store.GetFavoriteTags()));
         app.MapPost("/api/favorite-tags", async (HttpContext context, LocalStore store) =>
