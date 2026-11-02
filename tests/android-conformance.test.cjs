@@ -14,12 +14,7 @@ const logicPath=path.join(root,'wwwroot/catalog-logic.js');
 const logic=require(logicPath);
 
 test('Android reference scenarios match the canonical desktop source revision',()=>{
-  // This desktop-only extension adds the Favorites session kind and two fields.
-  // Recommendation/grouping algorithms and every offline Android scenario below
-  // are unchanged. Pin the exact extension without editing the Android project.
-  const desktopFavoritesSessionSha256='59fdc6d8a15b45c8d1fe090809f36b7b071921efeae1486e86df240aa2ead84e';
-  assert.ok([fixtures.desktopSha256,desktopFavoritesSessionSha256].includes(
-    crypto.createHash('sha256').update(fs.readFileSync(logicPath,'utf8').replace(/\r\n/g,'\n')).digest('hex')),
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(logicPath,'utf8').replace(/\r\n/g,'\n')).digest('hex'),fixtures.desktopSha256,
     'Catalog logic changed: regenerate the offline Android fixtures and run native conformance before accepting new behavior.');
   assert.equal(fixtures.cases.length,6);assert.equal(fixtures.groupingCases.length,6);
   assert.equal(fixtures.curationCases.length,4);assert.equal(fixtures.perceptualHashes.length,8);
