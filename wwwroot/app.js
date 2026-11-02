@@ -74,6 +74,59 @@ let activeId = null;
 let navigation = [];
 let navPosition = -1;
 let tabPreferences = { artworkTabs: 'preview' };
+let viewerPreferences = DartViewerPreferences.normalize();
+try { viewerPreferences = DartViewerPreferences.normalize(JSON.parse(localStorage.getItem('dart-viewer-preferences') || 'null')); }
+catch { /* Keep both adult ratings and silent video for an existing profile. */ }
+
+function selectedRating(tab) {
+  return DartViewerPreferences.rating(tab?.rating || 'general', viewerPreferences);
+}
+
+function saveViewerPreferences() {
+  try { localStorage.setItem('dart-viewer-preferences', JSON.stringify(viewerPreferences)); }
+  catch { /* The profile-backed session writer also persists this choice. */ }
+  saveSession();
+}
+
+function stopEmptyRatingFeed(tab) {
+  if (selectedRating(tab) !== 'none') return false;
+  tab.items = []; tab.errors = {}; tab.newKeys = new Set();
+  tab.loading = false; tab.hasMore = false; tab.loadError = false;
+  tab.followLoadingMore = false; tab.followStreams = []; tab.pausedSources = {};
+  tab.recommendationPaused = false;
+  if (activeId === tab.id) render();
+  return true;
+}
+
+function emptyNsfwRatingsMessage() {
+  return '<div class="empty" role="status">No NSFW ratings selected. Right-click NSFW to enable Q or NSFW.</div>';
+}
+
+function refreshNsfwTabs() {
+  const feeds = new Set(tabs);
+  for (const route of artworkRoutes) {
+    feeds.add(route.source); feeds.add(route.backup);
+    if (route.source.rating === 'explicit') {
+      route.engine.cancel(); route.warmController?.abort(); route.navigationController?.abort();
+    }
+  }
+  for (const tab of feeds) {
+    if (!tab) continue;
+    if (tab.rating !== 'explicit' || !['home', 'search', 'recommendations', 'follows', 'profile'].includes(tab.kind)) continue;
+    abortTab(tab);
+    tab.requestVersion = (tab.requestVersion || 0) + 1;
+    tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
+    tab.followVersion = (tab.followVersion || 0) + 1;
+    tab.started = false; tab.loading = false; tab.items = []; tab.scrollTop = 0; tab.errors = {};
+    tab.followErrors = []; tab.followSourceErrors = {}; tab.followSourceNotices = {};
+    tab.retainedFeedWorks = new Map(); tab.virtualState = {};
+    tab.artworkLists?.clear();
+    for (const key of ['followComputed', 'followPublication', 'followStableRating', 'profileGridItems',
+      'profileGridRating', 'curationViews', 'expiredFeedWorks', 'expiredFeedTokens', 'resumePrefetchAt']) delete tab[key];
+  }
+  startTab(currentTab());
+  render();
+}
 try {
   if (JSON.parse(localStorage.getItem('artcatalog-tab-preferences') || '{}').artworkTabs === 'new')
     tabPreferences.artworkTabs = 'new';
@@ -171,6 +224,13 @@ try {
 } catch { recommendationExposureGroups = DartRecommendationExposure.cleanGroups(recommendationExposure); }
 
 async function request(path, options = {}) {
+  if ((!options.method || options.method === 'GET') && /^\/api\/(search|profile)\?/.test(path)) {
+    const [route, query] = path.split('?'), params = new URLSearchParams(query);
+    if (params.get('rating') === 'explicit') {
+      params.set('rating', DartViewerPreferences.rating('explicit', viewerPreferences));
+      path = `${route}?${params}`;
+    }
+  }
   const changesSources = options.method === 'POST' && /^\/api\/(settings|sankaku\/)/.test(path);
   if (changesSources) clearCatalogResponses();
   const catalog = (!options.method || options.method === 'GET') &&
@@ -489,7 +549,7 @@ function captureClientState() {
     preview: !!tab.preview, pinned: !!tab.pinned, scrollTop: tab.scrollTop || 0
   }));
   const session = { tabs: descriptors, savedWorksVersion: 1, activeIndex: tabs.findIndex(tab => tab.id === activeId),
-    tabPreferences: { ...tabPreferences } };
+    tabPreferences: { ...tabPreferences }, viewerPreferences };
   try {
     localStorage.setItem('artcatalog-session', JSON.stringify(session));
   }
@@ -583,6 +643,8 @@ function restoreSession() {
   let session;
   try { session = CatalogLogic.cleanClientState({ session: JSON.parse(localStorage.getItem('artcatalog-session') || 'null') }).session; }
   catch { return false; }
+  if (session?.viewerPreferences)
+    viewerPreferences = DartViewerPreferences.normalize(session.viewerPreferences);
   if (!session || !Array.isArray(session.tabs) || !session.tabs.length) return false;
   if (session.tabPreferences)
     tabPreferences.artworkTabs = session.tabPreferences.artworkTabs === 'new' ? 'new' : 'preview';
@@ -970,6 +1032,7 @@ async function loadSearch(tab, append = false, retryFailed = false, retrySources
   const controller = new AbortController();
   tab.searchController = controller;
   const version = tab.requestVersion = (tab.requestVersion || 0) + 1;
+  if (stopEmptyRatingFeed(tab)) return;
   tab.loading = true;
   if (!append) {
     delete tab.resumePrefetchAt;
@@ -1339,7 +1402,7 @@ function retryRecommendationSources(tab, sources = null, load = true) {
 }
 
 async function loadRecommendationBackground(tab, signal) {
-  const key = `${tab.rating}:${[...tab.selectedSources].sort().join(',')}`;
+  const key = `${selectedRating(tab)}:${[...tab.selectedSources].sort().join(',')}`;
   if (tab.recommendationBackgroundKey === key && Date.now() - tab.recommendationBackgroundAt < 600000)
     return tab.recommendationBackground || [];
   const controller = new AbortController();
@@ -1454,7 +1517,7 @@ function prepareRecommendationProfile(tab, liked = recommendationLikedWorks(), n
   tab.recommendationPaused = false;
   tab.recommendationPools = createRecommendationPools(liked,
     tab.selectedSources, recommendationTagPreferences,
-    tab.recommendationBackgroundKey === `${tab.rating}:${[...tab.selectedSources].sort().join(',')}`
+    tab.recommendationBackgroundKey === `${selectedRating(tab)}:${[...tab.selectedSources].sort().join(',')}`
       ? tab.recommendationBackground || [] : []);
   if (!newVisit) {
     const previous = new Map(Object.values(previousPools || {}).flat()
@@ -1537,6 +1600,7 @@ async function loadRecommendations(tab, append = false) {
   const controller = new AbortController();
   tab.recommendationController = controller;
   const version = tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
+  if (stopEmptyRatingFeed(tab)) return;
   const visibleLikes = recommendationLikedWorks();
   if (!append) {
     delete tab.resumePrefetchAt;
@@ -1566,7 +1630,7 @@ async function loadRecommendations(tab, append = false) {
     const valid = () => alive() && version === tab.recommendationVersion && !controller.signal.aborted;
     const previousCount = tab.items.length;
     const sourceFailures = new Map(), successfulSources = new Set(), readyResults = [];
-    const backgroundKey = `${tab.rating}:${[...tab.selectedSources].sort().join(',')}`;
+    const backgroundKey = `${selectedRating(tab)}:${[...tab.selectedSources].sort().join(',')}`;
     let background = tab.recommendationBackgroundKey === backgroundKey
       ? tab.recommendationBackground || [] : [];
     let backgroundStarted = false, publication = Promise.resolve();
@@ -1597,7 +1661,7 @@ async function loadRecommendations(tab, append = false) {
         rankingCuration = contentPreferences.curation;
         ranked = candidateGroups.some(group => group.items.length)
           ? await mergeRecommendationsAsync(visibleLikes, prefix,
-            candidateGroups, tab.rating, recommendationTagPreferences, tab.recommendationSeed,
+            candidateGroups, selectedRating(tab), recommendationTagPreferences, tab.recommendationSeed,
             { background, recentKeys: tab.recommendationRecentKeys, curation: rankingCuration }) : prefix;
         if (!valid()) return;
       } while (prefix !== tab.items || prefixLength !== tab.items.length ||
@@ -1783,17 +1847,18 @@ function scheduleFollowRetry(tab) {
 
 async function updateFollowFeed(tab) {
   const version = tab.followVersion, rating = tab.rating;
+  const selection = selectedRating(tab);
   const revision = tab.followUpdateRevision || 0;
   const fallback = () => {
-    const feed = CatalogLogic.buildFollowFeed(tab.followGroups, rating, Number.MAX_SAFE_INTEGER);
+    const feed = CatalogLogic.buildFollowFeed(tab.followGroups, rating, Number.MAX_SAFE_INTEGER, selection);
     return { items: CatalogLogic.groupWorks(feed.items), newKeys: feed.newKeys };
   };
   const cache = tab.followComputed;
-  const cached = cache?.version === version && cache.rating === rating && cache.revision === revision;
+  const cached = cache?.version === version && cache.rating === rating && cache.selection === selection && cache.revision === revision;
   let feed = cached
     ? cache.feed : typeof DartCatalogJobs !== 'undefined'
-    ? await DartCatalogJobs.run('followFeed', [tab.followGroups, rating], fallback) : fallback();
-  if (version !== tab.followVersion || rating !== tab.rating || revision !== (tab.followUpdateRevision || 0)) return;
+    ? await DartCatalogJobs.run('followFeed', [tab.followGroups, rating, selection], fallback) : fallback();
+  if (version !== tab.followVersion || rating !== tab.rating || selection !== selectedRating(tab) || revision !== (tab.followUpdateRevision || 0)) return;
   const completed = tab.followComputed;
   const remembered = completed?.remembered || new WeakSet();
   let records = completed?.records;
@@ -1813,7 +1878,7 @@ async function updateFollowFeed(tab) {
         items.every((item, index) => item === completed.feed.items[index])) items = completed.feed.items;
     feed = { ...feed, items };
   }
-  tab.followComputed = { version, rating, revision, feed, records, remembered };
+  tab.followComputed = { version, rating, selection, revision, feed, records, remembered };
   const filtered = CatalogLogic.filterWorks(feed.items, contentPreferences);
   let knownTokens;
   const visible = contentPreferences.hideViewedAndSaved ? filtered.filter(item =>
@@ -1892,7 +1957,7 @@ function queueFollowUpdate(tab, version) {
 }
 
 function saveFollowPreview(tab, version) {
-  if (!findTab(tab.id) || version !== tab.followVersion || !tab.followGroups?.length) return;
+  if (!findTab(tab.id) || version !== tab.followVersion || !tab.followGroups?.length || selectedRating(tab) === 'none') return;
   const isNew = item => [item.key, ...(item.memberKeys || [])]
     .some(key => tab.newKeys?.has(key));
   const groups = tab.followGroups.map(({ follow, items }) => ({ key: follow.key,
@@ -1901,7 +1966,7 @@ function saveFollowPreview(tab, version) {
       .slice(0, 12) })).filter(group => group.items.length);
   if (!groups.length) return;
   const body = JSON.stringify({ groups });
-  const rating = tab.rating;
+  const rating = selectedRating(tab);
   const writes = tab.followCacheWrites ||= new Map();
   const previous = writes.get(rating);
   if (previous?.body === body) return previous.promise;
@@ -1965,6 +2030,7 @@ async function loadFollowFeed(tab) {
   const controller = new AbortController();
   tab.followController = controller;
   const version = tab.followVersion = (tab.followVersion || 0) + 1;
+  if (stopEmptyRatingFeed(tab)) return;
   const previousGroups = new Map((tab.followGroups || []).map(group => [group.follow.key, group]));
   tab.loading = true; tab.items ||= []; tab.newKeys ||= new Set();
   tab.followStreams = []; tab.hasMore = false;
@@ -1975,7 +2041,7 @@ async function loadFollowFeed(tab) {
   if (activeId === tab.id) render();
   try {
     const [available, cache] = await Promise.all([refreshFollows(),
-      request(`/api/follows/cache?rating=${tab.rating}`).catch(() => null)]);
+      request(`/api/follows/cache?rating=${selectedRating(tab)}`).catch(() => null)]);
     if (!alive() || version !== tab.followVersion || controller.signal.aborted) return;
     if (!available) {
       tab.followErrors.push('Не удалось загрузить список подписок.');
@@ -2235,7 +2301,7 @@ function applyContentPreferences(saved) {
         const revision = tab.curationRankRevision = (tab.curationRankRevision || 0) + 1;
         // A large recommendation profile is already ranked in a worker during
         // loading. Keep explicit preference changes off the UI thread too.
-        void mergeRecommendationsAsync(context.liked, [], [{ items }], tab.rating,
+        void mergeRecommendationsAsync(context.liked, [], [{ items }], selectedRating(tab),
           recommendationTagPreferences, tab.recommendationSeed, context).then(ranked => {
           if (tab.items !== items || tab.recommendationVersion !== version ||
               tab.curationRankRevision !== revision || !tabs.includes(tab)) return;
@@ -2848,6 +2914,8 @@ function createArtworkRoute(from, item, origin = null) {
   const selected = snapshot.some(entry => entry.key === item.key || entry.memberKeys?.includes(item.key));
   const initial = selected ? snapshot : related ? [item, ...snapshot] : [...snapshot, item];
   route.isAllowed = entry => !CatalogLogic.isWorkHidden(entry, contentPreferences) &&
+    (route.source.rating !== 'explicit' || !['home', 'search', 'profile', 'recommendations', 'follows'].includes(route.source.kind) ||
+     CatalogLogic.matchesRating(entry, selectedRating(route.source))) &&
     (!contentPreferences.hideFollowedArtists || !isFollowedArtistHidden(entry, route.source, route.list) ||
      [entry.key, ...(entry.memberKeys || [])].some(key => route.visitedKeys.has(key))) &&
     (!contentPreferences.hideViewedAndSaved || !isHideableFeed(route.source, route.list) ||
@@ -3264,7 +3332,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
   quickPreviewView = { scale: 1, x: 0, y: 0 };
   quickPreviewDrag = null;
   quickPreview.innerHTML = `<div class="quick-preview-stage${video ? ' quick-preview-video-stage' : ''}" data-work-key="${escapeHtml(item.key)}">
-    ${video ? `<video class="quick-preview-image quick-preview-video" data-video-url="${escapeHtml(url)}" data-preview-width="${image?.naturalWidth || 640}" data-preview-height="${image?.naturalHeight || 480}" controls autoplay muted loop playsinline preload="metadata"${preview ? ` poster="${escapeHtml(preview)}"` : ''} aria-label="${escapeHtml(item.title)}"></video><div class="quick-preview-error" role="status" hidden><span>Video could not be played.</span><button type="button" data-preview-action="retry">Retry</button></div>` : `<img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}"${preview || full ? ` src="${escapeHtml(preview || full)}"` : ''} draggable="false">
+    ${video ? `<video class="quick-preview-image quick-preview-video" data-video-url="${escapeHtml(url)}" data-video-identity="${escapeHtml(item.key + "|" + CatalogLogic.mediaCacheKey(url))}" data-preview-width="${image?.naturalWidth || 640}" data-preview-height="${image?.naturalHeight || 480}" controls autoplay${viewerPreferences.videoSound ? "" : " muted"} loop playsinline preload="metadata"${preview ? ` poster="${escapeHtml(preview)}"` : ''} aria-label="${escapeHtml(item.title)}"></video><div class="quick-preview-error" role="status" hidden><span>Video could not be played.</span><button type="button" data-preview-action="retry">Retry</button></div>` : `<img class="quick-preview-image" alt="${escapeHtml(item.title || 'Изображение')}"${preview || full ? ` src="${escapeHtml(preview || full)}"` : ''} draggable="false">
     <div class="quick-preview-tools" role="group" aria-label="Image zoom">
       <button type="button" data-preview-action="zoom-out" title="Zoom out" aria-label="Zoom out" disabled>−</button>
       <button type="button" data-preview-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
@@ -3284,6 +3352,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
     imageLoader.adopt(quickPreview);
   }
   const media = quickPreview.querySelector('.quick-preview-image');
+  if (video) DartViewerPreferences.configureVideo(media, viewerPreferences);
   media.addEventListener(video ? 'loadedmetadata' : 'load', () => paintQuickPreview(true), { signal: controller.signal });
   paintQuickPreview(true);
   recordDetailVisit({ item, artworkRoute: quickPreviewRoute });
@@ -3585,6 +3654,12 @@ function render() {
     imageLoader.mount(main);
   }
   main.dataset.tabId = String(tab.id);
+  for (const button of main.querySelectorAll(nsfwFilterSelector)) {
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('title', globalThis.DartI18n?.translate('Right-click to choose Q and NSFW') || 'Right-click to choose Q and NSFW');
+  }
+  for (const video of main.querySelectorAll('video[data-video-url]'))
+    DartViewerPreferences.configureVideo(video, viewerPreferences);
   main.scrollTop = scrollTop;
   restoreGridAnchor(anchor);
   globalThis.DartVideoPreview?.refresh();
@@ -3743,7 +3818,7 @@ function renderHome(tab) {
       ${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([mode, label]) => `<button class="mode-tab ${mode === tab.rating && tab.feed === 'illustrations' || mode === tab.feed ? 'active' : ''}" data-action="mode" data-mode="${mode}">${label}</button>`).join('')}
     </div>
     <section class="section"><div class="section-head"><h2>${headline}</h2><div class="section-head-actions">${`<button class="text-button ${tab.sort === 'popular' ? 'selected' : ''}" data-action="sort" data-sort="${tab.sort === 'popular' ? 'recent' : 'popular'}">${tab.sort === 'popular' ? 'Сначала новые' : 'Популярные'}</button>`}<button class="text-button" data-action="all">Показать все</button></div></div>
-      ${renderErrors(tab.errors)}${tab.loading && !tab.items.length ? skeletons(7) : !first.length && hasResultError(tab.errors) ? '<div class="empty">Результаты не получены. Повторите поиск.</div>' : !first.length && tab.items.length ? emptyFeedMessage(tab) : renderGrid(first, '', new Set(), true)}
+      ${renderErrors(tab.errors)}${selectedRating(tab) === "none" ? emptyNsfwRatingsMessage() : tab.loading && !tab.items.length ? skeletons(7) : !first.length && hasResultError(tab.errors) ? '<div class="empty">Результаты не получены. Повторите поиск.</div>' : !first.length && tab.items.length ? emptyFeedMessage(tab) : renderGrid(first, '', new Set(), true)}
     </section>
     ${rest.length ? `<section class="section"><div class="section-head"><h2>Ещё из каталога</h2></div>${renderGrid(rest, 'home-rest', new Set(), true)}</section>` : ''}
     ${renderFeedTail(tab)}
@@ -3766,7 +3841,7 @@ function renderSearch(tab) {
     </div>
     ${renderErrors(tab.errors)}
     ${!blockedQuery && (tab.items.length || Object.keys(tab.searchPageStats || {}).length) ? renderSearchSummary(tab) : ''}
-    ${blockedQuery ? '<div class="empty">Запрос содержит тег, скрытый фильтрами содержимого. <button class="inline-retry" data-action="content-settings">Изменить фильтры</button></div>' : tab.loading && !tab.items.length ? skeletons(12) : !tab.items.length && hasResultError(tab.errors) ? '<div class="empty">Результаты не получены. Повторите поиск.</div>' : renderGrid(tab.items, 'search')}
+    ${selectedRating(tab) === "none" ? emptyNsfwRatingsMessage() : blockedQuery ? '<div class="empty">Запрос содержит тег, скрытый фильтрами содержимого. <button class="inline-retry" data-action="content-settings">Изменить фильтры</button></div>' : tab.loading && !tab.items.length ? skeletons(12) : !tab.items.length && hasResultError(tab.errors) ? '<div class="empty">Результаты не получены. Повторите поиск.</div>' : renderGrid(tab.items, 'search')}
     ${renderFeedTail(tab)}
   </div>`;
 }
@@ -3821,16 +3896,17 @@ function renderRecommendationTagChips(tags, kind = '') {
 function closeRecommendationTagMenu(returnFocus = false) {
   if (recommendationTagMenu.hidden) return;
   recommendationTagMenu.hidden = true;
+  recommendationTagMenu.trigger?.setAttribute('aria-expanded', 'false');
   if (returnFocus) {
     let trigger = recommendationTagMenu.trigger;
     const context = recommendationTagMenu.context;
     if (!trigger?.isConnected && context) {
-      trigger = [...document.querySelectorAll(contentTagSelector + ', [data-context-author-id]')]
+      trigger = [...document.querySelectorAll(contentTagSelector + ', [data-context-author-id], ' + nsfwFilterSelector)]
         .find(element => {
           const candidate = contentContextTarget(element);
-          return candidate?.kind === context.kind && (context.kind === 'tag'
+          return candidate?.kind === context.kind && (context.kind === 'nsfw' || (context.kind === 'tag'
             ? candidate.tag === context.tag
-            : CatalogLogic.hiddenAuthorKey(candidate.author) === CatalogLogic.hiddenAuthorKey(context.author));
+            : CatalogLogic.hiddenAuthorKey(candidate.author) === CatalogLogic.hiddenAuthorKey(context.author)));
         });
     }
     trigger?.focus({ preventScroll: true });
@@ -3840,7 +3916,10 @@ function closeRecommendationTagMenu(returnFocus = false) {
 }
 
 const contentTagSelector = '.tag-link[data-query], .tag-chip[data-query], [data-recommendation-tag], .tag-suggestion[data-tag], .favorite-tag-button[data-tag], .excluded-tag[data-tag], [data-context-tag]';
+const nsfwFilterSelector = '[data-action="category"][data-category="explicit"], [data-action="mode"][data-mode="explicit"], [data-action="recommendation-rating"][data-rating="explicit"], [data-action="follow-rating"][data-rating="explicit"], [data-action="profile-rating"][data-rating="explicit"]';
 function contentContextTarget(target) {
+  const nsfw = target.closest(nsfwFilterSelector);
+  if (nsfw) return { trigger: nsfw, kind: 'nsfw' };
   const artwork = target.closest('[data-artwork-tags-key]');
   const item = artwork && itemIndex.get(artwork.dataset.artworkTagsKey);
   const chip = target.closest(contentTagSelector);
@@ -3860,6 +3939,15 @@ function contentContextTarget(target) {
 
 function openContentContextMenu(context, x, y) {
   closeRecommendationTagMenu();
+  if (context.kind === 'nsfw') {
+    recommendationTagMenu.context = context;
+    recommendationTagMenu.trigger = context.trigger;
+    context.trigger.setAttribute('aria-expanded', 'true');
+    recommendationTagMenu.innerHTML = `<div class="recommendation-tag-menu-title">NSFW ratings</div>
+      ${[['q', 'Q'], ['e', 'NSFW']].map(([code, label]) => `<button type="button" role="menuitemcheckbox" aria-checked="${viewerPreferences.nsfwRatings[code]}" data-nsfw-rating="${code}"><span class="rating-menu-check" aria-hidden="true">${viewerPreferences.nsfwRatings[code] ? '✓' : ''}</span><span data-no-i18n>${label}</span></button>`).join('')}`;
+    positionContentContextMenu(context, x, y);
+    return;
+  }
   const tag = context.tag;
   const hidden = context.kind === 'tag'
     ? contentPreferences.excludedTags.includes(CatalogLogic.normalizeExcludedTags([tag])[0])
@@ -3876,6 +3964,10 @@ function openContentContextMenu(context, x, y) {
     <button type="button" role="menuitemradio" aria-checked="${current === 'priority'}" data-tag-mode="priority"><span class="recommendation-menu-dot priority-dot"></span>Показывать чаще</button>
     <button type="button" role="menuitemradio" aria-checked="${current === 'disabled'}" data-tag-mode="disabled"><span class="recommendation-menu-dot disabled-dot"></span>Выключить тег</button>
     <button type="button" role="menuitemradio" aria-checked="${current === 'normal'}" data-tag-mode="normal">Обычный режим</button>` : ''}`;
+  positionContentContextMenu(context, x, y);
+}
+
+function positionContentContextMenu(context, x, y) {
   globalThis.DartI18n?.translateTree(recommendationTagMenu);
   recommendationTagMenu.hidden = false;
   if (!x && !y) { const rect = context.trigger.getBoundingClientRect(); x = rect.left; y = rect.bottom; }
@@ -3960,7 +4052,7 @@ function renderRecommendations(tab) {
       </div>
       <section class="section"><div class="section-head"><h2>Для вас</h2><button class="text-button" data-action="recommendation-refresh">Обновить</button></div>
         ${renderErrors(tab.errors, 'recommendation-more-retry')}
-         ${tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'recommendations') : contentPreferences.hideViewedAndSaved ? '<div class="empty">Непросмотренных работ по этим тегам пока нет. Попробуйте другой тег или источник.</div>' : '<div class="empty">По выбранным тегам пока нет подходящих работ. Попробуйте другой рейтинг или источник.</div>'}
+         ${selectedRating(tab) === "none" ? emptyNsfwRatingsMessage() : tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'recommendations') : contentPreferences.hideViewedAndSaved ? '<div class="empty">Непросмотренных работ по этим тегам пока нет. Попробуйте другой тег или источник.</div>' : '<div class="empty">По выбранным тегам пока нет подходящих работ. Попробуйте другой рейтинг или источник.</div>'}
         <div data-recommendation-tail>${renderRecommendationTail(tab)}</div>
       </section>`}
   </div>`;
@@ -4018,7 +4110,7 @@ function renderFollows(tab) {
       <section class="section"><div class="section-head"><h2>Последние работы${tab.newKeys?.size ? ` · ${tab.newKeys.size} новых` : ''}</h2><div class="follow-feed-actions">${sourceIcon}<button class="text-button" data-action="follow-refresh">Обновить</button></div></div>
         ${tab.followSourceNotices?.sankaku || tab.followSourceErrors?.sankaku ? renderErrors({ sankaku: tab.followSourceErrors?.sankaku || tab.followSourceNotices.sankaku }, 'follow-refresh') : ''}
         ${tab.seenError ? '<div class="source-notice">Не удалось сохранить отметку просмотра. При следующем открытии метка «Новое» может повториться.</div>' : ''}
-         ${tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'follows', tab.newKeys, true) : tab.followComputed?.feed.items.length ? emptyFeedMessage(tab, 'follows') : '<div class="empty">В этом рейтинге пока нет изображений от авторов, на которых вы подписаны.</div>'}
+         ${selectedRating(tab) === "none" ? emptyNsfwRatingsMessage() : tab.loading && !tab.items.length ? skeletons(10) : tab.items.length ? renderGrid(tab.items, 'follows', tab.newKeys, true) : tab.followComputed?.feed.items.length ? emptyFeedMessage(tab, 'follows') : '<div class="empty">В этом рейтинге пока нет изображений от авторов, на которых вы подписаны.</div>'}
          ${tab.loading ? tab.items.length ? '<div class="feed-status">Обновляем остальных авторов…</div>' : '' :
            tab.followLoadingMore ? '<div class="feed-status">Загружаем ещё…</div>' :
              tab.hasMore ? `<div class="feed-sentinel" data-auto-load="follows" data-tab-id="${tab.id}" aria-hidden="true"></div>` :
@@ -4312,7 +4404,10 @@ function curateFeedWorks(works, tab, gridKey = '') {
 }
 
 function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepOrder = false) {
-  const supported = CatalogLogic.filterCatalogItems(items);
+  let supported = CatalogLogic.filterCatalogItems(items);
+  if (tab?.rating === 'explicit' && ['home', 'search', 'recommendations', 'follows', 'profile'].includes(tab.kind))
+    supported = DartViewerPreferences.filterItems(supported, selectedRating(tab),
+      CatalogLogic.matchesRating, CatalogLogic.groupingRevision(supported));
   let works = CatalogLogic.filterWorks(
     alreadyGrouped ? supported : CatalogLogic.groupWorks(supported), contentPreferences);
   if (contentPreferences.hideFollowedArtists) works = filterFollowedFeedWorks(works, tab, gridKey);
@@ -4335,8 +4430,10 @@ function emptyFeedMessage(tab, gridKey = '') {
 }
 
 function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false) {
-  if (!items.length) return '<div class="empty">Здесь пока нет изображений. Измените запрос или выберите другой источник.</div>';
   const tab = currentTab();
+  if (!items.length && tab?.rating === 'explicit' && selectedRating(tab) === 'none' &&
+      ['home', 'search', 'profile', 'recommendations', 'follows'].includes(tab.kind)) return emptyNsfwRatingsMessage();
+  if (!items.length) return '<div class="empty">Здесь пока нет изображений. Измените запрос или выберите другой источник.</div>';
   let works = filterFeedWorks(items, tab, alreadyGrouped, key, tab?.kind === 'home' && alreadyGrouped);
   if (tab?.kind === 'profile' && key === 'profile') {
     works = CatalogLogic.stableFeedItems(tab.profileGridRating === tab.rating
@@ -4536,7 +4633,7 @@ function renderDetailImage(item, url, index) {
   if (CatalogLogic.videoMimeType(url)) {
     const poster = item.thumbnail && !CatalogLogic.videoMimeType(item.thumbnail)
       ? `/api/image?url=${encodeURIComponent(item.thumbnail)}` : '';
-    return `<div class="detail-video"><video data-video-url="${escapeHtml(url)}" src="/api/video?url=${encodeURIComponent(url)}"${poster ? ` poster="${escapeHtml(poster)}"` : ''} controls autoplay muted loop playsinline preload="metadata" aria-label="${escapeHtml(item.title)}"></video><span class="video-fail" role="status">Видео не удалось воспроизвести. Попробуйте ещё раз или откройте запись на сайте.</span></div>`;
+    return `<div class="detail-video"><video data-video-url="${escapeHtml(url)}" data-video-identity="${escapeHtml(item.key + "|" + CatalogLogic.mediaCacheKey(url))}" src="/api/video?url=${encodeURIComponent(url)}"${poster ? ` poster="${escapeHtml(poster)}"` : ''} controls autoplay${viewerPreferences.videoSound ? "" : " muted"} loop playsinline preload="metadata" aria-label="${escapeHtml(item.title)}"></video><span class="video-fail" role="status">Видео не удалось воспроизвести. Попробуйте ещё раз или откройте запись на сайте.</span></div>`;
   }
   const previewUrl = index === 0 ? item.thumbnail : '';
   const preview = imageLoader.cached(url)?.blobUrl ||
@@ -4799,7 +4896,10 @@ function renderSettings() {
               ['dark', 'Тёмная', 'Тёмный стандарт DART'],
               ['list', 'Лист', 'Графит, холодный голубой и полутоновые точки']
             ].map(([value, label, description]) => `<button type="button" class="theme-choice" data-action="theme-choice" data-theme-choice="${value}" aria-pressed="${themePreference === value}"><span class="theme-swatch theme-swatch-${value}" aria-hidden="true"></span><span class="theme-choice-copy"><strong>${label}</strong><small>${description}</small></span></button>`).join('')}
-          </div><p class="settings-hint">Выбор применяется сразу и сохраняется на этом компьютере.</p></div>` : ''}
+          </div><p class="settings-hint">Выбор применяется сразу и сохраняется на этом компьютере.</p></div>
+        <div class="settings-card"><h2>Video playback</h2>
+          <label class="settings-toggle"><input type="checkbox" name="videoSound" ${viewerPreferences.videoSound ? 'checked' : ''}><span><strong>Open videos with sound</strong><small>Applies to artwork pages, quick preview and fullscreen. Hover previews stay silent.</small></span></label>
+        </div>` : ''}
         ${section === 'language' ? `<div class="settings-card"><h2 class="settings-heading">${svg('language')}<span>Язык интерфейса</span></h2><p>Выберите язык интерфейса. Названия работ, имена авторов и поисковые теги остаются на языке источника.</p>
           <label class="language-picker">Язык<select name="interfaceLanguage" aria-label="Язык интерфейса">
             <option value="en" ${contentPreferences.language === 'en' ? 'selected' : ''}>English</option>
@@ -5888,7 +5988,25 @@ document.addEventListener('contextmenu', event => {
   openContentContextMenu(context, event.clientX, event.clientY);
 });
 
+document.addEventListener('keydown', event => {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+  const context = contentContextTarget(event.target);
+  if (!context) return;
+  event.preventDefault();
+  openContentContextMenu(context, 0, 0);
+});
+
 recommendationTagMenu.addEventListener('click', async event => {
+  const rating = event.target.closest('[data-nsfw-rating]')?.dataset.nsfwRating;
+  if (rating === 'q' || rating === 'e') {
+    viewerPreferences = { ...viewerPreferences,
+      nsfwRatings: { ...viewerPreferences.nsfwRatings, [rating]: !viewerPreferences.nsfwRatings[rating] } };
+    closeRecommendationTagMenu(true);
+    saveViewerPreferences();
+    refreshNsfwTabs();
+    main.querySelector(nsfwFilterSelector)?.focus({ preventScroll: true });
+    return;
+  }
   const action = event.target.closest('[data-context-action]')?.dataset.contextAction;
   const context = recommendationTagMenu.context;
   if (action && context) {
@@ -5968,6 +6086,13 @@ main.addEventListener('input', event => {
 });
 
 main.addEventListener('change', event => {
+  if (event.target.name === 'videoSound' && currentTab()?.kind === 'settings') {
+    viewerPreferences = { ...viewerPreferences, videoSound: event.target.checked };
+    saveViewerPreferences();
+    for (const video of document.querySelectorAll('video[data-video-url]'))
+      DartViewerPreferences.configureVideo(video, viewerPreferences, true);
+    return;
+  }
   if (event.target.id === 'profile-transfer-file') {
     const file = event.target.files?.[0];
     if (file) void profileTransferController().choose(file).then(ready => {

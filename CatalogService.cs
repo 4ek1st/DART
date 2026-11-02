@@ -180,7 +180,8 @@ internal sealed partial class CatalogService(LocalStore store)
         string rating, string sort, string kind,
         CancellationToken cancellationToken, IReadOnlyDictionary<string, int>? sourcePages = null)
     {
-        rating = rating is "explicit" or "all" ? rating : "general";
+        rating = NormalizeRating(rating);
+        if (rating == "none") return new SearchResponse { Page = page };
         sort = sort == "popular" ? "popular" : "recent";
         kind = "illustrations";
         query = CleanSearchQuery(query);
@@ -571,10 +572,18 @@ internal sealed partial class CatalogService(LocalStore store)
         return requested.All(available.Contains);
     }
 
-    private static bool RatingMatches(CatalogItem item, string rating) =>
-        rating == "all" || (rating == "explicit"
-            ? item.Rating is "q" or "questionable" or "e" or "explicit"
-            : item.Rating is "g" or "general" or "s" or "sensitive" or "safe" or "sfw");
+    private static string NormalizeRating(string rating) =>
+        rating is "explicit" or "all" or "questionable" or "explicit-only" or "none" ? rating : "general";
+
+    private static bool RatingMatches(CatalogItem item, string rating) => rating switch
+    {
+        "all" => true,
+        "none" => false,
+        "questionable" => item.Rating is "q" or "questionable",
+        "explicit-only" => item.Rating is "e" or "explicit",
+        "explicit" => item.Rating is "q" or "questionable" or "e" or "explicit",
+        _ => item.Rating is "g" or "general" or "s" or "sensitive" or "safe" or "sfw"
+    };
 
     private static DateOnly CurrentMonthStart() =>
         new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
@@ -585,6 +594,8 @@ internal sealed partial class CatalogService(LocalStore store)
         var ratingTag = rating switch
         {
             "explicit" => "rating:q,e",
+            "questionable" => "rating:q",
+            "explicit-only" => "rating:e",
             "general" => "rating:g,s",
             _ => ""
         };
@@ -596,6 +607,13 @@ internal sealed partial class CatalogService(LocalStore store)
         string sort) =>
         string.Join(' ', new[] { query, ratingTag,
             sort == "popular" ? "sort:score:desc" : "" }.Where(part => part.Length > 0));
+
+    private static string SingleAdultRatingTag(string rating) => rating switch
+    {
+        "questionable" => "rating:questionable",
+        "explicit-only" => "rating:explicit",
+        _ => ""
+    };
 
     private static async Task<long> FindMonthBoundaryAsync(long latestId,
         DateOnly monthStart,
@@ -738,7 +756,7 @@ internal sealed partial class CatalogService(LocalStore store)
         {
             // Gelbooru does not reliably combine two rating metatags in one query.
             // Filter both g/s and q/e locally while paging the complete source listing.
-            var tags = BuildBooruSearchTags(query, "", sort);
+            var tags = BuildBooruSearchTags(query, SingleAdultRatingTag(rating), sort);
             uri.Append("&tags=").Append(Uri.EscapeDataString(tags));
         }
         uri.Append("&user_id=").Append(Uri.EscapeDataString(credentials.UserId));
@@ -766,7 +784,7 @@ internal sealed partial class CatalogService(LocalStore store)
         else
         {
             // Filter ratings locally because combined rating metatags are unreliable.
-            var tags = BuildBooruSearchTags(query, "", sort);
+            var tags = BuildBooruSearchTags(query, SingleAdultRatingTag(rating), sort);
             if (tags.Length > 0) uri.Append("&tags=").Append(Uri.EscapeDataString(tags));
         }
         uri.Append("&user_id=").Append(Uri.EscapeDataString(credentials.UserId));
@@ -950,7 +968,8 @@ internal sealed partial class CatalogService(LocalStore store)
     public async Task<ProfileResponse?> GetProfileAsync(string source, string artistId,
         int page, string rating, CancellationToken cancellationToken)
     {
-        rating = rating is "explicit" or "all" ? rating : "general";
+        rating = NormalizeRating(rating);
+        if (rating == "none") return new ProfileResponse { Page = page, Source = source };
         if (source == "sankaku" && ValidArtistTag(artistId))
         {
             var query = "user:" + artistId.Replace(' ', '_');

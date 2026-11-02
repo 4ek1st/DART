@@ -1,5 +1,5 @@
 const test = require('node:test'), assert = require('node:assert/strict');
-const fs = require('node:fs'), vm = require('node:vm');
+const fs = require('node:fs'), vm = require('./helpers/viewer-vm.cjs');
 const CatalogLogic = require('../wwwroot/catalog-logic.js');
 const DartResourceCache = require('../wwwroot/resource-cache.js');
 const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');

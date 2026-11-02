@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
+const vm = require('./helpers/viewer-vm.cjs');
 const CatalogLogic = require('../wwwroot/catalog-logic.js');
 const I18n = require('../wwwroot/i18n.js');
 const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');

@@ -1,6 +1,6 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const fs = require('node:fs'), vm = require('node:vm');
+const fs = require('node:fs'), vm = require('./helpers/viewer-vm.cjs');
 const logic = require('../wwwroot/catalog-logic.js');
 const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
 const loader = source.slice(source.indexOf('function createRecommendationPools('),

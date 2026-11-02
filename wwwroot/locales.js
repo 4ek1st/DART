@@ -3,6 +3,12 @@
 (function(root) {
   const rows = `
 Home|Главная|Startseite
+NSFW ratings|Рейтинги NSFW|NSFW-Bewertungen
+Right-click to choose Q and NSFW|Правый клик — выбор Q и NSFW|Rechtsklick zur Auswahl von Q und NSFW
+No NSFW ratings selected. Right-click NSFW to enable Q or NSFW.|Рейтинги NSFW выключены. Нажмите правой кнопкой на NSFW и включите Q или NSFW.|Keine NSFW-Bewertung ausgewählt. Aktiviere Q oder NSFW per Rechtsklick auf NSFW.
+Video playback|Воспроизведение видео|Videowiedergabe
+Open videos with sound|Открывать видео со звуком|Videos mit Ton öffnen
+Applies to artwork pages, quick preview and fullscreen. Hover previews stay silent.|Применяется на странице работы, в быстром и полноэкранном просмотре. Превью при наведении остаются без звука.|Gilt für Werkseiten, Schnellvorschau und Vollbild. Vorschauen beim Darüberfahren bleiben stumm.
 Profile transfer|Перенос профиля|Profilübertragung
 Windows and Android|Windows и Android|Windows und Android
 Move your likes, bookmarks, followed artists and viewed works between DART on Windows and Android. Import adds data and keeps your existing collections.|Переносите лайки, закладки, подписки и просмотренное между DART на Windows и Android. Импорт добавляет данные и сохраняет существующие коллекции.|Übertrage Likes, Lesezeichen, gefolgte Künstler und angesehene Werke zwischen DART auf Windows und Android. Der Import ergänzt Daten und behält vorhandene Sammlungen.

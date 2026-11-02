@@ -268,13 +268,13 @@ internal static class Program
         });
 
         app.MapGet("/api/follows/cache", (string? rating, LocalStore store) =>
-            rating is "general" or "explicit" or "all"
+            rating is "general" or "explicit" or "all" or "questionable" or "explicit-only"
                 ? Results.Content(store.GetFollowFeedCacheJson(rating), "application/json")
                 : Results.BadRequest());
         app.MapPost("/api/follows/cache", async (string? rating, HttpContext context, LocalStore store) =>
         {
             if (!IsSameOrigin(context.Request)) return Results.StatusCode(403);
-            if (rating is not ("general" or "explicit" or "all")) return Results.BadRequest();
+            if (rating is not ("general" or "explicit" or "all" or "questionable" or "explicit-only")) return Results.BadRequest();
             if (context.Request.ContentLength is > 4_000_000) return Results.StatusCode(413);
             using var reader = new StreamReader(context.Request.Body);
             var raw = await reader.ReadToEndAsync(context.RequestAborted);

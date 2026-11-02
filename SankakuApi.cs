@@ -93,7 +93,8 @@ internal sealed class SankakuApi(ISankakuSessionStore sessions, HttpClient? tran
 
     internal static string SearchPath(string query, int page, string rating, string sort) =>
         "/v2/posts?lang=en&limit=24&page=" + ((long)page + 1) + "&tags=" + Uri.EscapeDataString(
-            (query + (rating == "general" ? " rating:s" : rating == "explicit" ? " rating:q,e" : "") +
+            (query + (rating switch { "general" => " rating:s", "explicit" => " rating:q,e",
+                "questionable" => " rating:q", "explicit-only" => " rating:e", _ => "" }) +
             (sort == "popular" ? " order:popularity" : "")).Trim());
 
     public Task<JsonDocument> PostsAsync(string query, int page, string rating, string sort,

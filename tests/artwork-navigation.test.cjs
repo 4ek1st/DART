@@ -1,7 +1,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const Navigation = require('../wwwroot/artwork-navigation.js');
 const Logic = require('../wwwroot/catalog-logic.js');
-const fs = require('node:fs'), vm = require('node:vm');
+const fs = require('node:fs'), vm = require('./helpers/viewer-vm.cjs');
 const app = fs.readFileSync(require('node:path').join(__dirname, '../wwwroot/app.js'), 'utf8');
 const work = id => ({ key: `danbooru:${id}`, id, source: 'danbooru', title: `Work ${id}` });
 const same = Logic.sameWork;

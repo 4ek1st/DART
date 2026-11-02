@@ -485,3 +485,35 @@ test('client state accepts full metadata sessions through 16 MiB and preserves t
     fs.rmSync(resolved, { recursive: true, force: true });
   }
 });
+
+test('Q/NSFW cache partitions and viewer choices survive a native profile restart', async () => {
+  const directory = fs.mkdtempSync(path.join(project, 'test-data-rating-options-'));
+  let server;
+  try {
+    server = await startServer(directory);
+    const post = (route, body) => fetch(server.origin + route, { method: 'POST',
+      headers: { Origin: server.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    for (const rating of ['explicit', 'questionable', 'explicit-only']) {
+      assert.equal((await post(`/api/follows/cache?rating=${rating}`, { groups: [] })).status, 200);
+      const cached = await fetch(server.origin + `/api/follows/cache?rating=${rating}`);
+      assert.equal(cached.status, 200);
+      assert.ok((await cached.json()).savedAt);
+    }
+    const none = await fetch(server.origin + '/api/search?rating=none&sources=danbooru,gelbooru,rule34,sankaku');
+    assert.equal(none.status, 200);
+    assert.deepEqual((await none.json()).hasMoreSources, []);
+    const viewerPreferences = { nsfwRatings: { q: false, e: true }, videoSound: true };
+    assert.equal((await post('/api/client-state', { session: { savedWorksVersion: 1,
+      tabs: [{ kind: 'search', rating: 'explicit' }], activeIndex: 0, viewerPreferences } })).status, 200);
+    await stopServer(server); server = await startServer(directory);
+    const state = await (await fetch(server.origin + '/api/client-state')).json();
+    assert.deepEqual(state.session.viewerPreferences, viewerPreferences);
+    for (const rating of ['explicit', 'questionable', 'explicit-only'])
+      assert.ok((await (await fetch(server.origin + `/api/follows/cache?rating=${rating}`)).json()).savedAt);
+  } finally {
+    await stopServer(server);
+    const resolved = fs.realpathSync(directory);
+    assert.ok(resolved.startsWith(project + path.sep) && path.basename(resolved).startsWith('test-data-rating-options-'));
+    fs.rmSync(resolved, { recursive: true, force: true });
+  }
+});

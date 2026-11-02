@@ -1580,6 +1580,9 @@
 
   function matchesRating(item, rating) {
     if (rating === 'all') return true;
+    if (rating === 'none') return false;
+    if (rating === 'questionable') return ['q', 'questionable'].includes(item.rating);
+    if (rating === 'explicit-only') return ['e', 'explicit'].includes(item.rating);
     return rating === 'explicit'
       ? ['q', 'questionable', 'e', 'explicit'].includes(item.rating)
       : ordinaryRatings.includes(item.rating);
@@ -2135,13 +2138,13 @@
     return requests;
   }
 
-  function buildFollowFeed(groups, rating = 'general', limit = 120) {
+  function buildFollowFeed(groups, rating = 'general', limit = 120, selection = rating) {
     const byKey = new Map();
     for (const { follow, items } of groups || []) {
       const lastSeen = Date.parse(follow.seenAt?.[rating] || follow.followedAt || '') || 0;
       const seenKeys = new Set(follow.seenKeys?.[rating] || []);
       for (const item of items || []) {
-        if (!item?.key || !matchesRating(item, rating)) continue;
+        if (!item?.key || !matchesRating(item, selection)) continue;
         const published = Date.parse(item.published || '') || 0;
         const entry = { item, published,
           isNew: published > lastSeen && !seenKeys.has(item.key) };
@@ -2156,8 +2159,8 @@
       newKeys: new Set(ordered.filter(entry => entry.isNew).map(entry => entry.item.key)) };
   }
 
-  function groupFollowFeed(groups, rating) {
-    const feed = buildFollowFeed(groups, rating, Number.MAX_SAFE_INTEGER);
+  function groupFollowFeed(groups, rating, selection = rating) {
+    const feed = buildFollowFeed(groups, rating, Number.MAX_SAFE_INTEGER, selection);
     return { items: groupWorks(feed.items), newKeys: feed.newKeys };
   }
 
@@ -2196,7 +2199,7 @@
     isBroadRecommendationTag, orderRecommendationOtherTags,
     recommendationQueryGroups, recommendationCombinations, rankRecommendations, mergeRecommendations,
     normalizeCurationPreferences, curationBoosts, rankCuratedWorks, mergeCuratedWorks,
-    followKey, followedWorkMatcher, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems };
+    matchesRating, followKey, followedWorkMatcher, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems };
   root.CatalogLogic = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

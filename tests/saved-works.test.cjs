@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
+const vm = require('./helpers/viewer-vm.cjs');
 const fs = require('node:fs');
 const CatalogLogic = require('../wwwroot/catalog-logic.js');
 const I18n = require('../wwwroot/i18n.js');

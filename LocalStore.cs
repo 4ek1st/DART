@@ -427,7 +427,7 @@ internal sealed partial class LocalStore : ISankakuSessionStore
 
     public string GetFollowFeedCacheJson(string rating)
     {
-        if (rating is not ("general" or "explicit" or "all")) return "{\"groups\":[]}";
+        if (rating is not ("general" or "explicit" or "all" or "questionable" or "explicit-only")) return "{\"groups\":[]}";
         lock (sync)
         {
             var path = Path.Combine(directory, $"follow-feed-cache-v1-{rating}.json");
@@ -444,7 +444,7 @@ internal sealed partial class LocalStore : ISankakuSessionStore
 
     public bool UpdateFollowFeedCacheJson(string rating, string raw)
     {
-        if (rating is not ("general" or "explicit" or "all") ||
+        if (rating is not ("general" or "explicit" or "all" or "questionable" or "explicit-only") ||
             JsonNode.Parse(raw) is not JsonObject input || input["groups"] is not JsonArray original)
             return false;
         static string Text(JsonNode? node) => node is JsonValue value &&

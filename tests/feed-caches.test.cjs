@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
+const vm = require('./helpers/viewer-vm.cjs');
 const logic = require('../wwwroot/catalog-logic.js');
 
 test('only the correct illustrations section is active for each rating', () => {

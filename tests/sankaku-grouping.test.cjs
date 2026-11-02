@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
+const vm = require('./helpers/viewer-vm.cjs');
 const CatalogLogic = require('../wwwroot/catalog-logic.js');
 // Real metadata and thumbnail fingerprints; media URLs are replaced with fixtures.
 const fixture = require('./fixtures/sankaku-variants.json');

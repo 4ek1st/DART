@@ -14,7 +14,7 @@ public class DesktopConformanceTest {
     private JSONObject fixtures() throws Exception {try(InputStream stream=getClass().getResourceAsStream("/desktop-recommendations-parity.json")){assertNotNull(stream);return new JSONObject(new String(stream.readAllBytes(),StandardCharsets.UTF_8));}}
     @Test public void nativeRecommendationsMatchCanonicalDesktopFixtures() throws Exception {
         String json;try(InputStream stream=getClass().getResourceAsStream("/desktop-recommendations-parity.json")){assertNotNull(stream);json=new String(stream.readAllBytes(),StandardCharsets.UTF_8);}
-        JSONObject root=new JSONObject(json);assertEquals("53e592724402535414141cacc3d8503e2e4a2e64f5676dc279e7009bfafc29a6",root.getString("desktopSha256"));
+        JSONObject root=new JSONObject(json);assertEquals("3b08c871fb13a3a66225e2fcb4eb29253864a296cb0b8dd274c63f30318f1a27",root.getString("desktopSha256"));
         JSONArray cases=root.getJSONArray("cases");for(int i=0;i<cases.length();i++){JSONObject c=cases.getJSONObject(i),prefs=c.getJSONObject("preferences"),context=c.getJSONObject("context");Map<String,String> choices=new LinkedHashMap<>();for(String key:fields(prefs))choices.put(key,prefs.getString(key));
             Recommendations.Model model=Recommendations.build(posts(c.getJSONArray("liked")),choices,c.getInt("seed"),posts(context.optJSONArray("background")));
             JSONObject groups=c.getJSONObject("queries");for(String key:fields(groups))assertEquals(c.getString("name")+" query "+key,strings(groups.getJSONArray(key)),model.queryGroups.get(key));
