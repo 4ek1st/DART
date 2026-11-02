@@ -228,10 +228,19 @@
   function setScale(scale) { if ([2,4].includes(scale)) return savePreferences({ scale }); }
   function automaticLoaded(event) { if (autoTargets.has(event.target)) syncAutomatic(); }
   function automaticVisibilityChanged() { if (preferences.auto) syncAutomatic(); }
+  function cancelAutomatic(key, entry) {
+    if (!entry.autoOwned || !busy(entry.state)) return;
+    // Navigation/backgrounding is not a failed processing attempt. A later
+    // eligible presence can resume it; errors and explicit user cancellation
+    // retain their reservation and never create an automatic retry loop.
+    autoAttempts.delete(key + '|' + entry.scale);
+    for (const target of autoTargets.values()) if (target.key === key) target.attempts.delete(entry.scale);
+    entry.controller?.cancel();
+  }
   function stopAutomatic() {
     autoObserver?.disconnect(); autoTargets.clear();
     if (autoListening) { root.document.removeEventListener('load', automaticLoaded, true); autoListening = false; }
-    for (const entry of records.values()) if (entry.autoOwned && busy(entry.state)) entry.controller?.cancel();
+    for (const [key,entry] of records) cancelAutomatic(key, entry);
   }
   function syncAutomatic() {
     if (autoSyncing) return;
@@ -266,7 +275,7 @@
         // pending job until the observer reports the new node's visibility.
         if (target.visible !== false) retained.add(target.key);
       }
-      for (const [key,entry] of records) if (entry.autoOwned && busy(entry.state) && !retained.has(key)) entry.controller?.cancel();
+      for (const [key,entry] of records) if (!retained.has(key)) cancelAutomatic(key, entry);
       if (savingScale) return;
       for (const [key,target] of visible) {
         const existing = records.get(key), attempt = key + '|' + preferences.scale;

@@ -417,15 +417,42 @@ test('leaving an automatic target cancels its job while a manually claimed pendi
   viewer.intersect(first,false); await viewer.settle();
   assert.equal(signals[0].aborted, true);
   viewer.intersect(first); viewer.api.applyVisible(); await viewer.settle();
-  assert.equal(signals.length, 1, 'a cancelled target must not start a retry loop');
+  assert.equal(signals.length, 2, 'returning to the visible image resumes lifecycle-cancelled work');
+  for (let i = 0; i < 5; i++) { viewer.intersect(first); viewer.api.applyVisible(); }
+  await viewer.settle();assert.equal(signals.length,2,'repeated visibility notifications share the resumed job');
   const second = viewer.image('https://example.test/second.png');
   viewer.select({ item: viewer.selected.item, url: second.dataset.imageUrl });
   viewer.api.applyVisible(); viewer.intersect(second); await viewer.settle();
-  assert.equal(signals.length, 2);
+  assert.equal(signals.length, 3);
   viewer.press(); await viewer.settle();
   viewer.intersect(second,false); viewer.changeAuto(false); await viewer.settle();
-  assert.equal(signals[1].aborted, false, 'manual U claims the existing job without restarting it');
+  assert.equal(signals[2].aborted, false, 'manual U claims the existing job without restarting it');
 });
+
+for (const transition of ['reopen', 'off-on', 'background-return', 'failed-off-rollback'])
+  test('automatic upscale resumes after lifecycle cancellation: ' + transition, async t => {
+    let reads=0;
+    const viewer=autoViewer({auto:true,readImage:(item,url,signal)=>{
+      reads++;return new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true}));
+    }});t.after(()=>viewer.api.dispose());
+    let image=viewer.image(viewer.selected.url);
+    viewer.api.mounted();await viewer.settle();viewer.intersect(image);await viewer.settle();assert.equal(reads,1);
+    if(transition==='reopen') {
+      image.isConnected=false;viewer.api.applyVisible();await viewer.settle();
+      image=viewer.image(viewer.selected.url);viewer.api.applyVisible();
+    } else if(transition==='off-on') {
+      viewer.changeAuto(false);await viewer.settle();viewer.changeAuto(true);await viewer.settle();
+    } else if(transition==='background-return') {
+      viewer.window.document.hidden=true;viewer.handlers.get('visibilitychange')();await viewer.settle();
+      viewer.window.document.hidden=false;viewer.handlers.get('visibilitychange')();
+    } else {
+      viewer.saveWith(async()=>{throw new Error('storage');});viewer.changeAuto(false);await viewer.settle();
+      assert.equal(viewer.checkbox.checked,true,'failed save restores enabled preference');
+    }
+    viewer.intersect(image);await viewer.settle();assert.equal(reads,2,'a new eligible presence restarts cancelled automatic work');
+    for(let i=0;i<5;i++){viewer.intersect(image);viewer.api.applyVisible();}
+    await viewer.settle();assert.equal(reads,2,'notifications never duplicate the pending resumed job');
+  });
 
 test('a pending automatic job follows the same image from detail into Space without a duplicate or cancellation', async t => {
   let signal, completeRead, reads = 0;
