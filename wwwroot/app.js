@@ -559,6 +559,7 @@ function captureClientState() {
   }
   catch { /* Browser storage may be unavailable. */ }
   return { session, themePreference: globalThis.DartTheme?.preference || 'system',
+      favoriteActivityOutbox: typeof favoritesController === 'function' ? favoritesController.instance?.outboxSnapshot() || [] : [],
       recent, searchHistory: getSearchHistory(), recommendationExposure, recommendationExposureGroups,
       mediaDuplicatePairs: detailImageDeduper.duplicates.entries(),
       mediaVerifiedImages: [...detailImageDeduper.verified] };
@@ -604,6 +605,7 @@ async function loadClientState() {
     const saved = await request('/api/client-state');
     const pending = clientStateWriter.readPending();
     const state = CatalogLogic.cleanClientState(pending || saved);
+    favoritesController().restoreOutbox(state.favoriteActivityOutbox);
     if (pending) void clientStateWriter.save(pending);
     if (Array.isArray(state.recommendationExposure)) {
       recommendationExposure = cleanRecommendationExposure(state.recommendationExposure);
@@ -1290,6 +1292,7 @@ function favoritesController() {
     getTags: () => favoriteTags, setTags: value => { favoriteTags = value; },
     getRecent: () => recent, getKnown: favoritesKnownWorks,
     getPreferences: () => contentPreferences,
+    getActiveTab: currentTab, outboxChanged: () => { void saveSession(); },
     workTokens: item => CatalogLogic.workHistoryTokens(item),
     renderArtworks: items => `<div class="grid favorites-art-grid">${items.map(item => `<div class="favorites-art-entry">${renderCard(item)}${favoritesController().artworkButton(item)}</div>`).join('')}</div>`,
     allowed: item => !CatalogLogic.isWorkHidden(item, contentPreferences),
@@ -6522,11 +6525,11 @@ main.addEventListener('click', event => {
 window.addEventListener('online', () => { void clientStateWriter.flush(); });
 window.addEventListener('resize', () => { if (quickPreview.open) paintQuickPreview(true); });
 window.addEventListener('beforeunload', () => {
-  void favoritesController.instance?.flush(true);
   recommendationExposureTracker.stop();
   groupRepairs.stop(); stopQuickPreviewMedia();
   saveSession();
   const patch = tabs.length && clientStateWriter.unloadPatch(captureClientState());
+  void favoritesController.instance?.flush(true, 60 * 1024 - (patch ? new TextEncoder().encode(patch).length : 0));
   if (patch) void fetch('/api/client-state', { method: 'POST', keepalive: true,
     headers: { 'Content-Type': 'application/json' }, body: patch }).catch(() => {});
   globalThis.DartVideoPreview?.dispose();

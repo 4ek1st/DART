@@ -55,12 +55,26 @@ internal static class FavoritesFixtureTests
                 Snapshot(empty)["trackedSince"] is null, "A fresh profile must not invent previous viewing dates");
             var batched = Open(Path.Combine(root, "batched"));
             Record(batched, Now, (Work("danbooru", "101"), false), (Work("danbooru", "102"), false));
+            var projected = Snapshot(batched)["works"]!.AsArray().OfType<JsonObject>().First();
+            Expect(projected["allTags"] is JsonArray evidence && evidence.Any(tag => tag?.GetValue<string>() == "fern") &&
+                evidence.Any(tag => tag?.GetValue<string>() == "sample_series"), "Cover filtering must retain typed tag evidence independently of content statistics");
             Expect(Entry(Snapshot(batched), "fern")["lastWorkKey"]!.GetValue<string>() == "danbooru:102",
                 "The last actual open in a batch must supply the latest cover");
+            Record(batched, Now.AddSeconds(1), (Work("danbooru", "101"), false), (Work("danbooru", "102"), false), (Work("danbooru", "101"), false));
+            Expect(Entry(Snapshot(batched, at: Now.AddSeconds(1)), "fern")["lastWorkKey"]!.GetValue<string>() == "danbooru:101",
+                "A B A must choose A even when one batch uses equal server timestamps");
+            var lateTypes = Open(Path.Combine(root, "late-types"));
+            var untyped = Work("danbooru", "103"); untyped.CreatorTag = ""; untyped.CopyrightTags = [];
+            untyped.Tags.AddRange(["late_artist", "late_series"]); Record(lateTypes, Now, (untyped, false));
+            untyped.CreatorTag = "late_artist"; untyped.CopyrightTags = ["late_series"];
+            Record(lateTypes, Now.AddSeconds(1), (untyped, true));
+            Expect(!Snapshot(lateTypes, at: Now.AddSeconds(1))["entries"]!.AsArray().OfType<JsonObject>().Any(entry =>
+                entry["tag"]!.GetValue<string>() is "late_artist" or "late_series"), "Late categories must remove artist/copyright names from content statistics");
 
             var path = Path.Combine(root, "activity");
             var store = Open(path);
             var first = Work("danbooru", "1", new string('a', 32));
+            first.UploaderId = "42";
             var mirror = Work("gelbooru", "2", new string('a', 32));
             Record(store, Now.AddDays(-3), (first, false));
             Record(store, Now.AddDays(-2), (mirror, false));

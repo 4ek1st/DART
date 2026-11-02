@@ -114,3 +114,56 @@ test('artwork Favorites render only rating/content-eligible works and keep tag c
   env.c.render(tab); assert.deepEqual(tab.items.map(item => item.key), ['danbooru:1']);
   assert.equal(tab.favoriteOrigin, 'system'); assert.deepEqual(env.tags(), ['cloud']);
 });
+test('repeated opens retain final actual event order', async () => {
+  const sent = [], env = controller(async (url, options) => { sent.push(...JSON.parse(options.body)); return {}; }, { schedule: () => 1, unschedule() {} });
+  env.c.record(work(1)); env.c.record(work(2)); env.c.record(work(1)); await env.c.flush();
+  assert.deepEqual(sent.filter(x => !x.metadataOnly).map(x => x.item.key), ['danbooru:2', 'danbooru:1']);
+});
+test('an old refresh cannot erase a completed manual save or its classification', async () => {
+  let finish; const env = controller(async (url, options) => {
+    if (options?.method === 'POST') return ['cloud', 'fern'];
+    if (url.includes('favorite-artworks')) return [];
+    if (url.includes('favorite-tags')) return new Promise(resolve => { finish = resolve; });
+    return { ...snapshot, kinds: { cloud: 'tag', fern: 'tag' } };
+  });
+  const tab = { rating: 'all' }, loading = env.c.load(tab);
+  await env.c.toggle('fern', 'character'); finish(['cloud']); await loading;
+  assert.deepEqual(env.tags(), ['cloud', 'fern']);
+  assert.ok(env.c.cards({ ...tab, favoriteType: 'character' }).some(card => card.tag === 'fern'));
+});
+test('shutdown sends queued views without awaiting an ordinary request and keeps a replayable outbox', async () => {
+  let finish; const calls = [], env = controller((url, options) => {
+    calls.push(options); return options.keepalive ? Promise.resolve({}) : new Promise(resolve => { finish = resolve; });
+  }, { schedule: () => 1, unschedule() {} });
+  env.c.record(work(1)); const sending = env.c.flush(); env.c.record(work(2));
+  const closing = env.c.flush(true); await Promise.resolve();
+  assert.ok(calls.some(options => options.keepalive && JSON.parse(options.body).some(record => record.item.key === 'danbooru:2')));
+  finish({}); await sending; await closing;
+});
+test('successful activity refreshes the visible summary without another user action', async () => {
+  let total = 0; const tab = { kind: 'favorites', rating: 'all' };
+  const env = controller(async (url, options) => {
+    if (options?.method === 'POST') { total = 1; return {}; }
+    if (url.includes('favorite-tags') || url.includes('favorite-artworks')) return [];
+    return { ...snapshot, totalWorks: total };
+  }, { getActiveTab: () => tab, schedule: () => 1, unschedule() {} });
+  await env.c.load(tab); env.c.record(work(1)); await env.c.flush();
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.equal(tab.favoriteSummary.totalWorks, 1);
+});
+test('slim projection retains compact hidden-tag/uploader evidence including mirrors', () => {
+  const item = { ...work(1), copyrightTags: ['sample_series'], uploaderId: '42', uploaderName: 'Uploader',
+    groupMembers: [{ ...work(2), uploaderId: '43', uploaderName: 'Other uploader' }] };
+  const value = F.slim(item);
+  assert.equal(value.uploaderId, '42'); assert.equal(value.groupMembers[0].uploaderId, '43');
+  assert.ok(F.collections({ summary: { ...snapshot, works: [{ ...value, tags: ['rain'], allTags: ['fern', 'sample_series', 'rain'] }] },
+    tags: ['fern'], type: 'character', allowed: cover => !Logic.isWorkHidden(cover, { excludedTags: ['fern'] }) })[0].cover === null);
+});
+test('a durable outbox replays the original view time after a new controller starts', async () => {
+  const env = controller(async () => ({}), { schedule: () => 1, unschedule() {} });
+  env.c.record(work(1)); const saved = JSON.parse(JSON.stringify(env.c.outboxSnapshot()));
+  const sent = [], next = controller(async (url, options) => { sent.push(...JSON.parse(options.body)); return {}; }, { schedule: () => 1, unschedule() {} });
+  next.c.restoreOutbox(saved); await next.c.flush();
+  assert.equal(sent[0].eventId, saved[0].eventId); assert.equal(sent[0].viewedAt, saved[0].viewedAt);
+  assert.deepEqual(next.c.outboxSnapshot(), []);
+});

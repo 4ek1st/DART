@@ -8,12 +8,21 @@ namespace ArtCatalog;
 
 public sealed class FavoriteViewUpdate
 {
+    public DateTimeOffset? ViewedAt { get; set; }
+    public bool FilteringComplete { get; set; } = true;
     public CatalogItem Item { get; set; } = new();
     public bool MetadataOnly { get; set; }
 }
 
 public sealed class FavoriteArtwork
 {
+    public bool FilteringComplete { get; set; } = true;
+    public string UploaderId { get; set; } = "";
+    public string UploaderName { get; set; } = "";
+    public string ArtistId { get; set; } = "";
+    public string Artist { get; set; } = "";
+    public List<CatalogItem> GroupMembers { get; set; } = [];
+    public List<string> AllTags { get; set; } = [];
     public string Key { get; set; } = "";
     public string Source { get; set; } = "";
     public string Id { get; set; } = "";
@@ -72,9 +81,9 @@ internal sealed partial class LocalStore
     internal static bool ValidFavoriteTag(string? tag) => tag is { Length: > 0 and <= 100 } &&
         !tag.StartsWith('-') && !tag.Any(char.IsWhiteSpace) && !tag.Any(char.IsControl);
 
-    private static List<string> FavoriteTags(IEnumerable<string>? tags) => (tags ?? [])
+    private static List<string> FavoriteTags(IEnumerable<string>? tags, int limit = 256) => (tags ?? [])
         .Where(tag => tag is not null).Select(NormalizeFavoriteTag).Where(ValidFavoriteTag)
-        .Distinct(StringComparer.Ordinal).Take(256).ToList();
+        .Distinct(StringComparer.Ordinal).Take(limit).ToList();
 
     private static string FavoriteMedia(string? value) => value is { Length: <= 2000 } &&
         Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" &&
@@ -109,6 +118,15 @@ internal sealed partial class LocalStore
             Work = new FavoriteArtwork
             {
                 Key = item.Key, Source = item.Source, Id = item.Id,
+                FilteringComplete = update.FilteringComplete,
+                UploaderId = item.UploaderId ?? "", UploaderName = item.UploaderName ?? "",
+                ArtistId = item.ArtistId ?? "", Artist = item.Artist ?? "",
+                AllTags = FavoriteTags(characters.Concat(copyrights).Concat(item.AllTags ?? []).Concat(item.Tags ?? []), 2048),
+                GroupMembers = (item.GroupMembers ?? []).Take(32).Select(member => new CatalogItem {
+                    Key = member.Key, Source = member.Source, Id = member.Id, CreatorTag = member.CreatorTag, CreatorName = member.CreatorName,
+                    ArtistId = member.ArtistId, Artist = member.Artist, UploaderId = member.UploaderId, UploaderName = member.UploaderName,
+                    Tags = FavoriteTags((member.Tags ?? []).Concat(member.AllTags ?? []).Concat(member.CharacterTags ?? []).Concat(member.CopyrightTags ?? [])),
+                    Participants = member.Participants ?? [] }).ToList(),
                 Title = (item.Title ?? "")[..Math.Min(item.Title?.Length ?? 0, 200)],
                 Thumbnail = FavoriteMedia(item.Thumbnail), Rating = item.Rating ?? "",
                 CreatorTag = NormalizeFavoriteTag(item.CreatorTag), CreatorName = (item.CreatorName ?? "")[..Math.Min(item.CreatorName?.Length ?? 0, 100)],
@@ -125,7 +143,8 @@ internal sealed partial class LocalStore
     {
         if (records is null || records.Count is < 1 or > 16) throw new ArgumentException("Invalid activity batch.");
         var at = now ?? DateTimeOffset.UtcNow;
-        var prepared = records.Select(record => FavoriteRecord(record, at)).ToArray();
+        var prepared = records.Select(record => FavoriteRecord(record, record.ViewedAt is { } viewed &&
+            viewed >= at.AddDays(-31) && viewed <= at.AddMinutes(1) ? viewed : at)).ToArray();
         var bytes = Encoding.UTF8.GetBytes(string.Join('\n', prepared.Select(record =>
             JsonSerializer.Serialize(record, FavoriteJson))) + "\n");
         if (bytes.Length > 160_000) throw new ArgumentException("Activity batch is too large.");
@@ -258,7 +277,7 @@ internal sealed partial class LocalStore
                 if (records.Count >= 50_000) break;
             }
             var summary = BuildFavoriteSummary(records, rating, manual);
-            summary.Kinds = kinds; summary.Incomplete = incomplete;
+            summary.Kinds = kinds; summary.Incomplete = incomplete || records.Any(record => !record.Work.FilteringComplete);
             favoriteSummaryCache[rating] = (stamp, at, summary);
             return summary;
         }
@@ -280,7 +299,11 @@ internal sealed partial class LocalStore
                 .ThenByDescending(pair => pair.index).Select(pair => pair.record).ToArray())
             .Where(group => group.Any(record => !record.MetadataOnly)).ToArray();
         var characters = groups.SelectMany(group => group).SelectMany(record => record.Work.CharacterTags ?? []).ToHashSet(StringComparer.Ordinal);
-        var entries = new Dictionary<string, (FavoriteActivityEntry Entry, HashSet<DateOnly> Days)>(StringComparer.Ordinal);
+        var names = groups.SelectMany(group => group).SelectMany(record => (record.Work.CopyrightTags ?? [])
+            .Append(record.Work.CreatorTag).Concat((record.Work.Participants ?? []).Select(person => person.Tag)))
+            .Where(ValidFavoriteTag).ToHashSet(StringComparer.Ordinal);
+        var sequence = records.Select((record, index) => (record, index)).ToDictionary(pair => pair.record, pair => pair.index);
+        var entries = new Dictionary<string, (FavoriteActivityEntry Entry, HashSet<DateOnly> Days, int Sequence)>(StringComparer.Ordinal);
         var covers = new Dictionary<string, FavoriteArtwork>(StringComparer.Ordinal);
         var summary = new FavoriteActivitySummary();
         foreach (var group in groups)
@@ -289,21 +312,23 @@ internal sealed partial class LocalStore
             if (rating == "general" && adult || rating == "explicit" && !adult) continue;
             var opens = group.Where(record => !record.MetadataOnly).ToArray();
             var latest = opens.Max(record => record.At);
+            var lastSequence = opens.Where(record => record.At == latest).Max(record => sequence[record]);
             var first = opens.Min(record => record.At);
             summary.TotalWorks++;
             if (summary.TrackedSince is null || first < summary.TrackedSince) summary.TrackedSince = first;
             var cover = group.FirstOrDefault(record => record.Work.Thumbnail.Length > 0)?.Work ?? group[0].Work;
             var days = opens.Select(record => DateOnly.FromDateTime(record.At.UtcDateTime)).ToHashSet();
             var entityTags = group.SelectMany(record => (record.Work.Tags ?? []).Concat(record.Work.CharacterTags ?? []))
-                .Distinct(StringComparer.Ordinal);
+                .Distinct(StringComparer.Ordinal).Where(tag => characters.Contains(tag) || !names.Contains(tag));
             foreach (var tag in entityTags)
             {
                 if (!entries.TryGetValue(tag, out var current)) current = (new FavoriteActivityEntry { Tag = tag,
-                    Kind = characters.Contains(tag) ? "character" : "tag" }, []);
+                    Kind = characters.Contains(tag) ? "character" : "tag" }, [], -1);
                 current.Entry.Count++; current.Days.UnionWith(days);
                 current.Entry.ActiveDays = current.Days.Count;
-                if (latest >= current.Entry.LastViewedAt)
+                if (latest > current.Entry.LastViewedAt || latest == current.Entry.LastViewedAt && lastSequence > current.Sequence)
                 {
+                    current.Sequence = lastSequence;
                     current.Entry.LastViewedAt = latest; current.Entry.LastWorkKey = cover.Key; covers[cover.Key] = cover;
                 }
                 entries[tag] = current;

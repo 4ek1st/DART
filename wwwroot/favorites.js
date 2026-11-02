@@ -32,7 +32,7 @@
       const entry = entries.get(tag);
       // A filtered latest cover stays blank; using an older cover would mislabel it as the latest view.
       const candidate = entry ? covers.get(entry.lastWorkKey) : recentByTag.get(tag);
-      const cover = candidate && candidate.thumbnail && ratingMatches(candidate, rating) && allowed(candidate) ? candidate : null;
+      const cover = candidate && candidate.filteringComplete !== false && candidate.thumbnail && ratingMatches(candidate, rating) && allowed(candidate) ? candidate : null;
       return { tag, kind: origin === 'system' ? entry.kind : kindFor(tag), favorite: manual.has(tag), cover,
         count: entry?.count ?? null, activeDays: entry?.activeDays || 0, lastViewedAt: entry?.lastViewedAt || null,
         share: entry && summary.totalWorks ? Math.min(100, Math.round(entry.count / summary.totalWorks * 100)) : null };
@@ -43,18 +43,33 @@
     if (!item?.key || !item.source || !item.id) return null;
     const result = {};
     for (const key of ['key', 'source', 'id', 'title', 'thumbnail', 'rating', 'contentHash', 'groupKey', 'pixivGroupKey',
-      'originalUrl', 'creatorTag', 'creatorName']) if (typeof item[key] === 'string') result[key] = item[key].slice(0, key === 'title' ? 200 : 2000);
+      'originalUrl', 'creatorTag', 'creatorName', 'uploaderId', 'uploaderName', 'artistId', 'artist']) if (typeof item[key] === 'string') result[key] = item[key].slice(0, key === 'title' ? 200 : 2000);
+    result.filteringComplete = true;
     for (const key of ['tags', 'allTags', 'characterTags', 'copyrightTags'])
-      result[key] = [...new Set((item[key] || []).filter(value => typeof value === 'string' && value.length <= 100))].slice(0, 256);
+      {
+        const values = [...new Set((item[key] || []).filter(value => typeof value === 'string' && value.length <= 100))];
+        result[key] = values.slice(0, 256); if (values.length > 256) result.filteringComplete = false;
+      }
     result.memberKeys = (item.memberKeys || []).slice(0, 128);
     result.participants = (item.participants || []).slice(0, 16).map(({ tag, name, role }) => ({ tag, name, role }));
     result.images = (item.images || []).slice(0, 1);
     result.imageRecords = (item.imageRecords || []).filter(record => /^[a-f0-9]{32}$/i.test(record?.hash || '')).slice(0, 32)
       .map(record => ({ hash: record.hash }));
+    result.groupMembers = (item.groupMembers || []).slice(0, 32).map(member => {
+      const value = {};
+      for (const key of ['key', 'source', 'id', 'creatorTag', 'creatorName', 'uploaderId', 'uploaderName', 'artistId', 'artist'])
+        if (typeof member[key] === 'string') value[key] = member[key].slice(0, 200);
+      value.tags = [...new Set([...(member.tags || []), ...(member.allTags || []), ...(member.characterTags || []), ...(member.copyrightTags || [])])].slice(0, 256);
+      value.participants = (member.participants || []).slice(0, 16);
+      if (value.tags.length < new Set([...(member.tags || []), ...(member.allTags || []), ...(member.characterTags || []), ...(member.copyrightTags || [])]).size) result.filteringComplete = false;
+      return value;
+    });
+    if ((item.groupMembers || []).length > 32) result.filteringComplete = false;
     // Unicode-heavy provider tags must still fit a keepalive request at shutdown.
     const size = () => new TextEncoder().encode(JSON.stringify(result)).length;
     for (const field of ['allTags', 'tags', 'copyrightTags', 'characterTags'])
-      while (result[field].length && size() > 30000) result[field].pop();
+      while (result[field].length && size() > 30000) { result[field].pop(); result.filteringComplete = false; }
+    while (result.groupMembers.length && size() > 30000) { result.groupMembers.pop(); result.filteringComplete = false; }
     return result;
   }
   const escape = text => String(text ?? '').replace(/[&<>"']/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[value]));
@@ -63,7 +78,8 @@
       changed = () => {}, toast = () => {}, allowed = () => true, save = () => {}, svg = () => '',
       openSearch = () => {}, openDetail = () => {}, schedule = setTimeout, unschedule = clearTimeout } = deps;
     const pending = new Set(), optimistic = new Map(), observed = new Map(), cache = new Map();
-    let saving = Promise.resolve(), queue = [], timer = null, sending = null, revision = 0, disposed = false;
+    let saving = Promise.resolve(), queue = [], timer = null, sending = null, inFlight = [], revision = 0, manualRevision = 0, disposed = false;
+    let outboxSequence = 0;
     let lastKinds = {};
     let artworks = [], artworkLoaded = false, artworkLoading = null, artworkRevision = 0, artworkSaving = Promise.resolve();
     let membershipItems = null, membership = new Set();
@@ -121,22 +137,29 @@
       if (!force && tab.favoriteRevision === revision && tab.favoriteLoadedAt > Date.now() - 15000) return;
       tab.favoriteLoading = true; tab.favoriteError = ''; changed();
       try {
-        const rating = tab.rating || 'all', version = revision;
+        const rating = tab.rating || 'all', version = revision, choicesVersion = manualRevision;
         const [summary, tags, worksReady] = await Promise.all([request(`/api/favorites?rating=${rating}`, { priority: 'background' }), request('/api/favorite-tags'), loadArtworks()]);
         if (!worksReady) throw new Error('Favorite artworks unavailable');
         if ((tab.rating || 'all') !== rating) { tab.favoriteLoading = false; return load(tab, true); }
-        tab.favoriteSummary = summary; lastKinds = summary.kinds || {};
+        tab.favoriteSummary = summary;
         const merged = new Set(tags);
         for (const [tag, favorite] of optimistic) favorite ? merged.add(tag) : merged.delete(tag);
-        setTags([...merged]); tab.favoriteRevision = version; tab.favoriteLoadedAt = Date.now();
+        if (choicesVersion === manualRevision) {
+          setTags([...merged]); lastKinds = summary.kinds || {};
+        }
+        tab.favoriteRevision = version; tab.favoriteLoadedAt = Date.now();
       } catch { tab.favoriteError = 'Could not load Favorites. Your choices are still saved.'; }
-      finally { tab.favoriteLoading = false; changed(); }
+      finally {
+        tab.favoriteLoading = false; changed();
+        if (!tab.favoriteError && tab.favoriteRevision !== revision && deps.getActiveTab?.() === tab) void load(tab, true);
+      }
     }
     function toggle(value, kind = null, requested) {
       const tag = normalize(value);
       if (!tag || pending.has(tag)) return Promise.resolve(false);
       const was = getTags().includes(tag), favorite = requested ?? !was;
       pending.add(tag); optimistic.set(tag, favorite);
+      manualRevision++;
       setTags(favorite ? [...new Set([...getTags(), tag])] : getTags().filter(value => value !== tag));
       const previousKind = lastKinds[tag];
       if (kind) lastKinds[tag] = kind;
@@ -145,11 +168,13 @@
         try {
           const tags = await request('/api/favorite-tags', { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tag, kind: kind || undefined, favorite }) });
+          manualRevision++;
           optimistic.delete(tag);
           const merged = new Set(tags);
           for (const [other, state] of optimistic) state ? merged.add(other) : merged.delete(other);
           setTags([...merged]); mark(); return true;
         } catch {
+          manualRevision++;
           optimistic.delete(tag);
           if (previousKind) lastKinds[tag] = previousKind; else delete lastKinds[tag];
           setTags(was ? [...new Set([...getTags(), tag])] : getTags().filter(value => value !== tag));
@@ -165,14 +190,46 @@
       observed.delete(value.key); observed.set(value.key, fingerprint);
       if (observed.size > 512) observed.delete(observed.keys().next().value);
       // Repeated opens within one batch still represent one distinct artwork.
-      const existing = queue.find(record => record.item.key === value.key && record.metadataOnly === metadataOnly);
-      if (existing) existing.item = value; else queue.push({ item: value, metadataOnly });
+      const viewedAt = new Date().toISOString();
+      const existing = queue.findIndex(record => record.item.key === value.key && record.metadataOnly === metadataOnly && record.viewedAt.slice(0, 10) === viewedAt.slice(0, 10));
+      if (existing >= 0) queue.splice(existing, 1);
+      queue.push({ item: value, metadataOnly, filteringComplete: value.filteringComplete,
+        viewedAt, eventId: root.crypto?.randomUUID?.() || `${Date.now()}-${++outboxSequence}-${Math.random()}` });
+      if (queue.length > 256) queue.splice(0, queue.length - 256);
       mark();
+      deps.outboxChanged?.();
       if (timer === null && !disposed) timer = schedule(() => { timer = null; void flush(); }, 300);
     }
-    async function flush(keepalive = false) {
+    function outboxSnapshot() { return [...inFlight, ...queue].slice(-256); }
+    function restoreOutbox(records) {
+      if (!Array.isArray(records)) return;
+      const known = new Set(outboxSnapshot().map(record => record.eventId));
+      for (const record of records.slice(-256)) {
+        const at = Date.parse(record?.viewedAt);
+        if (!record?.item?.key || typeof record.eventId !== 'string' || known.has(record.eventId) ||
+            !Number.isFinite(at) || at < Date.now() - 30 * 86400000 || at > Date.now() + 60000) continue;
+        queue.push(record); known.add(record.eventId);
+      }
+      if (queue.length && timer === null) timer = schedule(() => { timer = null; void flush(); }, 0);
+    }
+    async function flush(keepalive = false, budget = 45000) {
       if (timer !== null) { unschedule(timer); timer = null; }
-      if (sending) { await sending; if (!keepalive) return queue.length ? flush() : undefined; }
+      if (keepalive) {
+        // Native normal-close has already persisted this snapshot through
+        // flushClientState. Browser teardown also attempts immediate delivery;
+        // it must never await a request which may die with the page.
+        deps.outboxChanged?.();
+        const batch = []; let bytes = 2;
+        for (const record of outboxSnapshot()) {
+          const size = new TextEncoder().encode(JSON.stringify(record)).length + 1;
+          if (batch.length >= 16 || bytes + size > budget) break;
+          bytes += size; batch.push(record);
+        }
+        if (batch.length) try { await request('/api/favorites/activity', { method: 'POST', keepalive: true,
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(batch) }); } catch { /* Durable outbox replays at startup. */ }
+        return;
+      }
+      if (sending) { await sending; return queue.length ? flush() : undefined; }
       if (!queue.length) return;
       const batch = []; let bytes = 2;
       while (queue.length && batch.length < 16) {
@@ -182,13 +239,16 @@
       }
       if (!batch.length) return;
       let failed = false;
+      inFlight = batch;
       sending = (async () => {
         try {
           await request('/api/favorites/activity', { method: 'POST', keepalive, priority: 'background',
             headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(batch) }); mark();
         } catch { queue.unshift(...batch); failed = true; }
       })();
-      await sending; sending = null;
+      await sending; sending = null; inFlight = []; deps.outboxChanged?.();
+      const active = deps.getActiveTab?.();
+      if (!failed && active?.kind === 'favorites') void load(active, true);
       if (queue.length && !keepalive && !disposed && timer === null)
         timer = schedule(() => { timer = null; void flush(); }, failed ? 5000 : 0);
     }
@@ -270,7 +330,7 @@
       }
       return false;
     }
-    return { load, render, handle, add, toggle, cards, invalidate: mark, loadArtworks, toggleArtwork, isArtworkFavorite, artworkButton,
+    return { load, render, handle, add, toggle, cards, invalidate: mark, loadArtworks, toggleArtwork, isArtworkFavorite, artworkButton, outboxSnapshot, restoreOutbox,
       isArtworkPending: item => pendingArtworks.has(item?.key),
       record: item => enqueue(item, false), metadata: item => enqueue(item, true), flush,
       dispose() { disposed = true; if (timer !== null) unschedule(timer); timer = null; } };
