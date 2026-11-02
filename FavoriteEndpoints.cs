@@ -1,0 +1,40 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using System.Text.Json;
+
+namespace ArtCatalog;
+
+internal static class FavoriteEndpoints
+{
+    internal static void Map(WebApplication app, Func<HttpRequest, bool> sameOrigin)
+    {
+        app.MapGet("/api/favorites", (HttpContext context, LocalStore store) =>
+        {
+            var rating = context.Request.Query["rating"].ToString();
+            if (rating.Length == 0) rating = "all";
+            if (rating is not ("general" or "explicit" or "all")) return Results.BadRequest();
+            try { return Results.Ok(store.GetFavoriteActivity(rating)); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+            { return Results.Problem("Viewing statistics could not be read.", statusCode: 503); }
+        });
+        app.MapPost("/api/favorites/activity", async (HttpContext context, LocalStore store) =>
+        {
+            if (!sameOrigin(context.Request)) return Results.StatusCode(403);
+            if (context.Request.ContentLength is > 160_000) return Results.StatusCode(413);
+            var limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = 160_000;
+            try
+            {
+                var records = await context.Request.ReadFromJsonAsync<List<FavoriteViewUpdate>>(context.RequestAborted);
+                if (records is null || records.Any(record => record is null)) return Results.BadRequest();
+                store.RecordFavoriteActivity(records);
+                return Results.Ok(new { recorded = true });
+            }
+            catch (BadHttpRequestException error) { return Results.StatusCode(error.StatusCode); }
+            catch (Exception error) when (error is JsonException or ArgumentException) { return Results.BadRequest(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { return Results.Problem("Viewing statistics could not be saved.", statusCode: 503); }
+        });
+    }
+}

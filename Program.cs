@@ -160,6 +160,7 @@ internal static class Program
             context.Response.Headers["X-DART-Saved-Revision"] = snapshot.Revision;
             return Results.Ok(snapshot.Items);
         });
+        FavoriteEndpoints.Map(app, IsSameOrigin);
         app.MapGet("/api/favorite-tags", (LocalStore store) =>
             Results.Ok(store.GetFavoriteTags()));
         app.MapPost("/api/favorite-tags", async (HttpContext context, LocalStore store) =>
@@ -172,10 +173,11 @@ internal static class Program
             catch (System.Text.Json.JsonException) { return Results.BadRequest(); }
             var tag = update?.Tag?.Trim().ToLowerInvariant().Normalize(
                 System.Text.NormalizationForm.FormKC) ?? "";
-            if (update?.Favorite is null || tag.Length is < 1 or > 100 ||
+            if (update?.Favorite is null || update.Kind is not (null or "character" or "tag") || tag.Length is < 1 or > 100 ||
                 tag.StartsWith('-') || tag.Any(char.IsWhiteSpace) ||
                 tag.Any(char.IsControl)) return Results.BadRequest();
-            var tags = store.SetFavoriteTag(tag, update.Favorite.Value);
+            var tags = update.Kind is null ? store.SetFavoriteTag(tag, update.Favorite.Value) :
+                store.SetFavoriteEntity(tag, update.Kind, update.Favorite.Value);
             return tags is null ? Results.Conflict() : Results.Ok(tags);
         });
         app.MapGet("/api/client-state", (LocalStore store) =>

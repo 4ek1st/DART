@@ -93,6 +93,7 @@ public sealed class FavoriteTagUpdate
 {
     public string Tag { get; set; } = "";
     public bool? Favorite { get; set; }
+    public string? Kind { get; set; }
 }
 
 public sealed class RecommendationTagPreferenceUpdate

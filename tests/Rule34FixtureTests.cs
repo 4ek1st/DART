@@ -25,6 +25,7 @@ await RunFrontendExtractionFixture();
 RatingSelectionFixtureTests.Run();
 CurationFixtureTests.Run();
 SavedWorksFixtureTests.Run();
+FavoritesFixtureTests.Run();
 ProfileTransferFixtureTests.Run();
 ImageContentFixtureTests.Run();
 await GelbooruAliasFixtureTests.RunAsync();
