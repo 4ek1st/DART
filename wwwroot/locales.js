@@ -3,6 +3,9 @@
 (function(root) {
   const rows = `
 Home|Главная|Startseite
+Date|Дата|Datum
+Random|Случайно|Zufällig
+Following order|Порядок подписок|Reihenfolge der Abonnements
 NSFW ratings|Рейтинги NSFW|NSFW-Bewertungen
 Right-click to choose Q and NSFW|Правый клик — выбор Q и NSFW|Rechtsklick zur Auswahl von Q und NSFW
 No NSFW ratings selected. Right-click NSFW to enable Q or NSFW.|Рейтинги NSFW выключены. Нажмите правой кнопкой на NSFW и включите Q или NSFW.|Keine NSFW-Bewertung ausgewählt. Aktiviere Q oder NSFW per Rechtsklick auf NSFW.

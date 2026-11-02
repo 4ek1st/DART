@@ -132,6 +132,26 @@ internal static class SavedWorksFixtureTests
             var reopenedState = JsonNode.Parse((string)clean.Invoke(null, [migratedState.ToJsonString()])!)!;
             Expect(reopenedState["session"]!["tabs"]![2]!["kind"]!.GetValue<string>() == "bookmarks",
                 "New bookmark tabs must remain bookmarks after restart");
+            var followingSession = JsonNode.Parse((string)clean.Invoke(null, ["""
+                {"session":{"savedWorksVersion":1,"tabs":[
+                  {"kind":"follows","followOrder":"random","followRandomSeed":4294967295},
+                  {"kind":"follows"},
+                  {"kind":"follows","followOrder":"unsupported","followRandomSeed":-1},
+                  {"kind":"follows","followOrder":"random","followRandomSeed":4294967296},
+                  {"kind":"follows","followOrder":"random","followRandomSeed":1.5},
+                  {"kind":"follows","followOrder":"random","followRandomSeed":"23"},
+                  {"kind":"search","followOrder":"random","followRandomSeed":17}]}}
+                """])!)!["session"]!["tabs"]!.AsArray();
+            Expect(followingSession[0]!["followOrder"]!.GetValue<string>() == "random" &&
+                followingSession[0]!["followRandomSeed"]!.GetValue<uint>() == uint.MaxValue,
+                "Following random order and the full uint32 seed must survive native session cleaning");
+            Expect(followingSession[1]!["followOrder"]!.GetValue<string>() == "date" &&
+                followingSession[1]!["followRandomSeed"]!.GetValue<uint>() == 0 &&
+                followingSession[2]!["followOrder"]!.GetValue<string>() == "date" &&
+                followingSession.Skip(2).Take(4).All(tab => tab!["followRandomSeed"]!.GetValue<uint>() == 0),
+                "Old sessions and malformed Following order fields must receive safe defaults");
+            Expect(followingSession[6]!["followOrder"] is null && followingSession[6]!["followRandomSeed"] is null,
+                "Other tab kinds must not gain Following order settings");
             var updateClient = Store.GetMethod("UpdateClientStateJson")!;
             var readClient = Store.GetMethod("GetClientStateJson")!;
             var largeState = new JsonObject {

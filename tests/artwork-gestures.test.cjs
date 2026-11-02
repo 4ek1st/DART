@@ -122,6 +122,33 @@ test('double-click suppresses native zoom and selection only on artwork images',
 });
 
 const app = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
+
+test('modal video clicks and double-clicks retain native controls without liking the artwork', () => {
+  const likes = [], work = { key: 'rule34:video' }, preview = { open: true };
+  const context = vm.createContext({ DartArtworkGestures: Gestures, currentTab: () => ({ kind: 'detail' }),
+    quickPreview: preview, quickPreviewWork: work, quickPreviewGeneration: 1,
+    showArtworkLikeFeedback() {}, toggleSavedWork: item => likes.push(item.key) });
+  const gesture = vm.runInContext(app.slice(app.indexOf('const artworkImageGestures ='),
+    app.indexOf("\ndocument.addEventListener('pointerdown'", app.indexOf('const artworkImageGestures ='))) +
+    '\nartworkImageGestures', context);
+  const target = tag => ({ matches: selector => selector.includes('.quick-preview-image') &&
+    (!/^[a-z]+\./i.test(selector) || selector.toLowerCase().startsWith(tag.toLowerCase() + '.')) });
+  const video = target('video');
+  const event = detail => ({ target: video, button: 0, detail, clientX: 100, clientY: 100,
+    preventDefault() { this.prevented = true; } });
+  for (const detail of [1, 2]) {
+    const click = event(detail);
+    assert.equal(gesture.click(click), false);
+    assert.equal(click.prevented, undefined);
+  }
+  assert.equal(gesture.dblclick(event(2)), false);
+  assert.deepEqual(likes, []);
+  const image = target('img');
+  gesture.click({ ...event(1), target: image });
+  gesture.click({ ...event(2), target: image });
+  assert.deepEqual(likes, [work.key], 'Image double-click liking remains available');
+});
+
 function savedFixture() {
   let saved = false, release;
   const methods = [], messages = [], item = { key: 'danbooru:1', source: 'danbooru', memberKeys: [] };

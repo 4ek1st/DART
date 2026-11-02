@@ -51,6 +51,8 @@
   padding: 16px;
 }
 .search-tools.favorites-filters > .source-filters { margin: 0; }
+.follow-filters { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 0 20px; }
+.follow-filters > .follow-order { margin-left: auto; }
 .favorites-filters .favorites-origin { justify-self: end; }
 .favorites-filters .favorites-rating { grid-column: 1 / -1; }
 .author-strip { padding: 5px 5px 14px; }

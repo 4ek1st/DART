@@ -14,7 +14,8 @@ function createContext(sandbox = {}, options) {
   // The production controller is used, so its identity semantics stay shared.
   const actions=DartArtworkActions.create({request:async()=>[]});
   const defaults={artworkActionsController:()=>actions,favoriteGroupFor:()=>null,
-    renderHiddenArtworksSettings:()=>'',svg:()=>'',recommendationTagMenu:{},closeRecommendationTagMenu(){}};
+    renderHiddenArtworksSettings:()=>'',svg:()=>'',recommendationTagMenu:{},closeRecommendationTagMenu(){},pruneArtworkRoutes(){},
+    quickPreviewReturnFocus:null,quickPreviewSpaceHeld:false};
   for(const [key,value]of Object.entries(defaults))if(!Object.hasOwn(sandbox,key))sandbox[key]=value;
   const context = vm.createContext(sandbox, options);
   vm.runInContext(helpers, context);

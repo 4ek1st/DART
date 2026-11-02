@@ -32,7 +32,8 @@ internal static class CatalogState
         string[] kinds = ["home", "search", "detail", "profile", "bookmarks", "likes",
             "recommendations", "follows", "favorites", "recent", "settings"];
         string[] fields = ["kind", "title", "query", "searchQuery", "selectedSources", "rating",
-            "sort", "feed", "item", "profileRef", "settingsSection", "favoriteType", "favoriteOrigin", "preview", "pinned", "scrollTop"];
+            "sort", "feed", "item", "profileRef", "settingsSection", "favoriteType", "favoriteOrigin",
+            "followOrder", "followRandomSeed", "preview", "pinned", "scrollTop"];
         for (var original = 0; original < tabs.Count; original++)
         {
             if (tabs[original] is not JsonObject tab) continue;
@@ -53,6 +54,18 @@ internal static class CatalogState
             {
                 clean["favoriteType"] = Text(tab, "favoriteType") is "tag" or "artwork" ? Text(tab, "favoriteType") : "character";
                 clean["favoriteOrigin"] = Text(tab, "favoriteOrigin") == "system" ? "system" : "mine";
+            }
+            if (kind == "follows")
+            {
+                clean["followOrder"] = Text(tab, "followOrder") == "random" ? "random" : "date";
+                clean["followRandomSeed"] = tab["followRandomSeed"] is JsonValue seedValue &&
+                    seedValue.TryGetValue<double>(out var seed) && seed >= 0 && seed <= uint.MaxValue &&
+                    seed == Math.Truncate(seed) ? (uint)seed : 0U;
+            }
+            else
+            {
+                clean.Remove("followOrder");
+                clean.Remove("followRandomSeed");
             }
             if (Text(tab, "sort") == "curated")
                 clean["sort"] = Text(tab, "curationBaseSort") == "popular" ? "popular" : "recent";

@@ -118,6 +118,55 @@ test('session restores more than sixteen tabs, the active work, pins and preview
   assert.equal(f.run('currentTab().pinned'), true);
 });
 
+test('restarting restores the selected Upscale settings section', () => {
+  const f = fixture();
+  f.run('createTab("settings", "Settings", { settingsSection: "upscale" }); saveSession();');
+  f.run('tabs.length = 0; activeId = null; restoreSession();');
+  assert.equal(f.run('currentTab().kind'), 'settings');
+  assert.equal(f.run('currentTab().settingsSection'), 'upscale');
+});
+
+test('Following session restores its order choice and uint32 seed without retaining loaded media', () => {
+  for (const [order, seed] of [['date', 17], ['random', 0], ['random', 2147483648], ['random', 4294967295]]) {
+    const f = fixture();
+    f.context.order = order; f.context.seed = seed;
+    f.run('createTab("follows", "Following", { followOrder: order, followRandomSeed: seed }); currentTab().items = [{ key: "danbooru:123", images: ["https://fixture.test/media.jpg"] }]; saveSession();');
+    const saved = JSON.parse(f.values.get('artcatalog-session')).tabs[0];
+    assert.equal(saved.followOrder, order);
+    assert.equal(saved.followRandomSeed, seed);
+    assert.equal(saved.items, undefined);
+    f.run('tabs.length = 0; activeId = null; restoreSession();');
+    assert.equal(f.run('currentTab().followOrder'), order);
+    assert.equal(f.run('currentTab().followRandomSeed'), seed);
+    assert.equal(f.run('currentTab().items.length'), 0);
+  }
+});
+
+test('older Following sessions default to Date order and an uninitialized seed', () => {
+  const f = fixture();
+  f.values.set('artcatalog-session', JSON.stringify({ savedWorksVersion: 1, activeIndex: 0,
+    tabs: [{ kind: 'follows', title: 'Following' }] }));
+  f.run('restoreSession()');
+  assert.equal(f.run('currentTab().followOrder'), 'date');
+  assert.equal(f.run('currentTab().followRandomSeed'), 0);
+});
+
+test('client-state cleaning rejects unsupported Following order and invalid uint32 seeds', () => {
+  for (const seed of [undefined, null, -1, 4294967296, 1.5, NaN, Infinity, '23', true, {}]) {
+    const state = CatalogLogic.cleanClientState({ session: { savedWorksVersion: 1, activeIndex: 0,
+      tabs: [{ kind: 'follows', followOrder: 'unsupported', followRandomSeed: seed }] } });
+    assert.equal(state.session.tabs[0].followOrder, 'date');
+    assert.equal(state.session.tabs[0].followRandomSeed, 0);
+  }
+  const state = CatalogLogic.cleanClientState({ session: { savedWorksVersion: 1, activeIndex: 0,
+    tabs: [{ kind: 'follows', followOrder: 'random', followRandomSeed: 4294967295 },
+      { kind: 'search', followOrder: 'random', followRandomSeed: 17 }] } });
+  assert.equal(state.session.tabs[0].followOrder, 'random');
+  assert.equal(state.session.tabs[0].followRandomSeed, 4294967295);
+  assert.equal(state.session.tabs[1].followOrder, undefined);
+  assert.equal(state.session.tabs[1].followRandomSeed, undefined);
+});
+
 test('late detail response cannot overwrite a replacement preview', async () => {
   const f = fixture(); f.context.a = a; f.context.b = b;
   f.run('createTab("home", "Главная"); openDetail(a);');

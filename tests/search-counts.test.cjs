@@ -35,9 +35,10 @@ test('search summary includes records whose files the catalog API withheld', () 
   const end = source.indexOf('\nfunction renderRecommendationTagChips(', start);
   const render = vm.runInNewContext(source.slice(start, end) + '\nrenderSearchSummary', {
     CatalogLogic, viewedTokens: new Set(), likes: [], bookmarks: [], contentPreferences: {}, knownWorkTokens:()=>new Set(),
+    filterHiddenFeedWorks: items => items, filterFeedWorks: items => items, isExpiredFeedWork: () => false,
     names: { danbooru: 'Danbooru' }, escapeHtml: String
   });
-  const html = render({ items: [{ key: 'danbooru:1' }],
+  const html = render({ items: [{ key: 'danbooru:1', source: 'danbooru' }],
     searchPageStats: { 'danbooru:0': { source: 'danbooru', received: 2, unavailable: 1 } } });
   assert.match(html, /Показано работ: 1/);
   assert.match(html, /Загружено записей: 2/);

@@ -66,6 +66,7 @@ quickPreview.tabIndex = -1;
 document.body.append(quickPreview);
 let quickPreviewWork = null;
 let quickPreviewPointer = null;
+let quickPreviewReturnFocus = null, quickPreviewSpaceHeld = false;
 let quickPreviewGeneration = 0;
 let quickPreviewMediaController;
 let quickPreviewView = { scale: 1, x: 0, y: 0 };
@@ -553,6 +554,9 @@ function captureClientState() {
     settingsSection: tab.kind === 'settings' ? tab.settingsSection || 'content' : undefined,
     favoriteType: tab.kind === 'favorites' ? tab.favoriteType || 'character' : undefined,
     favoriteOrigin: tab.kind === 'favorites' ? tab.favoriteOrigin || 'mine' : undefined,
+    followOrder: tab.kind === 'follows' ? tab.followOrder === 'random' ? 'random' : 'date' : undefined,
+    followRandomSeed: tab.kind === 'follows' ? Number.isInteger(tab.followRandomSeed) &&
+      tab.followRandomSeed >= 0 && tab.followRandomSeed <= 0xffffffff ? tab.followRandomSeed : 0 : undefined,
     preview: !!tab.preview, pinned: !!tab.pinned, scrollTop: tab.scrollTop || 0
   }));
   const session = { tabs: descriptors, savedWorksVersion: 1, activeIndex: tabs.findIndex(tab => tab.id === activeId),
@@ -679,7 +683,12 @@ function restoreSession() {
       profileRef: saved.profileRef,
       favoriteType: ['tag', 'artwork'].includes(saved.favoriteType) ? saved.favoriteType : 'character',
       favoriteOrigin: saved.favoriteOrigin === 'system' ? 'system' : 'mine',
-      settingsSection: ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer'].includes(saved.settingsSection)
+      ...(saved.kind === 'follows' ? {
+        followOrder: saved.followOrder === 'random' ? 'random' : 'date',
+        followRandomSeed: Number.isInteger(saved.followRandomSeed) && saved.followRandomSeed >= 0 &&
+          saved.followRandomSeed <= 0xffffffff ? saved.followRandomSeed : 0
+      } : {}),
+      settingsSection: ['content', 'curation', 'authors', 'sources', 'tabs', 'appearance', 'language', 'privacy', 'transfer', 'upscale'].includes(saved.settingsSection)
         ? saved.settingsSection : 'content',
       items: [], errors: {}, page: 0,
       loading: false, started: false,
@@ -1487,11 +1496,15 @@ async function recordViewedWorks(items) {
 }
 
 async function refreshFollows() {
+  const revision = refreshFollows.revision = (refreshFollows.revision || 0) + 1;
   try {
-    follows = CatalogLogic.filterCatalogItems(await request('/api/follows'));
+    const items = CatalogLogic.filterCatalogItems(await request('/api/follows'));
+    if (revision !== refreshFollows.revision) return true;
+    follows = items;
     followedKeys = new Set(follows.map(CatalogLogic.followKey));
     return true;
   } catch {
+    if (revision !== refreshFollows.revision) return true;
     toast('Подписки не удалось прочитать');
     return false;
   }
@@ -2081,8 +2094,7 @@ async function updateFollowFeed(tab) {
     for (const key of item.memberKeys || [item.key])
       if (!tab.newKeys?.has(key)) newKeys.delete(key);
   }
-  tab.items = CatalogLogic.stableFeedItems(tab.followStableRating === tab.rating
-    ? tab.items : [], visible, newKeys);
+  tab.items = orderFollowFeedItems(tab, visible, newKeys);
   tab.followStableRating = tab.rating;
   tab.newKeys = newKeys;
   tab.followSourceErrors = Object.fromEntries(tab.followStreams.filter(stream => stream.error)
@@ -2096,13 +2108,42 @@ async function updateFollowFeed(tab) {
   return true;
 }
 
+function nextFollowRandomSeed(tab) {
+  const previous = tab.followRandomSeed >>> 0;
+  let seed = Math.floor(Math.random() * 0x100000000) >>> 0 || 1;
+  if (seed === previous) seed = (seed + 1) >>> 0 || 1;
+  tab.followRandomSeed = seed;
+}
+
+function orderFollowFeedItems(tab, items, newKeys = new Set()) {
+  const mode = tab.followOrder === 'random' ? 'random' : 'date';
+  const generation = `${tab.rating}:${mode}:${mode === 'random' ? tab.followRandomSeed >>> 0 : 0}`;
+  const previous = tab.followPresentationKey === generation || !tab.followPresentationKey &&
+    mode === 'date' && tab.followStableRating === tab.rating ? tab.items : [];
+  tab.followPresentationKey = generation;
+  return mode === 'random' ? CatalogLogic.randomFollowFeedItems(previous, items, tab.followRandomSeed) :
+    CatalogLogic.stableFeedItems(previous, items, newKeys);
+}
+
+async function setFollowOrder(tab, value) {
+  if (!['date', 'random'].includes(value) || (tab.followOrder || 'date') === value) return;
+  tab.followOrder = value;
+  if (value === 'random') nextFollowRandomSeed(tab);
+  tab.virtualState = {}; tab.artworkLists?.clear();
+  tab.scrollTop = 0;
+  if (activeId === tab.id) main.scrollTop = 0;
+  await updateFollowFeed(tab);
+  if (activeId === tab.id) render();
+  saveSession();
+}
+
 async function flushFollowUpdate(tab) {
   if (tab.followUpdateTimer) clearTimeout(tab.followUpdateTimer);
   tab.followUpdateTimer = null;
   tab.followUpdatePending = true;
   if (tab.followUpdateJob) return tab.followUpdateJob;
   const signature = () => JSON.stringify([
-    tab.followVersion, tab.rating, tab.followUpdateRevision || 0, contentPreferences,
+    tab.followVersion, tab.rating, tab.followOrder, tab.followRandomSeed, tab.followUpdateRevision || 0, contentPreferences,
     tab.loading, tab.followLoadingMore, tab.followLoadError, tab.seenError,
     tab.followErrors, tab.followSourceNotices,
     (tab.followStreams || []).map(stream => [stream.follow?.key, stream.source,
@@ -2199,9 +2240,14 @@ async function markFollowItemsSeen(tab, groups, version) {
   }
 }
 
-async function loadFollowFeed(tab) {
+async function loadFollowFeed(tab, reshuffle = false) {
   const alive = () => findTab(tab.id) === tab || tab.artworkDetached && !tab.artworkDisposed;
   if (!alive()) return;
+  if (tab.followOrder === 'random' && (reshuffle || !Number.isInteger(tab.followRandomSeed) ||
+      tab.followRandomSeed <= 0 || tab.followRandomSeed > 0xffffffff)) {
+    nextFollowRandomSeed(tab);
+    if (!tab.artworkDetached) saveSession();
+  }
   delete tab.resumePrefetchAt;
   tab.retainedFeedWorks = new Map();
   delete tab.retainedFeedHeights;
@@ -2936,7 +2982,9 @@ let nextArtworkSourceId = -1, quickPreviewRoute = null;
 
 function artworkSourceSignature(source) {
   return JSON.stringify([source.kind, source.query, source.rating, source.sort,
-    source.selectedSources, source.profileRef, source.favoriteType, source.favoriteOrigin]);
+    source.selectedSources, source.profileRef, source.favoriteType, source.favoriteOrigin,
+    source.kind === 'follows' ? source.followOrder || 'date' : undefined,
+    source.kind === 'follows' && source.followOrder === 'random' ? source.followRandomSeed : undefined]);
 }
 
 function copyArtworkSource(source) {
@@ -2960,6 +3008,7 @@ function copyArtworkSource(source) {
 }
 
 function artworkFollowItems(source) {
+  if (source.followOrder === 'random') return source.items || [];
   const cached = source.followComputed;
   return cached && cached.rating === source.rating && cached.version === source.followVersion
     ? cached.feed.items : source.items || [];
@@ -2997,7 +3046,12 @@ function artworkSourceItems(route) {
   // viewer must consume that evidence even when no source page was appended.
   const regroup = route.readGroupingRevision !== groupingRevision;
   const fullRead = route.readPreferences !== contentPreferences || regroup;
-  const changed = fullRead || contentPreferences.curation?.enabled
+  // These discovery feeds use curateFeedWorks' whole-pool quality factors.
+  // Saved lists, Following and already ranked recommendations keep their own
+  // order, so one enriched saved detail must not regroup the entire library.
+  const wholeFeedCuration = contentPreferences.curation?.enabled &&
+    ['home', 'search', 'profile'].includes(source.kind);
+  const changed = fullRead || wholeFeedCuration
     ? raw : raw.filter(item => route.readVersions.get(item.key) !== item);
   const added = changed.some(item => !route.readVersions.has(item.key));
   route.readRaw = raw; route.readRawLength = raw.length; route.readPreferences = contentPreferences;
@@ -3125,8 +3179,8 @@ function createArtworkRoute(from, item, origin = null) {
   return route;
 }
 
-function pruneArtworkRoutes() {
-  const held = new Set([quickPreviewRoute, ...tabs.map(tab => tab.artworkRoute),
+function pruneArtworkRoutes(retainedRoute = null) {
+  const held = new Set([retainedRoute, quickPreviewRoute, ...tabs.map(tab => tab.artworkRoute),
     ...navigation.map(entry => entry.view?.artworkRoute)]);
   for (const route of artworkRoutes) {
     if (held.has(route)) continue;
@@ -3269,7 +3323,7 @@ async function moveArtwork(direction) {
       if (preview) {
         const url = CatalogLogic.previewMedia(item);
         if (!url) {
-          closeQuickPreview();
+          closeQuickPreview(route);
           if (replacement) activate(tab.id, true, replacement);
           else openDetail(item, { artworkRoute: route });
           return;
@@ -3504,6 +3558,8 @@ function stopQuickPreviewMedia() {
 
 function openQuickPreview({ item, image, url, route }, mode = 'window') {
   if (!item || !url || quickPreview.open && (!route || route !== quickPreviewRoute)) return;
+  if (!quickPreview.open) quickPreviewReturnFocus = image?.closest?.(
+    'button.card-art[data-action="open"], .detail-image > img[data-image-url], .detail-video > video[data-video-url]') || null;
   stopQuickPreviewMedia(); globalThis.DartVideoPreview?.stop(); pauseDetailVideos();
   const controller = quickPreviewMediaController = new AbortController();
   const video = !!CatalogLogic.videoMimeType(url);
@@ -3580,8 +3636,29 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
     // stays visible until the full image has decoded.
     void (async () => {
       try {
-        const entry = imageLoader.cached(url) || imageLoader.rememberBlob(url,
-          await readMediaBlob(url, controller.signal, { priority: 'foreground' }));
+        let requestedUrl = url, renewed = false;
+        const renew = async () => {
+          renewed = true;
+          const image = quickPreview.querySelector('.quick-preview-image');
+          const replacement = await sankakuMediaRecovery.recover([image], requestedUrl, controller.signal);
+          if (!replacement || controller.signal.aborted) return false;
+          requestedUrl = replacement;
+          image.dataset.imageUrl = replacement;
+          return true;
+        };
+        let entry = imageLoader.cached(requestedUrl);
+        if (!entry) {
+          if (CatalogLogic.signedMediaExpired(requestedUrl)) await renew();
+          if (controller.signal.aborted) return;
+          let blob;
+          try { blob = await readMediaBlob(requestedUrl, controller.signal, { priority: 'foreground' }); }
+          catch (error) {
+            if (error.name === 'AbortError' || renewed || !await renew()) throw error;
+            blob = await readMediaBlob(requestedUrl, controller.signal, { priority: 'foreground' });
+          }
+          if (controller.signal.aborted) return;
+          entry = imageLoader.rememberBlob(requestedUrl, blob);
+        }
         if (controller.signal.aborted) return;
         await imageLoader.decode(entry);
         if (controller.signal.aborted || !quickPreview.open || generation !== quickPreviewGeneration) return;
@@ -3595,7 +3672,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
   }
 }
 
-function closeQuickPreview() {
+function closeQuickPreview(retainedRoute = null) {
   if (quickPreview.contains(recommendationTagMenu)) closeRecommendationTagMenu();
   if (!quickPreview.open) return;
   ++quickPreviewGeneration;
@@ -3614,6 +3691,13 @@ function closeQuickPreview() {
   else quickPreviewRoute?.engine.cancel();
   quickPreviewRoute?.warmController?.abort();
   quickPreviewRoute = null;
+  pruneArtworkRoutes(retainedRoute);
+  // Hover can open a modal while Home/Back still has keyboard focus. Restore
+  // the artwork that opened it instead of letting the next Space click that UI.
+  const returnFocus = quickPreviewReturnFocus;
+  quickPreviewReturnFocus = null;
+  if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+  else globalThis.document?.getElementById('main')?.focus({ preventScroll: true });
 }
 
 async function toggleSavedWork(item, collection, likeOnly = false) {
@@ -3725,6 +3809,11 @@ function syncSavedWorkButtons() {
 }
 
 async function toggleFollow(ref) {
+  const key = CatalogLogic.followKey(ref);
+  const pending = toggleFollow.pending ||= new Set();
+  if (pending.has(key)) return;
+  pending.add(key);
+  syncFollowButtons();
   try {
     const result = await request('/api/follows', { method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ref) });
@@ -3737,6 +3826,16 @@ async function toggleFollow(ref) {
     else render();
     toast(result.following ? 'Вы подписались на автора' : 'Подписка отменена');
   } catch { toast('Не удалось изменить подписку'); }
+  finally { pending.delete(key); syncFollowButtons(); }
+}
+
+function syncFollowButtons() {
+  for (const button of [...main.querySelectorAll('[data-action="follow"], [data-action="unfollow"]'),
+    ...quickPreview.querySelectorAll('[data-action="follow"], [data-action="unfollow"]')]) {
+    const key = button.dataset.followKey || CatalogLogic.followKey({
+      source: button.dataset.followSource, artistId: button.dataset.followArtist });
+    button.disabled = toggleFollow.pending.has(key);
+  }
 }
 
 function normalizeFollowTag(value) {
@@ -4047,16 +4146,21 @@ function renderSearch(tab) {
 }
 
 function renderSearchSummary(tab) {
-  const knownTokens = knownWorkTokens();
-  const counts = CatalogLogic.searchResultCounts(tab.items, contentPreferences, knownTokens);
-  if (contentPreferences.hideViewedAndSaved || contentPreferences.hideFollowedArtists) {
-    if (contentPreferences.hideFollowedArtists) {
-      const content = CatalogLogic.filterWorks(CatalogLogic.groupWorks(tab.items), contentPreferences);
-      counts.hiddenContent += content.length - filterFollowedFeedWorks(content, tab).length;
-    }
-    counts.shown = filterFeedWorks(tab.items, tab).filter(item => !isExpiredFeedWork(tab, item)).length;
-    counts.hiddenKnown = Math.max(0, counts.works - counts.hiddenContent - counts.shown);
-  }
+  const counts = CatalogLogic.searchResultCounts(tab.items, {});
+  let supported = filterHiddenFeedWorks(CatalogLogic.filterCatalogItems(tab.items));
+  if (tab.rating === 'explicit')
+    supported = DartViewerPreferences.filterItems(supported, selectedRating(tab),
+      CatalogLogic.matchesRating, CatalogLogic.groupingRevision(supported));
+  let eligible = CatalogLogic.filterWorks(CatalogLogic.groupWorks(supported), contentPreferences);
+  if (contentPreferences.hideFollowedArtists) eligible = filterFollowedFeedWorks(eligible, tab);
+  // Manual hiding and the effective Q/E selection are feed filters. Count only
+  // the remaining eligible works as viewed/saved exclusions, including retained
+  // cards in the shown count. Counting must not rank or reposition this feed.
+  counts.shown = filterFeedWorks(tab.items, tab, false, 'search', true)
+    .filter(item => !isExpiredFeedWork(tab, item)).length;
+  counts.hiddenContent = Math.max(0, counts.works - eligible.length);
+  counts.hiddenKnown = contentPreferences.hideViewedAndSaved
+    ? Math.max(0, eligible.length - counts.shown) : 0;
   const received = Math.max(counts.records, Object.values(tab.searchPageStats || {})
     .reduce((total, stats) => total + (Number(stats.received) || 0), 0));
   const parts = [`Показано работ: ${counts.shown}`, `Загружено записей: ${received}`];
@@ -4294,7 +4398,8 @@ function followButton(ref, className = 'secondary-button') {
     colorist: 'Подписаться на колориста', editor: 'Подписаться на монтажёра',
     translator: 'Подписаться на переводчика', animator: 'Подписаться на аниматора' }[role];
   const displayLabel = !following && ref.source === 'danbooru' && roleLabel ? roleLabel : label;
-  return `<button class="${className}" ${authorContextData({ ...ref, source: ref.source === 'danbooru' ? 'artist' : ref.source })} data-action="follow" data-follow-source="${escapeHtml(ref.source)}" data-follow-artist="${escapeHtml(ref.artistId)}" data-follow-service="${escapeHtml(ref.service || '')}" data-follow-name="${escapeHtml(ref.name || ref.artistId)}" aria-pressed="${following}">${displayLabel}</button>`;
+  const pending = typeof toggleFollow === 'function' && toggleFollow.pending?.has(CatalogLogic.followKey(ref));
+  return `<button class="${className}" ${authorContextData({ ...ref, source: ref.source === 'danbooru' ? 'artist' : ref.source })} data-action="follow" data-follow-source="${escapeHtml(ref.source)}" data-follow-artist="${escapeHtml(ref.artistId)}" data-follow-service="${escapeHtml(ref.service || '')}" data-follow-name="${escapeHtml(ref.name || ref.artistId)}" aria-pressed="${following}"${pending ? ' disabled' : ''}>${displayLabel}</button>`;
 }
 
 function renderFollowArtist(follow, tab) {
@@ -4311,7 +4416,7 @@ function renderFollowArtist(follow, tab) {
     </form>` : ''}
     <div class="followed-actions"><button class="text-button" data-action="follow-profile" data-follow-key="${escapeHtml(follow.key)}">${follow.source === 'danbooru' ? 'Работы художника' : 'Профиль'}</button>
       ${follow.source === 'danbooru' ? `<button class="text-button" data-action="edit-follow-tag" data-follow-key="${escapeHtml(follow.key)}">Тег Gelbooru</button>` : ''}
-      <button class="text-button" data-action="unfollow" data-follow-key="${escapeHtml(follow.key)}">Отписаться</button></div></div>`;
+      <button class="text-button" data-action="unfollow" data-follow-key="${escapeHtml(follow.key)}"${typeof toggleFollow === 'function' && toggleFollow.pending?.has(CatalogLogic.followKey(follow)) ? ' disabled' : ''}>Отписаться</button></div></div>`;
 }
 
 function renderFollows(tab) {
@@ -4330,7 +4435,8 @@ function renderFollows(tab) {
       ${follows.length ? `<div class="followed-artists">${follows.map(follow => renderFollowArtist(follow, tab)).join('')}</div>` : ''}</div>` : ''}
     ${!settings.hasApiKey ? '<div class="source-notice">Для работ Gelbooru укажите API key в настройках.</div>' : ''}
     ${!follows.length ? '<div class="empty feature-empty">Добавьте тег художника или нажмите «Подписаться» на его работе.</div>' : `
-      <div class="search-tools"><div class="source-filters control-group">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="follow-rating" data-rating="${rating}">${label}</button>`).join('')}</div></div>
+      <div class="search-tools follow-filters"><div class="source-filters control-group">${[['general', 'Обычные'], ['explicit', 'NSFW'], ['all', 'Все изображения']].map(([rating, label]) => `<button class="filter-button ${rating === tab.rating ? 'active' : ''} ${rating === 'explicit' ? 'adult-filter' : ''}" data-action="follow-rating" data-rating="${rating}">${label}</button>`).join('')}</div>
+        <div class="source-filters control-group follow-order" role="group" aria-label="Following order">${[['date', 'Date'], ['random', 'Random']].map(([order, label]) => `<button type="button" class="filter-button ${(tab.followOrder || 'date') === order ? 'active' : ''}" data-action="follow-order" data-order="${order}" aria-pressed="${(tab.followOrder || 'date') === order}">${label}</button>`).join('')}</div></div>
       <section class="section"><div class="section-head"><h2>Последние работы${tab.newKeys?.size ? ` · ${tab.newKeys.size} новых` : ''}</h2><div class="follow-feed-actions">${sourceIcon}<button class="text-button" data-action="follow-refresh">Обновить</button></div></div>
         ${tab.followSourceNotices?.sankaku || tab.followSourceErrors?.sankaku ? renderErrors({ sankaku: tab.followSourceErrors?.sankaku || tab.followSourceNotices.sankaku }, 'follow-refresh') : ''}
         ${tab.seenError ? '<div class="source-notice">Не удалось сохранить отметку просмотра. При следующем открытии метка «Новое» может повториться.</div>' : ''}
@@ -4632,7 +4738,7 @@ function curateFeedWorks(works, tab, gridKey = '') {
 
 function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepOrder = false) {
   let supported = CatalogLogic.filterCatalogItems(items);
-  if (!['likes','bookmarks','recent'].includes(tab?.kind)) supported = supported.filter(item=>!artworkActionsController().isHidden(item));
+  if (!['likes','bookmarks','recent'].includes(tab?.kind)) supported = filterHiddenFeedWorks(supported);
   if (tab?.rating === 'explicit' && ['home', 'search', 'recommendations', 'follows', 'profile'].includes(tab.kind))
     supported = DartViewerPreferences.filterItems(supported, selectedRating(tab),
       CatalogLogic.matchesRating, CatalogLogic.groupingRevision(supported));
@@ -4645,6 +4751,23 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepO
   const visible = works.filter(item => isRetainedFeedWork(tab, item) ||
     !CatalogLogic.workHistoryTokens(item).some(token => (knownTokens ||= knownWorkTokens()).has(token)));
   return keepOrder ? visible : curateFeedWorks(visible, tab, gridKey);
+}
+
+function filterHiddenFeedWorks(items) {
+  const actions = artworkActionsController(), hidden = actions.items();
+  if (!hidden.length) return items;
+  const revision = CatalogLogic.groupingRevision(items);
+  const views = filterHiddenFeedWorks.views ||= new WeakMap();
+  const cached = views.get(items);
+  if (cached?.hidden === hidden && cached.actions === actions &&
+      cached.length === items.length && cached.revision === revision) return cached.items;
+  const filtered = items.filter(item => !actions.isHidden(item));
+  const visible = filtered.length === items.length ? items : filtered;
+  // Grouping and rating views share the input array's identity. Keep an unchanged
+  // hidden subset warm, but recheck after provider metadata learns another alias
+  // or load/restore replaces the hidden list without a local action revision.
+  views.set(items, { actions, hidden, length: items.length, revision, items: visible });
+  return visible;
 }
 
 function emptyFeedMessage(tab, gridKey = '') {
@@ -5915,7 +6038,7 @@ const artworkImageGestures = DartArtworkGestures.create({
   resolve(event) {
     const tab = currentTab();
     if (quickPreview.open) {
-      if (!event.target.matches?.('.quick-preview-image') || !quickPreviewWork) return null;
+      if (!event.target.matches?.('img.quick-preview-image') || !quickPreviewWork) return null;
       const generation = quickPreviewGeneration;
       return { item: quickPreviewWork, context: quickPreview, target: generation,
         valid: () => quickPreview.open && quickPreviewGeneration === generation };
@@ -6046,14 +6169,19 @@ document.addEventListener('keydown', event => {
 }, true);
 
 document.addEventListener('keydown', event => {
+  const space = event.code === 'Space' || event.key === ' ';
+  if (space && quickPreviewSpaceHeld) {
+    event.preventDefault(); event.stopImmediatePropagation(); return;
+  }
   if (quickPreview.open) {
     if(!recommendationTagMenu.hidden)return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopImmediatePropagation();
       closeQuickPreview();
-    } else if (event.code === 'Space' || event.key === ' ') {
-      if (event.target.closest?.('video, button, input, [role="slider"]')) return;
+    } else if (space) {
+      if (event.target.closest?.('button') || !quickPreviewShortcutAllowed(event, event.target)) return;
+      quickPreviewSpaceHeld = true;
       event.preventDefault();
       event.stopImmediatePropagation();
       if (!event.repeat) closeQuickPreview();
@@ -6070,12 +6198,15 @@ document.addEventListener('keydown', event => {
     return;
   }
   const focusedImage = document.activeElement;
-  if ((event.key === 'Enter' || event.code === 'Space') && !event.repeat &&
-      focusedImage?.matches?.('.detail-image img[data-image-url]')) {
+  if ((event.key === 'Enter' || space) && !event.repeat &&
+      (focusedImage?.matches?.('.detail-image img[data-image-url]') ||
+       space && focusedImage?.matches?.('button.card-art[data-action="open"]')) &&
+      (!space || quickPreviewShortcutAllowed(event, focusedImage))) {
     const artwork = quickPreviewArtworkAt(focusedImage, currentTab(), itemIndex);
     if (artwork) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (space) quickPreviewSpaceHeld = true;
       openQuickPreview(artwork, event.key === 'Enter' ? 'fullscreen' : 'window');
     }
     return;
@@ -6089,8 +6220,15 @@ document.addEventListener('keydown', event => {
   if (!artwork) return;
   event.preventDefault();
   event.stopImmediatePropagation();
+  quickPreviewSpaceHeld = true;
   openQuickPreview(artwork);
 }, true);
+document.addEventListener('keyup', event => {
+  if (!quickPreviewSpaceHeld || event.code !== 'Space' && event.key !== ' ') return;
+  quickPreviewSpaceHeld = false;
+  event.preventDefault(); event.stopImmediatePropagation();
+}, true);
+window.addEventListener('blur', () => { quickPreviewSpaceHeld = false; });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && (!tabListPanel.hidden || !tabContextMenu.hidden)) {
     event.preventDefault(); hideTabPanels(); document.getElementById('tab-list-button').focus(); return;
@@ -6684,7 +6822,10 @@ main.addEventListener('click', event => {
     saveSession(); loadRecommendations(tab);
   }
   else if (action === 'follow-refresh' && tab?.kind === 'follows') {
-    clearCatalogResponses(); loadFollowFeed(tab);
+    clearCatalogResponses(); loadFollowFeed(tab, true);
+  }
+  else if (action === 'follow-order' && tab?.kind === 'follows') {
+    void setFollowOrder(tab, control.dataset.order);
   }
   else if (action === 'follow-manage-toggle' && tab?.kind === 'follows') {
     tab.followManageOpen = !tab.followManageOpen;
@@ -6697,7 +6838,7 @@ main.addEventListener('click', event => {
   else if (action === 'follow-rating' && tab?.kind === 'follows') {
     if (tab.rating === control.dataset.rating) return;
     tab.rating = control.dataset.rating;
-    saveSession(); loadFollowFeed(tab);
+    saveSession(); loadFollowFeed(tab, true);
   }
   else if (action === 'profile-more-retry' && tab && !tab.loading) { tab.loadError = false; loadProfile(tab, true); }
   else if (action === 'related-retry' && tab?.kind === 'detail') retryRelatedSearch(tab);

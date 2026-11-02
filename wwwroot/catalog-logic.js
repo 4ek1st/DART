@@ -58,7 +58,8 @@
     const kinds = ['home', 'search', 'detail', 'profile', 'bookmarks', 'likes',
       'recommendations', 'follows', 'favorites', 'recent', 'settings'];
     const fields = ['kind', 'title', 'query', 'searchQuery', 'selectedSources', 'rating',
-      'sort', 'feed', 'item', 'profileRef', 'settingsSection', 'favoriteType', 'favoriteOrigin', 'preview', 'pinned', 'scrollTop'];
+      'sort', 'feed', 'item', 'profileRef', 'settingsSection', 'favoriteType', 'favoriteOrigin',
+      'followOrder', 'followRandomSeed', 'preview', 'pinned', 'scrollTop'];
     const originalActive = Number(state.session.activeIndex) || 0;
     let activeIndex = -1;
     const tabs = [];
@@ -75,6 +76,14 @@
       if (tab.kind === 'favorites') {
         clean.favoriteType = ['tag', 'artwork'].includes(tab.favoriteType) ? tab.favoriteType : 'character';
         clean.favoriteOrigin = tab.favoriteOrigin === 'system' ? 'system' : 'mine';
+      }
+      if (tab.kind === 'follows') {
+        clean.followOrder = tab.followOrder === 'random' ? 'random' : 'date';
+        clean.followRandomSeed = Number.isInteger(tab.followRandomSeed) && tab.followRandomSeed >= 0 &&
+          tab.followRandomSeed <= 0xffffffff ? tab.followRandomSeed : 0;
+      } else {
+        delete clean.followOrder;
+        delete clean.followRandomSeed;
       }
       if (tab.sort === 'curated') clean.sort = catalogSort(tab);
       if (legacyBookmarks && clean.kind === 'bookmarks') {
@@ -2188,6 +2197,57 @@
     return placed.map(entry => entry.item);
   }
 
+  function randomFollowFeedItems(previous, incoming, seed = 0) {
+    const positions = new Map();
+    for (const [index, item] of (previous || []).entries())
+      for (const key of [item.key, ...(item.memberKeys || [])])
+        if (!positions.has(key)) positions.set(key, index);
+    const prefix = [], fresh = [];
+    for (const item of incoming || []) {
+      const position = Math.min(...[item.key, ...(item.memberKeys || [])]
+        .map(key => positions.get(key) ?? Infinity));
+      if (Number.isFinite(position)) prefix.push({ item, position });
+      else fresh.push(item);
+    }
+    prefix.sort((a, b) => a.position - b.position);
+    const retained = prefix.map(entry => entry.item);
+    if (!fresh.length) return previous?.length === retained.length &&
+      retained.every((item, index) => item === previous[index]) ? previous : retained;
+    const rank = text => {
+      let value = (seed >>> 0) ^ 2166136261;
+      for (const character of String(text)) value = Math.imul(value ^ character.charCodeAt(0), 16777619);
+      value = Math.imul(value ^ value >>> 16, 0x7feb352d);
+      value = Math.imul(value ^ value >>> 15, 0x846ca68b);
+      return (value ^ value >>> 16) >>> 0;
+    };
+    const owner = item => {
+      const artist = workAttribution(item).creator?.tag || item.followedArtistTag;
+      return artist ? `artist:${normalizeTag(artist)}` :
+        `${item.source}:uploader:${item.uploaderId || item.artistId || item.key}`;
+    };
+    const buckets = new Map();
+    for (const item of fresh) {
+      const key = owner(item);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(item);
+    }
+    const artists = [...buckets].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
+    const spread = artists.flatMap(([artist, items], index) => {
+      const shuffled = items.map(item => ({ item, score: rank(item.key) }))
+        .sort((a, b) => a.score - b.score || a.item.key.localeCompare(b.item.key));
+      // Evenly spaced artist slots also distribute a larger bucket throughout
+      // the feed. Finishing each artist's whole bucket would create long rows.
+      const phase = (index + .5) / artists.length;
+      return shuffled.map(({ item }, position) => ({ item, artist,
+        position: (position + phase) / shuffled.length, tie: index }));
+    }).sort((a, b) => a.position - b.position || a.tie - b.tie);
+    if (retained.length && spread.length > 1 && owner(retained.at(-1)) === spread[0].artist) {
+      const next = spread.findIndex(entry => entry.artist !== spread[0].artist);
+      if (next > 0) [spread[0], spread[next]] = [spread[next], spread[0]];
+    }
+    return [...retained, ...spread.map(entry => entry.item)];
+  }
+
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks, sameWork,
@@ -2203,7 +2263,8 @@
     isBroadRecommendationTag, orderRecommendationOtherTags,
     recommendationQueryGroups, recommendationCombinations, rankRecommendations, mergeRecommendations,
     normalizeCurationPreferences, curationBoosts, rankCuratedWorks, mergeCuratedWorks,
-    matchesRating, followKey, followedWorkMatcher, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems };
+    matchesRating, followKey, followedWorkMatcher, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems,
+    randomFollowFeedItems };
   root.CatalogLogic = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

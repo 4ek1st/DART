@@ -78,13 +78,18 @@ const server = http.createServer(async (req, res) => {
       canvas.getContext('2d').fillRect(0, 0, 128, 96);
       const audio = new AudioContext(), tone = audio.createOscillator(), output = audio.createMediaStreamDestination();
       tone.connect(output); tone.start(); await audio.resume();
-      const videoTrack = canvas.captureStream(0).getVideoTracks()[0];
+      const videoTrack = canvas.captureStream(15).getVideoTracks()[0];
       const stream = new MediaStream([videoTrack, ...output.stream.getTracks()]);
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' }), chunks = [];
-      const complete = new Promise(resolve => { recorder.ondataavailable = event => chunks.push(event.data);
+      let encodedBytes = 0;
+      const complete = new Promise(resolve => { recorder.ondataavailable = event => {
+        chunks.push(event.data); encodedBytes += event.data.size;
+      };
         recorder.onstop = () => resolve(new Blob(chunks).arrayBuffer()); });
-      recorder.start();
-      for (let frame = 0; frame < 10; frame++) {
+      recorder.start(100);
+      // Wait for actual encoded output rather than assuming the encoder starts
+      // within a fixed ten-frame burst on a busy QA machine. Bound it to 4.8s.
+      for (let frame = 0; frame < 60 && (frame < 12 || encodedBytes <= 500); frame++) {
         canvas.getContext('2d').fillStyle = frame % 2 ? '#329cff' : '#174875';
         canvas.getContext('2d').fillRect(0, 0, 128, 96);
         videoTrack.requestFrame();
@@ -103,6 +108,48 @@ const server = http.createServer(async (req, res) => {
       await page.locator(`[data-nsfw-rating="${rating}"]`).click();
     };
     await page.waitForFunction(() => document.querySelectorAll('article.card').length === 8);
+    // Hover previews can start while an unrelated navigation button still has
+    // focus. A backdrop miss-click must return keyboard ownership to the art.
+    const previewCard = page.locator('.card-art[data-key="danbooru:1e"]');
+    await page.locator('#brand-button').focus();
+    await previewCard.hover(); await page.keyboard.press('Space');
+    await page.locator('#quick-preview[open]').waitFor();
+    await page.mouse.click(5, 5);
+    await page.waitForFunction(() => !quickPreview.open);
+    assert.equal(await previewCard.evaluate(card => document.activeElement === card), true,
+      'Closing a hover preview must focus its artwork instead of the previously focused Home button');
+    await page.keyboard.press('Space');
+    await page.locator('#quick-preview[open]').waitFor();
+    assert.equal(await page.evaluate(() => currentTab().kind), 'search');
+    await page.keyboard.down('Space'); await page.keyboard.down('Space');
+    await page.keyboard.up('Space');
+    assert.equal(await page.locator('#quick-preview').evaluate(dialog => dialog.open), false,
+      'Holding Space closes once without reopening or activating the focused card');
+    assert.equal(await page.evaluate(() => currentTab().kind), 'search');
+    await page.keyboard.press('Space'); await page.locator('#quick-preview[open]').waitFor();
+    await page.locator('[data-preview-action="close"]').focus(); await page.keyboard.press('Space');
+    await page.waitForFunction(() => !quickPreview.open);
+    assert.equal(await previewCard.evaluate(card => document.activeElement === card), true,
+      'Keyboard activation of the modal close button returns focus to the artwork');
+    await page.keyboard.press('Enter'); await page.waitForFunction(() => currentTab().kind === 'detail');
+    await page.locator('#back-button').click(); await page.waitForFunction(() => currentTab().kind === 'search');
+    await previewCard.hover(); await page.keyboard.press('Space');
+    await page.locator('#quick-preview[open]').waitFor();
+    await page.mouse.click(5, 5); await page.waitForFunction(() => !quickPreview.open);
+    assert.equal(await previewCard.evaluate(card => document.activeElement === card), true,
+      'A preview opened while Back is focused returns to its artwork');
+    await page.keyboard.press('Space'); await page.locator('#quick-preview[open]').waitFor();
+    assert.equal(await page.evaluate(() => currentTab().kind), 'search');
+    await page.keyboard.press('Escape');
+    await page.mouse.move(5, 5);
+    await page.locator('#search-input').focus(); await page.keyboard.press('Space');
+    assert.equal(await page.locator('#search-input').inputValue(), ' ');
+    assert.equal(await page.locator('#quick-preview').evaluate(dialog => dialog.open), false);
+    await page.locator('#search-input').fill(''); await page.keyboard.press('Escape');
+    await page.locator('#brand-button').focus(); await page.keyboard.press('Space');
+    await page.waitForFunction(() => currentTab().kind === 'home');
+    await page.locator('[data-nav="adult"]').click();
+    await page.waitForFunction(() => currentTab().kind === 'search' && currentTab().items.length === 8);
     await nsfw().click({ button: 'right' });
     assert.equal(await page.locator('[role="menuitemcheckbox"][aria-checked="true"]').count(), 2);
     await page.keyboard.press('Escape'); assert.equal(await nsfw().getAttribute('aria-expanded'), 'false');
@@ -143,6 +190,41 @@ const server = http.createServer(async (req, res) => {
     await page.evaluate(() => openQuickPreview({ item: currentTab().item, url: currentTab().item.images[0] }, 'fullscreen'));
     await page.waitForFunction(() => { const video = document.querySelector('.quick-preview-video'); return video && video.readyState >= 2; });
     assert.equal(await page.locator('.quick-preview-video').evaluate(video => video.muted), false);
+    const verifyMovieMouseControls = async mode => {
+      const movie = page.locator('.quick-preview-video');
+      await page.waitForFunction(() => { const video = document.querySelector('.quick-preview-video');
+        return video && video.readyState >= 2 && !video.paused; });
+      await page.locator('#quick-preview').evaluate(dialog => Promise.allSettled(
+        dialog.getAnimations({ subtree: true }).map(animation => animation.finished)));
+      const box = await movie.boundingBox(), play = { x: box.x + 30, y: box.y + box.height - 30 };
+      await page.mouse.move(play.x, play.y);
+      await page.mouse.click(play.x, play.y);
+      await page.waitForFunction(() => document.querySelector('.quick-preview-video').paused);
+      await page.mouse.click(play.x, play.y);
+      await page.waitForFunction(() => !document.querySelector('.quick-preview-video').paused);
+      const before = calls.filter(call => call.route === '/api/likes' && call.method !== 'GET').length;
+      await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2, { delay: 80 });
+      await page.waitForTimeout(350);
+      assert.equal(calls.filter(call => call.route === '/api/likes' && call.method !== 'GET').length, before,
+        `${mode}: video double-click must not like the artwork`);
+      if (await page.evaluate(() => !!document.fullscreenElement)) await page.evaluate(() => document.exitFullscreen());
+      await page.mouse.dblclick(play.x, play.y, { delay: 80 });
+      assert.equal(calls.filter(call => call.route === '/api/likes' && call.method !== 'GET').length, before,
+        `${mode}: native player controls must not like the artwork`);
+      await movie.focus();
+      const paused = await movie.evaluate(video => video.paused);
+      await page.keyboard.press('Space');
+      await page.waitForFunction(previous => document.querySelector('.quick-preview-video').paused !== previous, paused);
+      assert.equal(await page.locator('#quick-preview').evaluate(dialog => dialog.open), true,
+        `${mode}: native video Space toggles playback without closing the modal`);
+    };
+    await verifyMovieMouseControls('fullscreen');
+    await page.keyboard.press('Escape');
+    await page.locator('[data-nav="adult"]').focus();
+    await page.locator('.detail-video video').hover();
+    await page.keyboard.press('Space');
+    await page.locator('#quick-preview[open]:not(.fullscreen)').waitFor();
+    await verifyMovieMouseControls('Space');
     await page.keyboard.press('Escape');
     await page.reload();
     await page.waitForFunction(() => viewerPreferences.videoSound === true);
@@ -160,7 +242,7 @@ const server = http.createServer(async (req, res) => {
     assert.equal(await page.locator('.quick-preview-video').evaluate(video => video.muted), true);
     await context.close();
     assert.deepEqual(errors, []);
-    console.log('PASS: 1440p right-click, keyboard, Q/E filtering, All images, both-off, profile restore, audible video defaults and manual mute preservation.');
+    console.log('PASS: 1440p right-click, keyboard, Q/E filtering, All images, both-off, profile restore, Space focus after backdrop/close from Home/Back, held Space, card Enter, native buttons/text fields, audible video defaults, manual mute preservation and native fullscreen/Space video mouse controls without double-click likes.');
   } finally {
     await browser?.close(); await new Promise(resolve => server.close(resolve));
   }

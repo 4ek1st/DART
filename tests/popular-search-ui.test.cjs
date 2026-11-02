@@ -19,6 +19,9 @@ function renderSearchFor(tab) {
       rule34: 'Rule34', gelbooru: 'Gelbooru' },
     sourceKeyHint: () => '', escapeHtml: value => String(value),
     queryBlockedByFilters: () => false,
+    filterHiddenFeedWorks: items => items,
+    filterFeedWorks: items => CatalogLogic.filterWorks(CatalogLogic.groupWorks(items), {}),
+    isExpiredFeedWork: () => false,
     renderErrors: () => '', renderFeedTail: () => '',
     hasResultError: () => false, skeletons: () => '<skeletons>',
     renderGrid: items => { grids.push(items.map(item => item.source)); return '<grid>'; }
