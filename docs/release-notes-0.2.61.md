@@ -7,5 +7,6 @@
 - Hidden artworks and their known copies stay hidden across restarts. Restore them in Content settings without losing likes or bookmarks.
 - Remove separate Favorite star buttons. Tags and authors keep their own context actions.
 - Fix menu closing when focus has just scrolled the page. Escape closes an open menu before the image viewer.
+- Keep the selected gallery image when renewing signed media links. Bound cold image copying before decoding and reuse already loaded pixels.
 
 The Following feed retains the publication order fixed in 0.2.60. Existing profile data is preserved.

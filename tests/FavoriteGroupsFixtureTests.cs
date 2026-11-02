@@ -34,6 +34,17 @@ internal static class FavoriteGroupsFixtureTests
             if(((List<CatalogItem>)type.GetMethod("GetFavoriteArtworks")!.Invoke(store,null)!).Count!=3)throw new Exception("Grouping must preserve original Favorite artworks");
             try{merge.Invoke(store,["danbooru:missing","danbooru:1",null]);throw new Exception("Missing Favorites cannot be grouped");}
             catch(TargetInvocationException error)when(error.InnerException is ArgumentException){}
+            var bridgePath=Path.Combine(path,"bridge");Directory.CreateDirectory(bridgePath);
+            var bridge=Activator.CreateInstance(type,[bridgePath])!;
+            var choices=Enumerable.Range(1,5).Select(id=>new CatalogItem{Source="danbooru",Id=id.ToString(),Key="danbooru:"+id,Title="Bridge "+id,Rating="g",Thumbnail="https://cdn.donmai.us/bridge-"+id+".jpg"}).ToArray();
+            foreach(var item in choices)type.GetMethod("SetFavoriteArtwork")!.Invoke(bridge,[item,true]);
+            merge.Invoke(bridge,[choices[1].Key,choices[0].Key,null]);merge.Invoke(bridge,[choices[3].Key,choices[2].Key,null]);
+            type.GetMethod("SetFavoriteArtwork")!.Invoke(bridge,[choices[0],false]);type.GetMethod("SetFavoriteArtwork")!.Invoke(bridge,[choices[2],false]);
+            choices[2].MemberKeys=[choices[0].Key];type.GetMethod("SetFavoriteArtwork")!.Invoke(bridge,[choices[2],true]);
+            merge.Invoke(bridge,[choices[1].Key,choices[4].Key,null]);
+            var reconciled=System.Text.Json.JsonSerializer.SerializeToNode(type.GetMethod("GetFavoriteArtworkGroups")!.Invoke(Activator.CreateInstance(type,[bridgePath]),null),json)!.AsArray();
+            if(reconciled.Count!=1||!reconciled[0]!["keys"]!.AsArray().Select(key=>key!.GetValue<string>()).SequenceEqual(["danbooru:5","danbooru:3","danbooru:2","danbooru:4"]))
+                throw new Exception("Alias bridges must reconcile all connected packs before writing a valid target-first group");
             Console.WriteLine("Manual Favorite groups: drop target, group merge, restart, rejected corruption, backup preservation and nondestructive ungroup PASS");
         }
         finally{Directory.Delete(path,true);}

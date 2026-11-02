@@ -17,21 +17,21 @@
       if(!shown.has(row.item)){rows.push(row);shown.add(row.item);}}
     return rows;
   }
-  function create({request,changed=()=>{},toast=()=>{}}) {
+  function create({request,changed=()=>{},committed=()=>{},toast=()=>{}}) {
     let groups=[],revision=0,pending=false,error=false,loading=null;
     function valid(value){return Array.isArray(value)&&value.every(group=>typeof group?.id==='string'&&Array.isArray(group.keys)&&group.keys.every(key=>typeof key==='string'));}
     async function load(){
       if(loading)return loading;
       const version=revision;
       loading=(async()=>{try{const value=await request('/api/favorite-artwork-groups');if(!valid(value))throw Error('Invalid groups');
-        if(version===revision){groups=value;error=false;changed();}return true;
+        if(version===revision){groups=value;error=false;committed();changed();}return true;
       }catch{error=true;changed();return false;}finally{loading=null;}})();return loading;
     }
     async function update(body){
       if(pending)return false;
       pending=true;revision++;changed();
       try{const value=await request('/api/favorite-artwork-groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-        if(!valid(value))throw Error('Invalid groups');groups=value;error=false;return true;
+        if(!valid(value))throw Error('Invalid groups');groups=value;error=false;committed();return true;
       }catch{toast('Could not save the group. Your Favorites were kept.');return false;}
       finally{pending=false;revision++;changed();}
     }

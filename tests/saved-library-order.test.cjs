@@ -41,6 +41,12 @@ test('a low-score latest like remains first instead of older high-score works', 
   assert.deepEqual(keys(context.filterFeedWorks(items, tab, false, 'likes')), keys(items));
   assert.deepEqual(keys(items), ['danbooru:1', 'danbooru:2', 'danbooru:3']);
 });
+test('manual Favorites preserve target-first traversal even with discovery curation enabled',async()=>{
+ const items=[work(1),work(2,1000000)],{context,tab}=fixture('favorites',items);
+ const route=context.createArtworkRoute(tab,items[0]);
+ assert.deepEqual(keys(context.filterFeedWorks(items,tab)),keys(items));
+ assert.equal((await route.engine.move(1))?.key,items[1].key);
+});
 
 test('saved chronology still groups mirrors at the newest slot and applies content filters', () => {
   const newest = work(1, 0, { key: 'sankaku:one', source: 'sankaku', id: 'one', contentHash: 'a'.repeat(32) });

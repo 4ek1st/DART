@@ -1299,30 +1299,33 @@ async function copyTextValue(text) {
 
 async function resolveArtworkActionMedia(item, selected) {
   item = itemIndex.get(item.key) || item;
+  if(selected&&!DartArtworkActions.validMedia(selected))throw Error('Selected media unavailable');
   let url = DartArtworkActions.media(item, selected);
   if (url && !CatalogLogic.signedMediaExpired(url) && (selected || item.images?.length)) return url;
-  const detail = await request(`/api/detail?${new URLSearchParams({source:item.source,id:item.id})}`, { cache:'reload',priority:'foreground' });
-  if (detail) item = rememberItem(CatalogLogic.mergeDetailPages(item,detail));
-  if (item.requiresAuthentication && !item.images?.length) {
-    const error = new Error(item.accessMessage || 'Sign in to the source to access this image.'); error.status = 401; throw error;
+  const identity=selected?CatalogLogic.mediaCacheKey(selected):null;
+  const owner=identity&&item.imageRecords?.find(record=>CatalogLogic.mediaCacheKey(record.url)===identity)?.owner;
+  let refs=CatalogLogic.workSources(item);
+  if(owner){const owned=refs.find(ref=>ref.key===owner);if(!owned)throw Error('Selected media owner unavailable');refs=[owned];}
+  else if(selected?.includes('sankakucomplex.com'))refs=refs.filter(ref=>ref.source==='sankaku');
+  for(const ref of refs.slice(0,32)){
+    const detail=await request(`/api/detail?${new URLSearchParams({source:ref.source,id:ref.id})}`,{cache:'reload',priority:'foreground'});
+    if(!detail)continue;
+    item=rememberItem(detail.source==='sankaku'?CatalogLogic.hydrateWorkMedia(item,detail):CatalogLogic.mergeDetailPages(item,detail));
+    const candidates=[...(detail.images||[]),...(item.images||[]),detail.thumbnail];
+    const renewed=candidates.find(value=>DartArtworkActions.validMedia(value)&&!CatalogLogic.signedMediaExpired(value)&&(!identity||CatalogLogic.mediaCacheKey(value)===identity));
+    if(renewed)return renewed;
+    if(detail.requiresAuthentication){const error=Error(detail.accessMessage||'Sign in to the source to access this image.');error.status=401;throw error;}
   }
-  return DartArtworkActions.media(item, selected && !CatalogLogic.signedMediaExpired(selected) ? selected : null);
+  throw Error('Selected media unavailable');
 }
 
 async function artworkPng(item, selected, element, resolve) {
-  const url = await resolve();
-  let image, release = () => {};
-  if (element?.matches?.('video') && element.readyState >= 2) image = element;
-  else if (element?.matches?.('img') && element.complete && element.naturalWidth && element.dataset.imageUrl === url) image = element;
-  else { image = await createImageBitmap(await readMediaBlob(url,undefined,{priority:'foreground'})); release = () => image.close(); }
-  try {
-    const width = image.videoWidth || image.naturalWidth || image.width, height = image.videoHeight || image.naturalHeight || image.height;
-    if (!width || !height) throw Error('Image unavailable');
-    const scale = Math.min(1,8192/width,8192/height,Math.sqrt(16*1024*1024/(width*height)));
-    const canvas = document.createElement('canvas'); canvas.width=Math.max(1,Math.round(width*scale)); canvas.height=Math.max(1,Math.round(height*scale));
-    canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
-    return await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('Image conversion failed')),'image/png'));
-  } finally { release(); }
+  const converter=artworkPng.converter ||= DartArtworkImageCopy.create();
+  const source=selected||element?.dataset?.imageUrl||element?.dataset?.videoUrl;
+  const loaded=element?.matches?.('video')&&element.readyState>=2 || element?.matches?.('img')&&element.complete&&element.naturalWidth&&
+    CatalogLogic.mediaCacheKey(element.dataset.imageUrl)===CatalogLogic.mediaCacheKey(source);
+  if(loaded&&DartArtworkActions.validMedia(source))return converter.convert({element});
+  return converter.convert({load:async()=>readMediaBlob(await resolve(),undefined,{priority:'foreground'})});
 }
 
 function artworkActionsController() {
@@ -1376,7 +1379,7 @@ function favoritesController() {
     renderArtworks: items => renderFavoriteArtworkGrid(items),
     renderEntityCard: card => card.cover ? renderCard(card.cover,false,{label:card.tag.replaceAll('_',' '),query:card.tag}) : '',
     allowed: item => !CatalogLogic.isWorkHidden(item, contentPreferences) && !artworkActionsController().isHidden(item),
-    changed: () => { if (['favorites','search','home'].includes(currentTab()?.kind)) render(); },
+    changed: () => { reconcileFavoriteGroupRoutes(); if (['favorites','detail','search','home'].includes(currentTab()?.kind)) render(); },
     toast, save: saveSession, openSearch, openDetail,
     t: value => globalThis.DartI18n?.translate(value) || value
   });
@@ -1384,7 +1387,29 @@ function favoritesController() {
 
 function favoriteGroupsController() {
   return favoriteGroupsController.instance ||= DartFavoriteGroups.create({request,toast,
-    changed:()=>{if(currentTab()?.kind==='favorites')render();}});
+    committed:()=>reconcileFavoriteGroupRoutes(),
+    changed:()=>{if(['favorites','detail'].includes(currentTab()?.kind))render();}});
+}
+
+function reconcileFavoriteGroupRoutes() {
+  if(!favoriteGroupsController.instance||!favoritesController.instance)return;
+  const all=favoritesController().artworks(),groups=favoriteGroupsController().layout(all);
+  for(const route of artworkRoutes){
+    const source=route.source;if(source.kind!=='favorites'||source.favoriteType!=='artwork')continue;
+    const current=route.engine.items[route.engine.state.index];if(!current)continue;
+    const allowed=item=>!artworkActionsController().isHidden(item)&&!CatalogLogic.isWorkHidden(item,contentPreferences)&&CatalogLogic.matchesRating(item,selectedRating(source));
+    const pack=groups.find(row=>row.groupId&&row.items.some(item=>CatalogLogic.sameWork(item,current)));
+    if(!pack&&!source.manualFavoriteGroup)continue;
+    const items=(pack?pack.items:all).filter(allowed);
+    if(pack?.groupId===source.manualFavoriteGroup&&items.length===source.items.length&&items.every((item,i)=>item.key===source.items[i].key)){
+      source.items=items;route.readRaw=null;route.readPreferences=null;continue;
+    }
+    route.navigationController?.abort();route.warmController?.abort();route.warmFor=null;
+    route.source={id:nextArtworkSourceId--,artworkDetached:true,kind:'favorites',favoriteType:'artwork',rating:source.rating,
+      ...(pack?{manualFavoriteGroup:pack.groupId}:{}),items,started:true,artworkLists:new Map()};
+    route.backup=route.source;route.signature=artworkSourceSignature(route.source);route.readRaw=null;route.readPreferences=null;
+    route.readVersions=new Map();route.engine.reset(items,current);
+  }
 }
 
 function renderFavoriteArtworkGrid(items) {
@@ -1398,7 +1423,7 @@ function renderFavoriteArtworkGrid(items) {
 
 function favoriteGroupFor(item, source=currentTab()) {
   const tab=source?.kind==='detail'?source.artworkRoute?.source:source;
-  if(tab?.manualFavoriteGroup)return {groupId:tab.manualFavoriteGroup,items:tab.items,item:tab.items[0]};
+  if(tab?.manualFavoriteGroup)return favoriteGroupsController().layout(favoritesController().artworks()).find(row=>row.groupId===tab.manualFavoriteGroup&&row.items.some(work=>CatalogLogic.sameWork(work,item)))||null;
   if(tab?.kind!=='favorites'||tab.favoriteType!=='artwork')return null;
   return favoriteGroupsController().layout(tab.items||[]).find(row=>row.groupId&&row.items.some(work=>CatalogLogic.sameWork(work,item)))||null;
 }
@@ -4562,7 +4587,7 @@ function curateFeedWorks(works, tab, gridKey = '') {
   if (tab?.kind === 'follows') return works;
   // A saved collection is ordered by the user's actions. Quality/popularity
   // ranking belongs to discovery feeds, including when opening their galleries.
-  if (['likes', 'bookmarks', 'recent'].includes(tab?.kind)) return works;
+  if (['likes', 'bookmarks', 'recent', 'favorites'].includes(tab?.kind)) return works;
   // These two lists already include a bounded curation boost in their relevance
   // scores. Applying another pure quality sort would erase that relevance.
   if (tab?.kind === 'recommendations' || tab?.kind === 'detail' && gridKey === 'related') return works;

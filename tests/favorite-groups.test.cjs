@@ -20,3 +20,8 @@ test('failed grouping preserves the collection and a stale load cannot undo a sa
  assert.equal(c.groups()[0].id,'pack');assert.equal(messages.length,1);assert.equal(c.pending,false);
  assert.equal(await c.merge('danbooru:1','danbooru:1'),false);assert.equal(calls,3);
 });
+test('committed group changes notify open readers only after a successful response',async()=>{
+ let commits=0,fail=false;const c=G.create({request:async()=>{if(fail)throw Error('Disk');return[];},committed:()=>commits++});
+ await c.load();assert.equal(commits,1);await c.merge('a','b');assert.equal(commits,2);
+ fail=true;await c.ungroup('pack');assert.equal(commits,2);
+});

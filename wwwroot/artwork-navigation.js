@@ -39,6 +39,12 @@
     }
     const route = {
       sync,
+      reset(items, current) {
+        revision++;remaining=0;busy=false;error=false;
+        works=[...items];if(current&&!works.some(item=>same(item,current)))works.push(current);
+        index=wanted=Math.max(0,works.findIndex(item=>same(item,current)));
+        lastRead=undefined;lastReadLength=-1;changed();
+      },
       update(item) {
         const selected = works[index], destination = works[wanted];
         works = merge(works, [item]);

@@ -17,6 +17,9 @@ native store validates saved membership, serializes concurrent writes, retains
 extension fields and a backup, and rejects writes on damaged primary metadata.
 Invisible or removed Favorites are omitted from the displayed group; their
 metadata references do not create artworks or bypass filters.
+New aliases reconcile every connected group before a validated atomic write.
+Saved order is preserved even when discovery curation is enabled. Changing or
+ungrouping a pack refreshes open group readers while keeping the current work.
 
 Hidden works use a separate saved-work store under `hidden-artworks-v1`, with
 strong aliases/hash matching and desired-state updates. Likes, bookmarks and
@@ -26,6 +29,13 @@ Favorites entity covers use the actual catalog card renderer. System choices
 reuse the recommendation tag/query groups over existing likes and manual tag
 preferences. A like count is never reported as a dated view count. Activity
 covers preserve bounded gallery metadata; richer known records take precedence.
+
+Copying a loaded image reuses its pixels. A cold original must pass an encoded
+dimension check before bitmap allocation (16 megapixels, maximum edge 8192).
+Conversions run one at a time; unknown/animated containers that cannot be bounded
+from their headers ask the user to open the image first or download the original.
+The header layout follows [PNG IHDR](https://www.w3.org/TR/png-3/#11IHDR) and the
+[WebP container specification](https://developers.google.com/speed/webp/docs/riff_container).
 
 Verification uses `tests/favorite-groups.test.cjs`,
 `tests/artwork-actions.test.cjs`, `tests/artwork-menu-routing.test.cjs`, the

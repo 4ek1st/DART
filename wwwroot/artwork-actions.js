@@ -84,7 +84,8 @@
           await deps.download(`/api/${route}?url=${encodeURIComponent(url)}`,filename(item,url)); return true;
         }
         return false;
-      } catch(error) { toast(error?.status===401 ? 'Sign in to the source to access this image.' : error?.status===403 ?
+      } catch(error) { toast(error?.code==='copy-image-too-large'?'This original is too large to copy safely. Open it first or download it.':
+        error?.code==='copy-image-format'?'Open this image before copying it, or download the original.':error?.code==='copy-image-busy'?'Image copying is already in progress.':error?.status===401 ? 'Sign in to the source to access this image.' : error?.status===403 ?
         'This image requires additional access on the source website.' : action.startsWith('copy') ? 'Could not copy. Please try again.' : 'Could not download this artwork. Please try again.'); return false; }
       finally { busy.delete(key); }
     }

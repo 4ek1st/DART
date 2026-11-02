@@ -660,6 +660,9 @@ The chosen artwork becomes the group cover. All works keep their own likes and b
 Find a favorite artwork|Найти избранный арт|Lieblingswerk suchen
 Save another artwork to Favorites first.|Сначала добавьте ещё одну работу в избранное.|Speichere zuerst ein weiteres Werk in den Favoriten.
 No matching favorite artworks.|Подходящих избранных работ нет.|Keine passenden Lieblingswerke.
+This original is too large to copy safely. Open it first or download it.|Оригинал слишком большой для копирования. Сначала откройте его или скачайте.|Dieses Original ist zum Kopieren zu groß. Öffne es zuerst oder lade es herunter.
+Open this image before copying it, or download the original.|Откройте изображение перед копированием или скачайте оригинал.|Öffne das Bild vor dem Kopieren oder lade das Original herunter.
+Image copying is already in progress.|Копирование изображения уже выполняется.|Ein Bild wird bereits kopiert.
 `; 
   root.DartMessages = rows.trim().split('\n').map(row => row.split('|'));
   if (typeof module !== 'undefined') module.exports = root.DartMessages;

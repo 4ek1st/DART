@@ -7,6 +7,12 @@ const work = id => ({ key: `danbooru:${id}`, id, source: 'danbooru', title: `Wor
 const same = Logic.sameWork;
 const merge = Logic.mergeGroupedWorks;
 
+test('resetting a changed manual group preserves the visible work and replaces obsolete members',async()=>{
+ const a=work(1),b=work(2),c=work(3);const route=Navigation.create({items:[a,b],current:b,same,merge});
+ route.reset([c,b],b);assert.deepEqual(route.items.map(item=>item.id),[3,2]);assert.equal(route.state.index,1);
+ assert.equal((await route.move(-1)).id,3);
+});
+
 test('both directions retain visited and liked work after the source changes', async () => {
   let items = [work(1), work(2), work(3)];
   const route = Navigation.create({ items, current: items[1], read: () => items, same, merge });

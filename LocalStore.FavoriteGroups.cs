@@ -31,6 +31,11 @@ internal sealed partial class LocalStore
         if (!File.Exists(path)) return new();
         if (new FileInfo(path).Length > 2_000_000) throw new IOException("Favorite groups are too large.");
         var document = JsonSerializer.Deserialize<FavoriteGroupDocument>(File.ReadAllBytes(path), FavoriteJson);
+        ValidateFavoriteGroups(document);
+        return document!;
+    }
+    private static void ValidateFavoriteGroups(FavoriteGroupDocument? document)
+    {
         if (document is null || document.Schema != 1 || document.Groups is not { Count: <= 1000 } ||
             document.Groups.Any(group => group is null || !Guid.TryParseExact(group.Id, "N", out _) ||
                 group.Keys is not { Count: >= 2 and <= 200 } || group.Keys.Any(key => key is not { Length: > 0 and <= 200 } || key.Any(char.IsControl)) ||
@@ -38,7 +43,24 @@ internal sealed partial class LocalStore
             document.Groups.Select(group => group.Id).Distinct(StringComparer.Ordinal).Count() != document.Groups.Count ||
             document.Groups.SelectMany(group => group.Keys).Distinct(StringComparer.Ordinal).Count() != document.Groups.Sum(group => group.Keys.Count))
             throw new JsonException("Invalid Favorite groups.");
-        return document;
+    }
+    private static List<FavoriteArtworkGroup> ReconcileFavoriteGroups(List<FavoriteArtworkGroup> groups, Func<string,string> resolve)
+    {
+        var normalized = new List<FavoriteArtworkGroup>();
+        foreach (var group in groups)
+        {
+            var keys = group.Keys.Select(key => { var value = resolve(key); return value.Length > 0 ? value : key; }).Distinct(StringComparer.Ordinal).ToList();
+            var connected = normalized.Where(previous => previous.Keys.Intersect(keys, StringComparer.Ordinal).Any()).ToArray();
+            if (connected.Length == 0) normalized.Add(new FavoriteArtworkGroup { Id = group.Id, Keys = keys, Extensions = group.Extensions });
+            else
+            {
+                var first = connected[0];
+                first.Keys = connected.SelectMany(previous => previous.Keys).Concat(keys).Distinct(StringComparer.Ordinal).ToList();
+                foreach (var previous in connected.Skip(1)) normalized.Remove(previous);
+            }
+        }
+        if (normalized.Any(group => group.Keys.Count > 200)) throw new ArgumentException("A group can contain up to 200 artworks.");
+        return normalized.Where(group => group.Keys.Count >= 2).ToList();
     }
     public List<FavoriteArtworkGroup> GetFavoriteArtworkGroups()
     {
@@ -76,17 +98,21 @@ internal sealed partial class LocalStore
                 var from = Resolve(fromKey); var to = Resolve(toKey);
                 if (from.Length == 0 || to.Length == 0) throw new ArgumentException("Only saved Favorite artworks can be grouped.");
                 if (from == to) return document.Groups;
+                document.Groups = ReconcileFavoriteGroups(document.Groups, Resolve);
                 var source = document.Groups.FirstOrDefault(group => group.Keys.Any(key => Resolve(key) == from));
                 var target = document.Groups.FirstOrDefault(group => group.Keys.Any(key => Resolve(key) == to));
-                if (source is not null && source == target) return document.Groups;
-                var keys = (target?.Keys ?? [to]).Concat(source?.Keys ?? [from]).Select(Resolve)
-                    .Where(key => key.Length > 0).Distinct(StringComparer.Ordinal).ToList();
-                if (keys.Count > 200) throw new ArgumentException("A group can contain up to 200 artworks.");
-                if (target is null && source is null && document.Groups.Count >= 1000) throw new ArgumentException("Too many groups.");
-                if (source is not null) document.Groups.Remove(source);
-                if (target is null) document.Groups.Add(new FavoriteArtworkGroup { Id = Guid.NewGuid().ToString("N"), Keys = keys });
-                else target.Keys = keys;
+                if (source is null || source != target)
+                {
+                    var keys = new[] { to }.Concat(target?.Keys ?? []).Concat(source?.Keys ?? [from])
+                        .Distinct(StringComparer.Ordinal).ToList();
+                    if (keys.Count > 200) throw new ArgumentException("A group can contain up to 200 artworks.");
+                    if (target is null && source is null && document.Groups.Count >= 1000) throw new ArgumentException("Too many groups.");
+                    if (source is not null) document.Groups.Remove(source);
+                    if (target is null) document.Groups.Add(new FavoriteArtworkGroup { Id = Guid.NewGuid().ToString("N"), Keys = keys });
+                    else target.Keys = keys;
+                }
             }
+            ValidateFavoriteGroups(document);
             var bytes = JsonSerializer.SerializeToUtf8Bytes(document, FavoriteJson);
             if (bytes.Length > 2_000_000) throw new ArgumentException("Favorite groups are too large.");
             WriteAtomic(FavoriteGroupsFile, bytes);
