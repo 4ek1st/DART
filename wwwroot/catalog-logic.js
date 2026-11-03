@@ -1189,10 +1189,10 @@
 
   function contentEvidence(item) {
     return derived(contentCache, item, contentFields, () => {
-      const tags = [...new Set([...(item?.tags || []), ...(item?.allTags || [])]
-        .map(normalizeFilterTag).filter(Boolean))];
-      const artists = [...workParticipants(item).map(person => person.tag), item?.followedArtistTag,
-        ...(item?.tags || []), ...(item?.allTags || [])];
+      const rawTags = [...new Set([...(item?.tags || []), ...(item?.allTags || [])])];
+      const tags = [...new Set(rawTags.map(normalizeFilterTag).filter(Boolean))];
+      const artists = [...new Set([...workParticipants(item).map(person => person.tag), item?.followedArtistTag,
+        ...rawTags])];
       return { tags, authors: new Set([...artists.map(artistId =>
         hiddenAuthorKey({ source: 'artist', artistId })),
         uploaderAuthorKey(item)].filter(Boolean)) };

@@ -5,6 +5,10 @@ const vm = require('node:vm');
 const app = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
 const start = app.indexOf("document.addEventListener('keydown', event => {", app.indexOf('const shortcutFocus'));
 const end = app.indexOf("document.addEventListener('keydown', event => {", start + 1);
+assert(start >= 0 && end > start, 'Space keyboard handlers must exist');
+const pointerStart = app.indexOf("document.addEventListener('pointermove', event => {");
+const pointerEnd = app.indexOf('\nlet artworkLikeFeedback', pointerStart);
+assert(pointerStart >= 0 && pointerEnd > pointerStart, 'Document pointer handlers must exist');
 
 function fixture() {
   const handlers = {}, actions = [];
@@ -25,14 +29,15 @@ function fixture() {
     openQuickPreview: (artwork, mode) => { context.openedKey = artwork.item.key; actions.push(mode || 'window'); context.quickPreview.open = true; } });
   vm.runInContext(app.slice(app.indexOf('function quickPreviewShortcutAllowed('),
     app.indexOf('\nfunction quickPreviewArtworkAt(')), context);
-  vm.runInContext(app.slice(app.indexOf("main.addEventListener('pointermove', event => {"),
-    app.indexOf('\nlet artworkLikeFeedback')), context);
+  vm.runInContext(app.slice(pointerStart, pointerEnd), context);
   vm.runInContext(app.slice(start, end), context);
+  for (const type of ['pointermove', 'pointerleave', 'keydown', 'keyup'])
+    assert.equal(typeof handlers[type], 'function', `The production ${type} handler must be registered`);
   const press = (type = 'keydown', target = doc.activeElement, extra = {}) => {
     doc.activeElement = target;
     const event = { code: 'Space', key: ' ', target, repeat: false,
       preventDefault() { this.prevented = true; }, stopImmediatePropagation() { this.stopped = true; }, ...extra };
-    handlers[type]?.(event);
+    handlers[type](event);
     return event;
   };
   return { context, doc, card, otherCard, button, video, element, actions, press };
@@ -63,8 +68,27 @@ test('Tab hands Space back to keyboard focus until another pointer movement', ()
 
 test('moving into the surrounding interface cannot reactivate the old focused artwork', () => {
   const f = fixture();
-  f.press('pointerleave', f.card, { pointerType: 'mouse', clientX: 10, clientY: 80 });
+  f.press('pointermove', f.card, { pointerType: 'mouse', clientX: 10, clientY: 80 });
   f.doc.pointerTarget = f.button;
+  assert.equal(f.press().prevented, true);
+  assert.deepEqual(f.actions, []);
+});
+
+test('mouse movement while the modal is open selects its current position after closing', () => {
+  const f = fixture();
+  f.context.quickPreview.open = true;
+  f.press('pointermove', f.element('dialog'), { pointerType: 'mouse', clientX: 250, clientY: 150 });
+  f.press('keydown', f.element('dialog'));
+  f.press('keyup', f.card);
+  f.doc.pointerTarget = f.otherCard;
+  assert.equal(f.press('keydown', f.card).prevented, true);
+  assert.equal(f.context.openedKey, 'gelbooru:2');
+});
+
+test('leaving the document retains mouse ownership rather than reviving old artwork focus', () => {
+  const f = fixture();
+  f.press('pointerleave', f.card, { pointerType: 'mouse', clientX: -20, clientY: -20 });
+  f.doc.pointerTarget = null;
   assert.equal(f.press().prevented, true);
   assert.deepEqual(f.actions, []);
 });

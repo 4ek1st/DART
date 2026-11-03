@@ -54,20 +54,24 @@ internal sealed class SavedWorksStore
     public SavedWorkChange Change(string collection, CatalogItem item, bool ensureSaved)
     {
         using var fileLock = AcquireLock();
-        // Mutate a private copy: a failed atomic write must not change the
-        // validated cached snapshot or another request's acknowledgement.
-        var state = Read().DeepClone().AsObject();
+        var current = Read();
         var previousRevision = revision;
-        var items = (JsonArray)state[collection]!;
+        var items = (JsonArray)current[collection]!;
         var keys = item.MemberKeys.Append(item.Key).ToHashSet(StringComparer.Ordinal);
-        var existing = items.OfType<JsonObject>().Where(saved =>
-            keys.Contains(saved["key"]?.GetValue<string>() ?? "") ||
-            saved["memberKeys"] is JsonArray members && members.Any(key =>
-                key is JsonValue value && value.TryGetValue<string>(out var text) && keys.Contains(text))).ToArray();
+        var existing = items.Select((saved, index) => (Saved: saved as JsonObject, Index: index))
+            .Where(entry => entry.Saved is { } saved && (
+                keys.Contains(saved["key"]?.GetValue<string>() ?? "") ||
+                saved["memberKeys"] is JsonArray members && members.Any(key =>
+                    key is JsonValue value && value.TryGetValue<string>(out var text) && keys.Contains(text))))
+            .Select(entry => entry.Index).ToArray();
         // Double-click likes are idempotent even with stale clients or concurrent windows.
         // Keep existing metadata, unknown fields and library order byte-for-byte.
         if (ensureSaved && existing.Length > 0) return new(true, previousRevision, revision);
-        foreach (var saved in existing) items.Remove(saved);
+        // Clone only for a real write. A failed atomic write must not change the
+        // validated snapshot or another request's acknowledgement.
+        var state = current.DeepClone().AsObject();
+        items = (JsonArray)state[collection]!;
+        foreach (var index in existing.Reverse()) items.RemoveAt(index);
         if (existing.Length == 0) items.Insert(0, JsonSerializer.SerializeToNode(item, Json));
         Write(state);
         return new(existing.Length == 0, previousRevision, revision);
@@ -111,21 +115,33 @@ internal sealed class SavedWorksStore
     private bool RefreshMetadataCore(CatalogItem item, Func<JsonObject, bool> update, bool includeOwnedMedia)
     {
         using var fileLock = AcquireLock();
-        var state = Read().DeepClone().AsObject();
-        var changed = false;
+        var current = Read();
+        JsonObject? state = null;
         foreach (var collection in new[] { "likes", "bookmarks" })
-            foreach (var saved in ((JsonArray)state[collection]!).OfType<JsonObject>().Where(saved =>
-                saved["key"]?.GetValue<string>() == item.Key &&
-                saved["source"]?.GetValue<string>() == item.Source &&
-                saved["id"]?.GetValue<string>() == item.Id || saved["groupMembers"] is JsonArray members &&
-                members.OfType<JsonObject>().Any(member => member["key"]?.GetValue<string>() == item.Key &&
-                    member["source"]?.GetValue<string>() == item.Source && member["id"]?.GetValue<string>() == item.Id) ||
-                includeOwnedMedia && OwnsMediaRecord(saved, item.Key)))
-                changed |= update(saved);
+        {
+            var items = (JsonArray)current[collection]!;
+            for (var index = 0; index < items.Count; index++)
+            {
+                if (items[index] is not JsonObject saved || !(
+                    saved["key"]?.GetValue<string>() == item.Key &&
+                    saved["source"]?.GetValue<string>() == item.Source &&
+                    saved["id"]?.GetValue<string>() == item.Id || saved["groupMembers"] is JsonArray members &&
+                    members.OfType<JsonObject>().Any(member => member["key"]?.GetValue<string>() == item.Key &&
+                        member["source"]?.GetValue<string>() == item.Source && member["id"]?.GetValue<string>() == item.Id) ||
+                    includeOwnedMedia && OwnsMediaRecord(saved, item.Key))) continue;
+                // Detail responses commonly describe an unsaved work or repeat
+                // existing metadata. Give the updater its own artwork copy and
+                // defer copying the complete library until a write is necessary.
+                var refreshed = saved.DeepClone().AsObject();
+                if (!update(refreshed)) continue;
+                state ??= current.DeepClone().AsObject();
+                ((JsonArray)state[collection]!)[index] = refreshed;
+            }
+        }
         // The revision tracks membership. Refreshing the same saved artwork's
         // metadata must not force every subsequent like to reload the library.
-        if (changed) Write(state, preserveRevision: true);
-        return changed;
+        if (state is not null) Write(state, preserveRevision: true);
+        return state is not null;
     }
 
     public bool RepairGroup(CatalogItem expected, List<CatalogItem> groups)

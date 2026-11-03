@@ -109,7 +109,8 @@ const server = http.createServer(async (req, res) => {
     };
     await page.waitForFunction(() => document.querySelectorAll('article.card').length === 8);
     // Hover previews can start while an unrelated navigation button still has
-    // focus. A backdrop miss-click must return keyboard ownership to the art.
+    // focus. Closing restores artwork focus, while Space continues to follow
+    // the real mouse position until Tab explicitly selects keyboard ownership.
     const previewCard = page.locator('.card-art[data-key="danbooru:1e"]');
     await page.locator('#brand-button').focus();
     await previewCard.hover(); await page.keyboard.press('Space');
@@ -119,6 +120,11 @@ const server = http.createServer(async (req, res) => {
     assert.equal(await previewCard.evaluate(card => document.activeElement === card), true,
       'Closing a hover preview must focus its artwork instead of the previously focused Home button');
     await page.keyboard.press('Space');
+    assert.equal(await page.locator('#quick-preview').evaluate(dialog => dialog.open), false,
+      'Space at the blank backdrop position must not reopen the previously focused artwork');
+    assert.equal(await page.evaluate(() => currentTab().kind), 'search',
+      'Space after a backdrop close must not activate the previously focused Home button');
+    await previewCard.hover(); await page.keyboard.press('Space');
     await page.locator('#quick-preview[open]').waitFor();
     assert.equal(await page.evaluate(() => currentTab().kind), 'search');
     await page.keyboard.down('Space'); await page.keyboard.down('Space');
@@ -138,7 +144,12 @@ const server = http.createServer(async (req, res) => {
     await page.mouse.click(5, 5); await page.waitForFunction(() => !quickPreview.open);
     assert.equal(await previewCard.evaluate(card => document.activeElement === card), true,
       'A preview opened while Back is focused returns to its artwork');
-    await page.keyboard.press('Space'); await page.locator('#quick-preview[open]').waitFor();
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator('#quick-preview').evaluate(dialog => dialog.open), false,
+      'Space at the blank backdrop position must not reopen artwork after returning from Back');
+    assert.equal(await page.evaluate(() => currentTab().kind), 'search',
+      'Space after a backdrop close must not activate the previously focused Back button');
+    await previewCard.hover(); await page.keyboard.press('Space'); await page.locator('#quick-preview[open]').waitFor();
     assert.equal(await page.evaluate(() => currentTab().kind), 'search');
     await page.keyboard.press('Escape');
     const blankArea = page.locator('#main h1').first();

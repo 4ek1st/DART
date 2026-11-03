@@ -20,6 +20,7 @@ internal static class SavedWorksFixtureTests
         Directory.CreateDirectory(root);
         try
         {
+            SavedWorksReadCostFixtureTests.Run(Path.Combine(root, "read-cost"));
             RevisionFixture(Path.Combine(root, "revision"));
             var oldFile = Path.Combine(root, "bookmarks-v4.json");
             const string legacy = """

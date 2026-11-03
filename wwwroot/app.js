@@ -2452,8 +2452,10 @@ async function loadMoreFollows(tab) {
 async function loadBookmarks(tab) {
   tab.items = bookmarks;
   tab.loading = !refreshSavedWorks.states?.bookmarks?.loaded;
-  render();
-  if (tab.loading && !await refreshBookmarks()) tab.started = false;
+  if (tab.loading) {
+    render();
+    if (!await refreshBookmarks()) tab.started = false;
+  }
   tab.items = bookmarks;
   tab.loading = false;
   if (activeId === tab.id) render();
@@ -2462,8 +2464,10 @@ async function loadBookmarks(tab) {
 async function loadLikes(tab) {
   tab.items = likes;
   tab.loading = !refreshSavedWorks.states?.likes?.loaded;
-  render();
-  if (tab.loading && !await refreshLikes()) tab.started = false;
+  if (tab.loading) {
+    render();
+    if (!await refreshLikes()) tab.started = false;
+  }
   tab.items = likes;
   tab.loading = false;
   if (activeId === tab.id) render();
@@ -6031,14 +6035,16 @@ document.getElementById('search-form').addEventListener('submit', event => {
 });
 searchInput.addEventListener('focus', showPopover);
 searchInput.addEventListener('input', showPopover);
-main.addEventListener('pointermove', event => {
+// Mouse ownership follows the real pointer across the modal and sidebar. The
+// modal makes main inert and fires pointerleave without moving the mouse;
+// tracking main alone either loses its position or retains an obsolete one.
+document.addEventListener('pointermove', event => {
   if (event.pointerType === 'mouse') quickPreviewPointer = { x: event.clientX, y: event.clientY };
 });
-main.addEventListener('pointerleave', event => {
-  // Opening a modal makes the underlying main inert without a mouse action.
-  // A real move into the sidebar still owns Space and must not revive old focus.
-  quickPreviewPointer = !quickPreview.open && event.pointerType === 'mouse'
-    ? { x: event.clientX, y: event.clientY } : null;
+document.addEventListener('pointerleave', event => {
+  // Coordinates outside the document intentionally have no artwork target.
+  // Null is reserved for Tab's explicit handover to keyboard focus.
+  if (event.pointerType === 'mouse') quickPreviewPointer = { x: event.clientX, y: event.clientY };
 });
 let artworkLikeFeedback = null;
 let artworkLikeFeedbackTimer = null;
