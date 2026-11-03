@@ -101,16 +101,19 @@ test('profile caches rebuild after invalidation and cached grouping refinement o
   assert.deepEqual(logic.recommendationTags(liked), [{ tag: 'refined interest', count: 1 }]);
 });
 
-function workerBridge(failPostAt = 0) {
-  const messages = [];
+function workerBridge(failPostAt = 0, transformReply = value => value, workerLogic = logic, timeout = 10000) {
+  const messages = [], replyErrors = [];
   let attempts = 0;
   class Worker {
     constructor() {
       this.handlers = {};
       const worker = this;
-      const context = { CatalogLogic: logic, importScripts() {}, self: {
+      const context = { CatalogLogic: workerLogic, structuredClone, importScripts() {}, self: {
         addEventListener(name, callback) { worker.receive = callback; },
-        postMessage(value) { queueMicrotask(() => worker.handlers.message({ data: structuredClone(value) })); }
+        postMessage(value) { queueMicrotask(() => {
+          try { worker.handlers.message({ data: transformReply(structuredClone(value)) }); }
+          catch (error) { replyErrors.push(error.message); }
+        }); }
       } };
       vm.runInNewContext(workerSource, context);
     }
@@ -125,8 +128,8 @@ function workerBridge(failPostAt = 0) {
   const start = appSource.indexOf('async function mergeRecommendationsAsync(');
   const end = appSource.indexOf('\nasync function loadRecommendations(', start);
   const merge = vm.runInNewContext(appSource.slice(start, end) + '\nmergeRecommendationsAsync',
-    { Worker, CatalogLogic: logic, setTimeout, clearTimeout });
-  return { merge, messages };
+    { Worker, CatalogLogic: logic, setTimeout: (callback, milliseconds) => setTimeout(callback, Math.min(milliseconds, timeout)), clearTimeout });
+  return { merge, messages, replyErrors };
 }
 
 test('worker reuses the liked profile and sends metadata again after its explicit grouping revision', async () => {
@@ -149,6 +152,108 @@ test('worker reuses the liked profile and sends metadata again after its explici
   await merge(replaced, ...args.slice(1));
   assert.equal(messages[3].args[0].length, liked.length);
   assert.notEqual(messages[3].profileId, messages[2].profileId);
+});
+
+test('worker keeps the exact unchanged prefix records while returning enriched groups and new works', async () => {
+  const { merge } = workerBridge();
+  const item = (id, extra = {}) => ({ key: `danbooru:${id}`, id: String(id), source: 'danbooru', rating: 'g',
+    title: 'Neutral landscape', tags: ['watercolor', 'landscape'], creatorTag: `artist_${id}`, ...extra });
+  const liked = [item(9000)], prefix = [item(1), item(2)];
+  const groups = [{ items: [item(3)] }];
+  const args = [liked, prefix, groups, 'all', { watercolor: 'priority' }, 7];
+  const appended = await merge(...args);
+  assert.deepEqual(plain(appended), plain(logic.mergeRecommendations(...args)));
+  assert.strictEqual(appended[0], prefix[0], 'unchanged published cards retain their warm metadata and identity caches');
+  assert.strictEqual(appended[1], prefix[1]);
+  const enriched = [{ items: [item(2, { contentHash: 'a'.repeat(32), images: ['https://example.test/enriched.jpg'] })] }];
+  const updated = await merge(liked, appended, enriched, ...args.slice(3));
+  assert.deepEqual(plain(updated), plain(logic.mergeRecommendations(liked, appended, enriched, ...args.slice(3))));
+  assert.strictEqual(updated[0], prefix[0], 'unrelated evidence keeps its canonical prefix record');
+  assert.notStrictEqual(updated[1], prefix[1], 'a genuinely enriched group must still reach the UI');
+  assert.equal(updated[1].contentHash, 'a'.repeat(32));
+  const mirror = [{ items: [{ ...item(4, { contentHash: 'a'.repeat(32) }),
+    key: 'rule34:4', id: '4', source: 'rule34' }] }];
+  const grouped = await merge(liked, updated, mirror, ...args.slice(3));
+  assert.deepEqual(plain(grouped), plain(logic.mergeRecommendations(liked, updated, mirror, ...args.slice(3))));
+  assert.equal(grouped.length, updated.length, 'a learned catalog mirror enriches its existing slot once');
+  assert.strictEqual(grouped[0], prefix[0]);
+  assert.notStrictEqual(grouped[1], updated[1]);
+  assert(grouped[1].memberKeys.includes('rule34:4'));
+});
+
+test('interleaved worker responses resolve unchanged records against each job prefix', async () => {
+  const { merge } = workerBridge();
+  const liked = [{ key: 'danbooru:9000', source: 'danbooru', rating: 'g', tags: ['landscape'] }];
+  const a = [{ key: 'danbooru:1', source: 'danbooru', rating: 'g', title: 'First window', tags: ['landscape'] }];
+  const b = [{ ...a[0], title: 'Second window' }];
+  const actual = await Promise.all([a, b].map(prefix => merge(liked, prefix, [], 'all', {}, 7)));
+  assert.strictEqual(actual[0][0], a[0]);
+  assert.strictEqual(actual[1][0], b[0]);
+});
+
+test('same-artist arrivals retain unchanged regrouped prefix records without hiding changed metadata', async () => {
+  const { merge } = workerBridge();
+  const item = id => ({ key: `danbooru:${id}`, id: String(id), source: 'danbooru', rating: 'g',
+    creatorTag: 'shared_artist', title: `Neutral landscape ${id}`, tags: ['landscape'],
+    images: [`https://example.test/${id}.jpg`] });
+  const liked = [item(9000)], prefix = logic.groupWorks([item(1), item(2)]);
+  const args = [liked, prefix, [{ items: [item(3)] }], 'all', { landscape: 'priority' }, 7];
+  const appended = await merge(...args);
+  assert.deepEqual(plain(appended), plain(logic.mergeRecommendations(...args)));
+  assert.strictEqual(appended[0], prefix[0], 'a creator evidence bucket may rebuild a group without changing any published data');
+  assert.strictEqual(appended[1], prefix[1]);
+  const changes = [{ items: [{ ...item(2), title: 'Learned title', tags: ['landscape', 'watercolor'] }] }];
+  const updated = await merge(liked, appended, changes, ...args.slice(3));
+  assert.deepEqual(plain(updated), plain(logic.mergeRecommendations(liked, appended, changes, ...args.slice(3))));
+  assert.strictEqual(updated[0], prefix[0]);
+  assert.notStrictEqual(updated[1], prefix[1]);
+  assert.equal(updated[1].title, 'Learned title');
+  assert(updated[1].allTags.includes('watercolor'));
+});
+
+test('a worker merge that mutates its input still returns every learned nested field', async () => {
+  const prefix = [{ key: 'danbooru:1', source: 'danbooru', id: '1', rating: 'g', tags: ['landscape'],
+    images: ['https://example.test/first.jpg'], contentHash: 'a'.repeat(32), groupCount: 1,
+    imageRecords: [{ url: 'https://example.test/first.jpg', hash: 'a'.repeat(32), owner: 'danbooru:1' }],
+    participants: [{ tag: 'first_artist', name: 'First Artist', role: 'artist' }],
+    memberKeys: ['danbooru:1'], identityKeys: ['key:danbooru:1'],
+    groupMembers: [{ key: 'danbooru:1', source: 'danbooru', images: ['https://example.test/first.jpg'] }] }];
+  const before = structuredClone(prefix);
+  let expected;
+  const { merge } = workerBridge(0, value => value, { ...logic, mergeRecommendations(_, existing) {
+    const item = existing[0];
+    item.images.push('https://example.test/second.jpg'); item.groupCount = 2;
+    item.contentHash = 'b'.repeat(32); item.imageRecords[0].hash = 'b'.repeat(32);
+    item.participants[0].name = 'Learned Artist'; item.memberKeys.push('rule34:2');
+    item.identityKeys.push('hash:' + 'b'.repeat(32));
+    item.groupMembers[0].images.push('https://example.test/second.jpg');
+    expected = structuredClone(item);
+    return existing;
+  } });
+  const result = await merge([], prefix, [], 'all', {}, 7);
+  assert.deepEqual(plain(result[0]), plain(expected));
+  assert.notStrictEqual(result[0], prefix[0], 'in-place worker enrichment cannot reuse a stale main-thread record');
+  assert.deepEqual(prefix, before, 'worker mutations remain isolated from the original prefix');
+});
+
+test('malformed worker prefix references settle promptly with the complete original-argument fallback', async () => {
+  const invalid = [
+    { value: {}, reusedPrefix: [] }, { value: [null], reusedPrefix: {} },
+    { value: [null], reusedPrefix: [[0]] }, { value: [null], reusedPrefix: [[0, -1]] },
+    { value: [null], reusedPrefix: [[0, 1]] }, { value: [null], reusedPrefix: [[1, 0]] },
+    { value: [null], reusedPrefix: [[0, .5]] }, { value: [null], reusedPrefix: [[0, 0], [0, 0]] }
+  ];
+  const prefix = [{ key: 'danbooru:1', source: 'danbooru', rating: 'g', tags: ['landscape'] }];
+  const args = [[], prefix, [], 'all', {}, 7];
+  for (const payload of invalid) {
+    const { merge, replyErrors } = workerBridge(0, reply => ({ id: reply.id, ...payload }), logic, 40);
+    let deadline;
+    const result = await Promise.race([merge(...args), new Promise(resolve => { deadline = setTimeout(() => resolve(null), 200); })]);
+    clearTimeout(deadline);
+    assert.deepEqual(plain(result), plain(logic.mergeRecommendations(...args)), JSON.stringify(payload));
+    assert.deepEqual(replyErrors, [], 'the message handler must settle its registered job before discarding it');
+    assert.deepEqual(plain(await merge(...args)), plain(logic.mergeRecommendations(...args)), 'a malformed worker stays disabled');
+  }
 });
 
 test('a failed warm worker send falls back with the complete original liked arguments', async () => {

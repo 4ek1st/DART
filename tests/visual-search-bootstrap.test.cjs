@@ -11,6 +11,7 @@ function fixture({ missing = false } = {}) {
   const pending = new Promise(resolve => release = resolve);
   const messages = [], handlers = new Map(), imports = [];
   const context = vm.createContext({
+    structuredClone,
     CatalogLogic: { groupFollowFeed: (...args) => ({ args }), mergeRecommendations: (...args) => ({ args }) },
     DartVisualSearchModule: { calls: 0, load() { this.calls++; return pending; } },
     self: { addEventListener(name, callback) { handlers.set(name, callback); }, postMessage(value) { messages.push(value); } },

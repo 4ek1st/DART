@@ -391,6 +391,71 @@ test('known-work navigation follows the hide preference and preserves explicit a
   }
 });
 
+test('reopened viewers keep retained grid slots before and after history or followed-artist changes', async () => {
+  for (const timing of ['before', 'after']) for (const state of ['viewed', 'pending', 'liked', 'bookmarked', 'followed']) {
+    const { context, source } = artworkSourceFixture('recommendations', {
+      hideViewedAndSaved: true, hideFollowedArtists: true });
+    source.retainedFeedWorks = new Map(source.items.map(item => [item.key, true]));
+    const makeKnown = () => {
+      if (state === 'viewed') context.viewedTokens.add('key:rule34:2');
+      if (state === 'pending') context.viewedPending.add('key:rule34:2');
+      if (state === 'liked') context.likes = [source.items[1]];
+      if (state === 'bookmarked') context.bookmarks = [source.items[1]];
+      if (state === 'followed') context.follows = [{ source: 'danbooru', artistId: 'common_artist', name: 'Common artist' }];
+    };
+    if (timing === 'before') makeKnown();
+    // Closing Space disposes the old route; opening the same visible grid card
+    // creates a new one, whose visitedKeys contains only its current opener.
+    const reopened = context.createArtworkRoute(source, source.items[0]);
+    if (timing === 'after') makeKnown();
+    if (state === 'followed') assert(context.isFollowedArtistHidden(source.items[1], source));
+    assert.equal((await reopened.engine.move(1))?.key, 'rule34:2', `${state}, changed ${timing} reopen`);
+    assert.equal((await reopened.engine.move(1))?.key, 'rule34:3', `${state}, next retained slot`);
+    assert.equal((await reopened.engine.move(-1))?.key, 'rule34:2', `${state}, retained slot remains reversible`);
+  }
+});
+
+test('retained viewer slots still obey manual hiding, hidden authors and selected ratings', async () => {
+  for (const blocked of ['manual', 'author', 'rating']) {
+    const { context, source } = artworkSourceFixture('recommendations', { hideViewedAndSaved: true });
+    source.retainedFeedWorks = new Map(source.items.map(item => [item.key, true]));
+    if (blocked === 'rating') {
+      source.items[1].rating = 'q'; source.items[2].rating = 'e';
+      Logic.invalidateGrouping(source.items);
+    }
+    const reopened = context.createArtworkRoute(source, source.items[0]);
+    if (blocked === 'manual') context.artworkActionsController = () => ({
+      isHidden: item => item.key === 'rule34:2', items: () => [] });
+    if (blocked === 'author') context.contentPreferences = { ...context.contentPreferences,
+      hiddenAuthors: [{ source: 'artist', artistId: 'common_artist', name: 'Common artist' }] };
+    if (blocked === 'rating') {
+      source.rating = 'explicit';
+      context.viewerPreferences = { nsfwRatings: { q: false, e: true }, videoSound: false };
+    }
+    assert.equal(reopened.isAllowed(source.items[1]), false, blocked);
+    assert.equal((await reopened.engine.move(1))?.key, 'rule34:3', blocked);
+  }
+});
+
+test('a retained known grid work does not give an incoming mirror another viewer slot', async () => {
+  const { context, source } = artworkSourceFixture('recommendations', { hideViewedAndSaved: true });
+  source.retainedFeedWorks = new Map(source.items.map(item => [item.key, true]));
+  const learned = { ...source.items[1], contentHash: 'a'.repeat(32) };
+  context.likes = [learned];
+  const reopened = context.createArtworkRoute(source, source.items[0]);
+  const mirror = { ...work(4), contentHash: learned.contentHash };
+  assert.equal(reopened.isAllowed(mirror), false, 'A new key cannot borrow retention through a shared hash');
+  context.contentPreferences.hideFollowedArtists = true;
+  context.follows = [{ source: 'danbooru', artistId: 'common_artist' }];
+  assert.equal(reopened.isAllowed({ ...work(6), creatorTag: 'common_artist' }), false,
+    'A new key cannot borrow a retained artist slot');
+  reopened.engine.select(source.items[2]);
+  source.items = [...source.items, mirror, work(5)];
+  assert.equal((await reopened.engine.move(1))?.key, 'danbooru:5');
+  assert.equal(reopened.engine.items.some(item => item.key === mirror.key), false);
+  assert.equal((await reopened.engine.move(-1))?.key, 'rule34:3');
+});
+
 test('a changed Following source signature keeps the viewer on its original result generation', async () => {
   const { context, source, route } = artworkSourceFixture('follows', {}, false);
   source.query = 'another_generation';

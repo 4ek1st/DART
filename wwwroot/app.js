@@ -1759,11 +1759,30 @@ async function mergeRecommendationsAsync(...args) {
         state.jobs.clear();
       };
       worker.addEventListener('message', ({ data }) => {
-        const job = state.jobs.get(data.id);
+        const job = state.jobs.get(data?.id);
         if (!job) return;
-        state.jobs.delete(data.id);
-        if (data.error) job.reject(new Error(data.error));
-        else job.resolve(data.value);
+        if (data.error) { state.jobs.delete(data.id); job.reject(new Error(data.error)); return; }
+        try {
+          if (!Array.isArray(data.value) || data.reusedPrefix !== undefined && !Array.isArray(data.reusedPrefix))
+            throw new Error('Invalid recommendation worker response');
+          const positions = new Set();
+          for (const reference of data.reusedPrefix || []) {
+            if (!Array.isArray(reference) || reference.length !== 2)
+              throw new Error('Invalid recommendation prefix reference');
+            const [position, prefixIndex] = reference;
+            if (!Number.isInteger(position) || position < 0 || position >= data.value.length ||
+                !Number.isInteger(prefixIndex) || prefixIndex < 0 || prefixIndex >= job.prefix.length ||
+                data.value[position] !== null || positions.has(position))
+              throw new Error('Invalid recommendation prefix reference');
+            positions.add(position);
+          }
+          for (const [position, prefixIndex] of data.reusedPrefix || [])
+            data.value[position] = job.prefix[prefixIndex];
+          if (data.value.some(item => !item || typeof item !== 'object' || typeof item.key !== 'string'))
+            throw new Error('Invalid recommendation worker record');
+          state.jobs.delete(data.id);
+          job.resolve(data.value);
+        } catch { state.fail(); }
       });
       worker.addEventListener('error', event => { event.preventDefault(); state.fail(); });
       worker.addEventListener('messageerror', state.fail);
@@ -1774,7 +1793,7 @@ async function mergeRecommendationsAsync(...args) {
     let timer;
     try {
       return await new Promise((resolve, reject) => {
-        state.jobs.set(id, { resolve, reject });
+        state.jobs.set(id, { resolve, reject, prefix: Array.isArray(args[1]) ? [...args[1]] : [] });
         timer = setTimeout(state.fail, 10000);
         try {
           const liked = args[0];
@@ -3111,6 +3130,80 @@ function artworkSourceItems(route) {
   return route.readItems;
 }
 
+function artworkRouteMedia(route, item, selectedUrl = '') {
+  const media = CatalogLogic.artworkMedia(item);
+  if (!route?.presentation) return { ...media, thumbnail: item.thumbnail || '',
+    preview: selectedUrl || CatalogLogic.previewMedia(item), selectedOwned: true };
+  if (!route.presentationOrder) {
+    route.presentationOrder = new WeakMap(); route.presentationNext = 0;
+    for (const entry of route.presentation.values()) if (!route.presentationOrder.has(entry))
+      route.presentationOrder.set(entry, route.presentationNext++);
+  }
+  const keys = [item.key, ...(item.memberKeys || [])];
+  const original = keys.map(key => route.presentation.get(key)).filter(Boolean)
+    .reduce((first, entry) => !first || route.presentationOrder.get(entry) < route.presentationOrder.get(first)
+      ? entry : first, null) || item;
+  if (!route.presentationOrder.has(original)) route.presentationOrder.set(original, route.presentationNext++);
+  for (const key of keys) if (!route.presentation.has(key)) route.presentation.set(key, original);
+  route.presentationRecords ||= new WeakMap();
+  let displayed = route.presentationRecords.get(original);
+  if (!displayed) {
+    displayed = { ...CatalogLogic.artworkMedia(original), thumbnail: original.thumbnail || '',
+      preview: CatalogLogic.previewMedia(original) };
+    route.presentationRecords.set(original, displayed);
+  }
+  const identities = new WeakMap();
+  const identity = record => {
+    let value = identities.get(record);
+    if (!value) {
+      value = { key: CatalogLogic.mediaCacheKey(record.url),
+        hash: /^[a-f0-9]{32}$/i.test(record.hash || '') ? record.hash.toLowerCase() : '' };
+      identities.set(record, value);
+    }
+    return value;
+  };
+  const matches = (first, second) => {
+    if (!first || !second) return false;
+    const a = identity(first), b = identity(second);
+    return a.hash && a.hash === b.hash || a.key === b.key && !(a.hash && b.hash && a.hash !== b.hash);
+  };
+  // Only URLs owned by the current work can be selected. Keep the old display
+  // order by exact file identity, including renewed signatures and mirrors.
+  const known = new Map((item.imageRecords || []).map(record => [record.url, record]));
+  const canonical = new Map(media.imageRecords.map(record => [CatalogLogic.mediaCacheKey(record.url), record]));
+  const owned = (item.images || []).map(url => ({ ...(
+    known.get(url) || canonical.get(CatalogLogic.mediaCacheKey(url)) ||
+    CatalogLogic.artworkMedia({ images: [url], contentHash: item.images.length === 1 ? item.contentHash : '' }).imageRecords[0]), url }));
+  const current = record => {
+    const candidates = owned.filter(candidate => matches(record, candidate));
+    return candidates.find(candidate => !CatalogLogic.signedMediaExpired(candidate.url)) || candidates[0];
+  };
+  const ordered = [];
+  for (const record of [...displayed.imageRecords, ...media.imageRecords]) {
+    const fresh = current(record);
+    if (fresh && !ordered.some(previous => matches(previous, fresh))) ordered.push(fresh);
+  }
+  const describe = url => displayed.imageRecords.find(record => record.url === url) ||
+    owned.find(record => record.url === url) || CatalogLogic.artworkMedia({ images: [url] }).imageRecords[0];
+  const retained = current(describe(displayed.preview));
+  const requested = selectedUrl && current(describe(selectedUrl));
+  const fallback = ordered.find(record => CatalogLogic.videoMimeType(record.url)) || ordered[0];
+  const selected = requested || retained || fallback;
+  let thumbnail = '';
+  const thumbs = [item.thumbnail, ...(item.groupMembers || []).map(member => member.thumbnail)].filter(Boolean);
+  if (selected && retained && matches(selected, retained)) {
+    thumbnail = thumbs.find(url => CatalogLogic.mediaCacheKey(url) === CatalogLogic.mediaCacheKey(displayed.thumbnail) &&
+      !CatalogLogic.signedMediaExpired(url)) || '';
+  }
+  if (!thumbnail && selected) {
+    const first = media.imageRecords.find(record => record.url === CatalogLogic.previewMedia(item));
+    if (matches(selected, first)) thumbnail = item.thumbnail || '';
+  }
+  thumbnail ||= selected?.url || item.thumbnail || '';
+  return { images: ordered.map(record => record.url), imageRecords: ordered, thumbnail,
+    preview: selected?.url || thumbnail, selectedOwned: !selectedUrl || !!requested };
+}
+
 function artworkSourceHasMore(route) {
   const source = artworkRouteSource(route);
   if (['likes', 'bookmarks', 'recent', 'favorites'].includes(source.kind)) return false;
@@ -3173,9 +3266,12 @@ function createArtworkRoute(from, item, origin = null) {
   const creator = related && !!origin?.closest?.('.author-strip');
   const list = related ? creator ? 'creator' : 'related' : from.kind;
   // Each viewer owns its position, including works opened in background tabs.
-  const snapshot = from.kind === 'home' ? filterFeedWorks(from.items || [], from) :
-    creator ? selectCreatorWorks(from.item, from.creatorCandidates || from.creatorWorks || [], from) :
-    related ? filterFeedWorks(from.related || [], from, false, 'related') :
+  const homeRendered = from.artworkLists?.has('home') || from.artworkLists?.has('home-rest');
+  const snapshot = from.kind === 'home' ? homeRendered
+    ? [...(from.artworkLists.get('home') || []), ...(from.artworkLists.get('home-rest') || [])]
+    : filterFeedWorks(from.items || [], from) :
+    creator ? from.artworkLists?.get('creator') || selectCreatorWorks(from.item, from.creatorCandidates || from.creatorWorks || [], from) :
+    related ? from.artworkLists?.get('related') || filterFeedWorks(from.related || [], from, false, 'related') :
     from.artworkLists?.get(origin?.closest?.('[data-grid-key]')?.dataset.gridKey || from.kind) ||
     filterFeedWorks(from.kind === 'recent' ? recent : from.items || [], from, from.kind === 'follows');
   let source = from;
@@ -3195,14 +3291,26 @@ function createArtworkRoute(from, item, origin = null) {
     readGroupingRevision: CatalogLogic.groupingRevision(raw),
     readPublication: source.items, readPublicationRevision: CatalogLogic.groupingRevision(source.items),
     readVersions: new Map(raw.map(item => [item.key, item])), readItems: [] };
-  const selected = snapshot.some(entry => entry.key === item.key || entry.memberKeys?.includes(item.key));
+  const selected = snapshot.some(entry => CatalogLogic.sameWork(entry, item));
   const initial = selected ? snapshot : related ? [item, ...snapshot] : [...snapshot, item];
+  // Retain the actual displayed slot references; parse media lazily only for
+  // visited/warmed works rather than cloning every gallery in a large feed.
+  route.presentation = new Map(); route.presentationOrder = new WeakMap(); route.presentationNext = 0;
+  for (const entry of initial) {
+    if (!route.presentationOrder.has(entry)) route.presentationOrder.set(entry, route.presentationNext++);
+    for (const key of [entry.key, ...(entry.memberKeys || [])])
+      if (!route.presentation.has(key)) route.presentation.set(key, entry);
+  }
+  // Retained cards belong to this feed visit even after Space creates a new
+  // viewer route. Only their actual keys keep a slot when history/follows change.
   route.isAllowed = entry => !artworkActionsController().isHidden(entry) && !CatalogLogic.isWorkHidden(entry, contentPreferences) &&
     (route.source.rating !== 'explicit' || !['home', 'search', 'profile', 'recommendations', 'follows', 'favorites'].includes(route.source.kind) ||
      CatalogLogic.matchesRating(entry, selectedRating(route.source))) &&
     (!contentPreferences.hideFollowedArtists || !isFollowedArtistHidden(entry, route.source, route.list) ||
+     isRetainedFeedWork(route.source, entry) ||
      [entry.key, ...(entry.memberKeys || [])].some(key => route.visitedKeys.has(key))) &&
     (!contentPreferences.hideViewedAndSaved || !isHideableFeed(route.source, route.list) ||
+     isRetainedFeedWork(route.source, entry) ||
      [entry.key, ...(entry.memberKeys || [])].some(key => route.visitedKeys.has(key)) ||
      !CatalogLogic.workHistoryTokens(entry).some(token => viewedTokens.has(token) ||
        viewedPending.has(token) || knownLibraryWorkTokens().has(token)));
@@ -3237,8 +3345,9 @@ function warmArtworkRoute(route) {
   const warming = new Map();
   const mediaWarming = new Map();
   const warmMedia = item => {
-    const full = galleryImages(item).find(media => !CatalogLogic.videoMimeType(media));
-    return Promise.allSettled([...new Set([item.thumbnail, full].filter(Boolean))].map(url => {
+    const shown = route.presentation ? artworkRouteMedia(route, item) : { thumbnail: item.thumbnail };
+    const full = galleryImages(item, route).find(media => !CatalogLogic.videoMimeType(media));
+    return Promise.allSettled([...new Set([shown.thumbnail, full].filter(Boolean))].map(url => {
       if (CatalogLogic.signedMediaExpired(url) && !imageLoader.cached(url)) return;
       const key = CatalogLogic.mediaCacheKey(url);
       if (!mediaWarming.has(key)) mediaWarming.set(key, (async () => {
@@ -3287,12 +3396,14 @@ function warmArtworkRoute(route) {
   });
 }
 
-async function prepareArtworkMedia(item, signal, selectedMedia = galleryImages(item)[0]) {
+async function prepareArtworkMedia(item, signal, selectedMedia, route = null) {
+  selectedMedia ??= galleryImages(item, route)[0];
   // Playback owns video loading. A missing poster must not delay the selected
   // movie behind the image preparation timeout, including mixed galleries.
   if (CatalogLogic.videoMimeType(selectedMedia)) return;
   const full = selectedMedia || '';
-  const url = full && imageLoader.cached(full) ? full : item.thumbnail || full;
+  const thumbnail = route?.presentation ? artworkRouteMedia(route, item, selectedMedia).thumbnail : item.thumbnail;
+  const url = full && imageLoader.cached(full) ? full : thumbnail || full;
   if (!url) return;
   // Keep the current viewer while preparing pixels, with a bounded fallback
   // for offline/expired media. A newer arrow cancels this consumer immediately.
@@ -3343,8 +3454,9 @@ async function moveArtwork(direction) {
     let item = route.warmed.get(next.key) || next;
     const current = preview ? quickPreviewWork : tab?.item;
     if (current && CatalogLogic.sameWork(current, item)) return;
+    const shown = route.presentation ? artworkRouteMedia(route, item) : null;
     const release = await prepareArtworkMedia(item, controller.signal,
-      preview ? CatalogLogic.previewMedia(item) : undefined);
+      preview ? shown?.preview || CatalogLogic.previewMedia(item) : undefined, route);
     try {
       if (cancelled()) return;
       // Detail warming and source evidence can change while pixels decode.
@@ -3358,7 +3470,8 @@ async function moveArtwork(direction) {
         preview: tab.preview, pinned: tab.pinned, items: [], errors: {}, page: 0,
         scrollTop: 0, loading: false, selectedSources: [...defaultSources] } : null;
       if (preview) {
-        const url = CatalogLogic.previewMedia(item);
+        const presentation = route.presentation ? artworkRouteMedia(route, item) : null;
+        const url = presentation?.preview || CatalogLogic.previewMedia(item);
         if (!url) {
           closeQuickPreview(route);
           if (replacement) activate(tab.id, true, replacement);
@@ -3367,7 +3480,7 @@ async function moveArtwork(direction) {
         }
         if (replacement && tab.artworkRoute === route) activate(tab.id, true, replacement, true);
         openQuickPreview({ item, url, route, image: { currentSrc: imageLoader.cached(url)?.blobUrl ||
-          imageLoader.cached(item.thumbnail)?.blobUrl || '' } },
+          imageLoader.cached(presentation?.thumbnail || item.thumbnail)?.blobUrl || '' } },
           quickPreview.classList.contains('fullscreen') ? 'fullscreen' : 'window');
       } else {
         // Arrow browsing always stays in the current viewer, including pinned tabs.
@@ -3486,7 +3599,10 @@ function quickPreviewArtworkAt(target, tab, index) {
   const cardImage = opener?.querySelector?.('img[data-image-url]');
   const cardItem = opener && index.get(opener.dataset.key);
   if (cardImage && cardItem) {
-    const url = opener.dataset.videoPreview || CatalogLogic.previewMedia(cardItem) || cardImage.dataset.imageUrl;
+    const grid = opener.closest?.('[data-grid-key]')?.dataset.gridKey ||
+      (opener.closest?.('.author-strip') ? 'creator' : tab?.kind);
+    const displayed = tab?.artworkLists?.get(grid)?.find(item => CatalogLogic.sameWork(item, cardItem)) || cardItem;
+    const url = opener.dataset.videoPreview || CatalogLogic.previewMedia(displayed) || cardImage.dataset.imageUrl;
     return url ? { item: cardItem, image: cardImage, url } : null;
   }
   if (tab?.kind !== 'detail') return null;
@@ -3597,15 +3713,19 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
   if (!item || !url || quickPreview.open && (!route || route !== quickPreviewRoute)) return;
   if (!quickPreview.open) quickPreviewReturnFocus = image?.closest?.(
     'button.card-art[data-action="open"], .detail-image > img[data-image-url], .detail-video > video[data-video-url]') || null;
+  const selectedRoute = route || (currentTab()?.kind === 'detail' &&
+    CatalogLogic.sameWork(currentTab().item, item) ? currentTab().artworkRoute :
+    createArtworkRoute(currentTab(), item, image));
+  const presentation = selectedRoute?.presentation ? artworkRouteMedia(selectedRoute, item, url) : null;
+  url = presentation?.preview || url;
+  const thumbnail = presentation?.thumbnail || item.thumbnail || '';
   stopQuickPreviewMedia(); globalThis.DartVideoPreview?.stop(); pauseDetailVideos();
   const controller = quickPreviewMediaController = new AbortController();
   const video = !!CatalogLogic.videoMimeType(url);
-  const releases = [...new Set([item.thumbnail, ...(!video ? [url] : [])].filter(Boolean))]
+  const releases = [...new Set([thumbnail, ...(!video ? [url] : [])].filter(Boolean))]
     .map(mediaUrl => imageLoader.pin(mediaUrl));
   controller.signal.addEventListener('abort', () => releases.forEach(release => release()), { once: true });
-  quickPreviewRoute = route || (currentTab()?.kind === 'detail' &&
-    currentTab().item.key === item.key ? currentTab().artworkRoute :
-    createArtworkRoute(currentTab(), item, image));
+  quickPreviewRoute = selectedRoute;
   clearTimeout(quickPreviewZoomTimer);
   quickPreviewZoomTimer = null;
   quickPreview.classList.toggle('fullscreen', mode === 'fullscreen');
@@ -3613,8 +3733,9 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
     : mode === 'fullscreen' ? 'Полноэкранный просмотр изображения' : 'Быстрый просмотр изображения');
   item = quickPreviewWork = rememberItem(item);
   retainFeedWork(currentTab(), item);
-  const preview = (image?.tagName === 'VIDEO' ? image.poster : image?.currentSrc || image?.getAttribute?.('src')) ||
-    imageLoader.cached(image?.dataset?.imageUrl)?.blobUrl || '';
+  const preview = (presentation && !presentation.selectedOwned ? '' :
+    (image?.tagName === 'VIDEO' ? image.poster : image?.currentSrc || image?.getAttribute?.('src')) ||
+    imageLoader.cached(image?.dataset?.imageUrl)?.blobUrl) || imageLoader.cached(thumbnail)?.blobUrl || '';
   const full = imageLoader.cached(url)?.blobUrl || '';
   quickPreviewView = { scale: 1, x: 0, y: 0 };
   quickPreviewDrag = null;
@@ -3635,7 +3756,7 @@ function openQuickPreview({ item, image, url, route }, mode = 'window') {
   if (!video) {
     const image = quickPreview.querySelector('.quick-preview-image');
     image.dataset.imageUrl = url;
-    image.dataset.previewUrl = item.thumbnail || '';
+    image.dataset.previewUrl = thumbnail;
     imageLoader.adopt(quickPreview);
   }
   const media = quickPreview.querySelector('.quick-preview-image');
@@ -4150,6 +4271,8 @@ function renderHome(tab) {
   const grouped = filterFeedWorks(tab.items, tab);
   const first = grouped.slice(0, 7);
   const rest = grouped.slice(7);
+  tab.artworkLists ||= new Map();
+  tab.artworkLists.set('home', first); tab.artworkLists.set('home-rest', rest);
   const headline = tab.rating === 'explicit' ? `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} NSFW иллюстрации` :
     tab.rating === 'all' ? 'Все изображения' :
     `${tab.sort === 'popular' ? 'Популярные' : 'Новые'} иллюстрации`;
@@ -4955,18 +5078,21 @@ function renderDetail(tab) {
   tab.artworkRoute?.engine.sync();
   if (CatalogLogic.isWorkHidden(item, contentPreferences))
     return `<div class="content"><div class="empty feature-empty">Эта работа скрыта фильтрами содержимого. <button class="inline-retry" data-action="content-settings">Изменить фильтры</button></div></div>`;
-  const images = galleryImages(item);
+  const images = galleryImages(item, tab.artworkRoute);
   const tags = CatalogLogic.artworkTags(item, tab.searchQuery);
   const visibleTags = tab.showAllTags ? tags : tags.slice(0, 40);
   const visibleCreatorWorks = selectCreatorWorks(item, tab.creatorCandidates || tab.creatorWorks || [], tab);
   const attribution = CatalogLogic.workAttribution(item, contentPreferences.attributionPriority);
+  if (images.length && attribution.creator) {
+    tab.artworkLists ||= new Map(); tab.artworkLists.set('creator', visibleCreatorWorks);
+  }
   const primary = attribution.primary;
   const primaryRole = primary.roleLabel || { creator: 'Автор', uploader: 'Загрузчик', original: 'Исходная площадка',
     unknown: 'Автор' }[primary.role];
   const sourceLabel = [...new Set(CatalogLogic.workSources(item).map(record => names[record.source]))]
     .join(' · ') || names[item.source] || item.source;
   return `<div class="content"><div class="detail-layout">
-    <div>${tab.detailAccessMessage || item.requiresAuthentication ? `<div class="source-notice source-warning"><span>${escapeHtml(tab.detailAccessMessage || (settings.hasSankakuSession ? 'Для этой работы Sankaku требуется дополнительный доступ аккаунта на сайте.' : item.accessMessage))}</span><button data-action="sankaku-auth">${settings.hasSankakuSession ? 'Аккаунт Sankaku' : 'Авторизуйтесь'}</button></div>` : ''}${images.length ? `<div class="artwork-stage">${images.map((url, index) => renderDetailImage(item, url, index)).join('')}</div>` : ''}
+    <div>${tab.detailAccessMessage || item.requiresAuthentication ? `<div class="source-notice source-warning"><span>${escapeHtml(tab.detailAccessMessage || (settings.hasSankakuSession ? 'Для этой работы Sankaku требуется дополнительный доступ аккаунта на сайте.' : item.accessMessage))}</span><button data-action="sankaku-auth">${settings.hasSankakuSession ? 'Аккаунт Sankaku' : 'Авторизуйтесь'}</button></div>` : ''}${images.length ? `<div class="artwork-stage">${images.map((url, index) => renderDetailImage(item, url, index, tab.artworkRoute)).join('')}</div>` : ''}
       <div class="detail-meta"><h1>${escapeHtml(item.title)}</h1>
         <div class="muted">${escapeHtml(sourceLabel)} · ${escapeHtml(formatDate(item.published))}${item.rating ? ` · <span${ratingLabel(item.rating) === 'Q' ? ' title="Questionable — пограничный контент"' : ''}>${escapeHtml(ratingLabel(item.rating))}</span>` : ''}</div>
         <div class="detail-actions">${savedWorkButton(item, 'bookmarks', true)}${savedWorkButton(item, 'likes', true)}
@@ -5027,13 +5153,14 @@ function renderArtworkTags(tab, tags, visibleTags) {
   }).join('')}${tags.length > 40 ? `<button class="tag-link tag-more" data-action="detail-tags-more">${tab.showAllTags ? 'Свернуть теги' : `Ещё ${tags.length - 40} тегов`}</button>` : ''}</div>`;
 }
 
-function renderDetailImage(item, url, index) {
+function renderDetailImage(item, url, index, route = null) {
+  const thumbnail = route?.presentation ? artworkRouteMedia(route, item, url).thumbnail : item.thumbnail;
   if (CatalogLogic.videoMimeType(url)) {
-    const poster = item.thumbnail && !CatalogLogic.videoMimeType(item.thumbnail)
-      ? `/api/image?url=${encodeURIComponent(item.thumbnail)}` : '';
+    const poster = thumbnail && !CatalogLogic.videoMimeType(thumbnail)
+      ? `/api/image?url=${encodeURIComponent(thumbnail)}` : '';
     return `<div class="detail-video"><video data-video-url="${escapeHtml(url)}" data-video-identity="${escapeHtml(item.key + "|" + CatalogLogic.mediaCacheKey(url))}" src="/api/video?url=${encodeURIComponent(url)}"${poster ? ` poster="${escapeHtml(poster)}"` : ''} controls autoplay${viewerPreferences.videoSound ? "" : " muted"} loop playsinline preload="metadata" aria-label="${escapeHtml(item.title)}"></video><span class="video-fail" role="status">Видео не удалось воспроизвести. Попробуйте ещё раз или откройте запись на сайте.</span></div>`;
   }
-  const previewUrl = index === 0 ? item.thumbnail : '';
+  const previewUrl = index === 0 ? thumbnail : '';
   const preview = imageLoader.cached(url)?.blobUrl ||
     (previewUrl ? imageLoader.cached(previewUrl)?.blobUrl : '');
   const size = longDetailImageSize(url, previewUrl);
@@ -5124,8 +5251,9 @@ const detailImageDeduper = {
   }
 };
 
-function galleryImages(item) {
-  return item.images?.length ? detailImageDeduper.unique(CatalogLogic.artworkMedia(item).images)
+function galleryImages(item, route = null) {
+  return item.images?.length ? detailImageDeduper.unique(route?.presentation
+    ? artworkRouteMedia(route, item).images : CatalogLogic.artworkMedia(item).images)
     : item.thumbnail ? [item.thumbnail] : [];
 }
 
