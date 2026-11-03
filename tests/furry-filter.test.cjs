@@ -87,7 +87,7 @@ test('changing the switch invalidates recommendation seeds and retained feed sta
     retainedFeedWorks: new Map([['old', {}]]), expiredFeedTokens: new Set(['old']) };
   let feedUpdates = 0;
   const context = { CatalogLogic, contentPreferences: { hideFurry: false }, tabs: [following, recommendations],
-    updateFollowFeed() { feedUpdates++; } };
+    currentTab: () => null, updateFollowFeed() { feedUpdates++; } };
   const apply = appFunction('function applyContentPreferences(', '\nasync function setAuthorHidden(',
     'applyContentPreferences', context);
   apply({ hideFurry: true, language: 'en' });

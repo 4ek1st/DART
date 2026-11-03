@@ -1869,11 +1869,10 @@ async function loadRecommendations(tab, append = false) {
       } while (prefix !== tab.items || prefixLength !== tab.items.length ||
         prefixRevision !== (CatalogLogic.groupingRevision?.(tab.items) || 0) ||
         JSON.stringify(rankingCuration) !== JSON.stringify(contentPreferences.curation));
-      let items = CatalogLogic.filterWorks(ranked, contentPreferences);
-      if (contentPreferences.hideFollowedArtists) items = filterFollowedFeedWorks(items, tab);
-      if (contentPreferences.hideViewedAndSaved)
-        items = items.filter(item => !CatalogLogic.workHistoryTokens(item)
-          .some(token => viewedTokens.has(token)) || isRetainedFeedWork(tab, item));
+      // Progress must count the same eligible works that the grid can display.
+      // Pending views, saved aliases and manual hides cannot keep an invisible
+      // feed auto-loading; rendered cards retain their current visit slots.
+      const items = filterFeedWorks(ranked, tab, true, 'recommendations', true);
 
       // Commit cards and just their settled source cursors together. Failures
       // dominate successes throughout this round, even across partial batches.
@@ -2594,11 +2593,19 @@ function applyContentPreferences(saved) {
     if (tab.kind !== 'recommendations') continue;
     tab.recommendationController?.abort();
     tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
+    // The cancelled generation's finally cannot clear flags after its version
+    // changes. Reset them here so filters never strand the active feed loading.
+    if (tab.rule34RecoveryTimer) clearTimeout(tab.rule34RecoveryTimer);
+    tab.rule34RecoveryTimer = null;
+    tab.loading = false; tab.loadError = false; tab.hasMore = false;
+    tab.recommendationPaused = false; tab.errors = {};
     tab.started = false;
     tab.items = [];
     tab.recommendationTags = [];
     tab.recommendationTagGroups = { names: [], other: [] };
   }
+  const selected = currentTab();
+  if (selected?.kind === 'recommendations') startTab(selected);
 }
 
 async function saveCurationPreferences(patch) {
