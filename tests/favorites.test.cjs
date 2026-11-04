@@ -184,6 +184,48 @@ test('system picks reuse existing recommendation evidence and manual priorities 
  assert.ok(cards.length);assert.equal(cards.find(x=>x.tag==='fern').count,null);
  assert.equal(cards.find(x=>x.tag==='fern').coverOrigin,'liked');assert.ok(cards.find(x=>x.tag==='fern').cover);
 });
+test('system Characters reject content tags polluted by a single old typed record across all catalogs',()=>{
+ for(const source of ['danbooru','gelbooru','rule34','sankaku']){
+  const liked=Array.from({length:12},(_,i)=>({...work(i+1),key:source+':'+(i+1),source,
+   title:'Artwork #'+i,characterTags:i===0?['fern','cum','breasts','solo']:['fern'],
+   tags:['fern','cum','breasts','solo','rain'],creatorTag:'artist_'+i}));
+  const preferences={cum:'priority',breasts:'priority'};
+  const before=JSON.stringify({liked,preferences});
+  const suggestions=F.systemSuggestions(liked,preferences,Logic);
+  assert.equal(suggestions.find(x=>x.tag==='cum').kind,'tag',source);
+  assert.equal(suggestions.find(x=>x.tag==='breasts').kind,'tag',source);
+  assert.equal(suggestions.find(x=>x.tag==='fern').kind,'character',source);
+  const summary={entries:[{tag:'cum',kind:'character',count:8}],works:[]};
+  const chars=F.collections({liked,suggestions,summary,origin:'system',type:'character'});
+  assert.deepEqual(chars.map(x=>x.tag),['fern']);
+  const tags=F.collections({liked,suggestions,summary,origin:'system',type:'tag'});
+  assert.equal(tags.find(x=>x.tag==='cum').likedCount,12);assert.equal(tags.find(x=>x.tag==='cum').count,8);
+  assert.equal(tags.find(x=>x.tag==='cum').priority,true);
+  assert.equal(JSON.stringify({liked,preferences}),before,'classification must not rewrite saved metadata or choices');
+ }
+});
+test('legacy title guesses cannot promote ordinary content to system Characters',()=>{
+ const liked=Array.from({length:12},(_,i)=>({...work(i+1),title:i===0?'rain':'Artwork #'+i,
+  characterTags:[],tags:['rain','fern'],creatorTag:'artist_'+i}));
+ assert(Logic.recommendationTagGroups(liked,1).names.some(x=>x.tag==='rain'),'exercise the legacy recommendation title fallback');
+ const suggestions=F.systemSuggestions(liked,{},Logic);
+ assert.equal(suggestions.find(x=>x.tag==='rain').kind,'tag');
+ assert.equal(F.collections({liked,suggestions,origin:'system',type:'character'}).length,0);
+});
+test('automatic category guards preserve confirmed short names, typed history and explicit manual categories',()=>{
+ const liked=Array.from({length:3},(_,i)=>({...work(i+1,'rei'),tags:['rei','cum_(sample_series)'],
+  characterTags:['rei','cum_(sample_series)']}));
+ const suggestions=F.systemSuggestions(liked,{},Logic);
+ assert(suggestions.some(x=>x.tag==='rei'&&x.kind==='character'));
+ assert(suggestions.some(x=>x.tag==='cum_(sample_series)'&&x.kind==='character'));
+ const options={liked:[],suggestions:[{tag:'rain',kind:'tag',likedCount:5}],known:[work(2,'rain')],
+  origin:'system',type:'character'};
+ assert.equal(F.collections(options)[0]?.tag,'rain','typed known metadata can confirm a legacy suggestion');
+ assert.equal(F.collections({summary:{kinds:{cum:'character'}},tags:['cum'],suggestions:[],type:'character'})[0]?.tag,'cum',
+  'an explicit manual category stays a user choice');
+ assert.equal(F.collections({summary:{entries:[{tag:'cum',kind:'character',count:7}]},tags:['cum'],suggestions:[],type:'character'}).length,0);
+ assert.equal(F.collections({summary:{entries:[{tag:'cum',kind:'character',count:7}]},tags:['cum'],suggestions:[],type:'tag'})[0]?.count,7);
+});
 test('rich known metadata supplies the same gallery and attribution to shared Favorites cards',()=>{
  const rich={...work(1),images:['https://cdn.donmai.us/1.jpg','https://cdn.donmai.us/2.jpg'],memberKeys:['gelbooru:22'],creatorName:'Artist'};
  const card=entries('character','mine',{known:[rich]})[0];

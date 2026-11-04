@@ -3,12 +3,18 @@
   const ordinary = new Set(['g', 'general', 's', 'sensitive', 'safe', 'sfw']);
   const generic = new Set(['solo', '1girl', '1boy', '2girls', '2boys', 'multiple_girls', 'multiple_boys',
     'sex', 'female', 'male', 'original', 'original_character', 'highres', 'absurdres', 'artist_name',
-    'signature', 'watermark', 'commentary_request', 'translation_request', 'looking_at_viewer']);
+    'signature', 'watermark', 'commentary_request', 'translation_request', 'looking_at_viewer',
+    'cum', 'cumming', 'cum_on_face', 'cum_on_body', 'cum_in_mouth', 'cum_in_pussy', 'cum_in_ass',
+    'cum_inside', 'cumdrip', 'cumshot', 'ejaculation', 'creampie', 'breasts', 'nipples', 'pussy', 'penis']);
   const canonical = value => String(value || '').normalize('NFKC').trim().toLowerCase().replace(/\s+/g, '_');
+  const contentTag = (tag, logic = root.CatalogLogic) => generic.has(tag) ||
+    !!logic?.isBroadRecommendationTag?.(tag);
   function systemSuggestions(liked = [], preferences = {}, logic = root.CatalogLogic) {
     if (!logic?.recommendationQueryGroups) return [];
-    const groups = logic.recommendationTagGroups(liked, 1, preferences);
-    const names = new Set(groups.names.map(entry => canonical(entry.query || entry.tag)));
+    // Recommendation names also include legacy title guesses. Favorites needs
+    // typed character evidence and must reject stale content-category mistakes.
+    const names = new Set(liked.flatMap(work => work?.characterTags || []).map(canonical)
+      .filter(tag => tag && !contentTag(tag, logic)));
     // Favorites uses the same entity evidence as recommendations, but never
     // consumes their joint search streams. Avoid building those unused pairs.
     const selected = logic.recommendationQueryGroups(liked, preferences, [], { includeCombinations: false });
@@ -33,15 +39,21 @@
     preferences = {}, type = 'character', origin = 'mine', rating = 'all', allowed = () => true } = {}) {
     suggestions ||= systemSuggestions(liked, preferences);
     const characters = new Set();
-    for (const work of [...known, ...recent]) for (const tag of work?.characterTags || []) characters.add(canonical(tag));
+    for (const work of [...known, ...recent, ...liked]) for (const tag of work?.characterTags || [])
+      if (!contentTag(canonical(tag))) characters.add(canonical(tag));
     const entries = new Map((summary.entries || []).map(entry => [canonical(entry.tag), entry]));
-    for (const entry of entries.values()) if (entry.kind === 'character') characters.add(canonical(entry.tag));
+    for (const entry of entries.values()) if (entry.kind === 'character' && !contentTag(canonical(entry.tag)))
+      characters.add(canonical(entry.tag));
     const manual = new Set(tags.map(canonical));
     const covers = new Map((summary.works || []).map(work => [work.key, work]));
     const rich = new Map();
     for (const work of [...recent, ...known, ...liked]) for (const key of [work?.key, ...(work?.memberKeys || [])])
       if (key && !rich.has(key)) rich.set(key, work);
-    const suggested = new Map(suggestions.map(entry => [canonical(entry.tag), entry]));
+    const suggested = new Map(suggestions.map(entry => {
+      const tag = canonical(entry.tag);
+      return [tag, { ...entry, kind: !contentTag(tag) && (entry.kind === 'character' || characters.has(tag))
+        ? 'character' : 'tag' }];
+    }));
     const kindFor = tag => summary.kinds?.[tag] || (characters.has(tag) ? 'character' : 'tag');
     const selected = origin === 'system' ? [...suggested.keys()].filter(tag => suggested.get(tag).kind === type) : [...manual].filter(tag => kindFor(tag) === type);
     const recentByTag = new Map();
