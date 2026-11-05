@@ -4394,18 +4394,24 @@ function closeRecommendationTagMenu(returnFocus = false) {
 const contentTagSelector = '.tag-link[data-query], .tag-chip[data-query], [data-recommendation-tag], .tag-suggestion[data-tag], .favorite-tag-button[data-tag], .excluded-tag[data-tag], [data-context-tag]';
 function tagPreviewScope(trigger) {
   const tab = currentTab(), actions = artworkActionsController();
-  const tag = contentContextTarget(trigger)?.tag;
+  const context = contentContextTarget(trigger), tag = context?.tag;
+  const opened = quickPreview.open ? quickPreviewWork : tab?.kind === 'detail' ? tab.item : null;
+  const excluded = DartTagPreview.exclusionTokens(opened, CatalogLogic);
+  const owner = context?.item || opened;
+  const tagKind = owner && tag ? CatalogLogic.artworkTagKind(owner, tag) : '';
   const rating = selectedRating(tab);
   const sources = defaultSources.filter(source => (tab?.selectedSources || defaultSources).includes(source));
   const preferences = contentPreferences;
   const blocked = tag && CatalogLogic.isWorkHidden({ tags: [tag], allTags: [tag] }, preferences);
-  return { tab, preferences, sources, rating: blocked || !sources.length ? 'none' : rating,
+  return { tab, preferences, sources, tagKind, excluded: new Set(excluded), rating: blocked || !sources.length ? 'none' : rating,
     key: JSON.stringify([rating, sources.slice().sort(), preferences, actions.revision,
-      preferences.hideFollowedArtists && isFollowedArtistFeed(tab), preferences.hideFollowedArtists ? follows : null]) };
+      preferences.hideFollowedArtists && isFollowedArtistFeed(tab), preferences.hideFollowedArtists ? follows : null,
+      tagKind, excluded]) };
 }
 
 function tagPreviewAllowed(item, scope) {
   return !!item?.thumbnail && item.filteringComplete !== false &&
+    !DartTagPreview.excludes(item, scope.excluded, CatalogLogic) &&
     !CatalogLogic.videoMimeType(item.thumbnail) &&
     (!CatalogLogic.signedMediaExpired(item.thumbnail) || !!imageLoader.cached(item.thumbnail)) &&
     CatalogLogic.workSources(item).some(record => scope.sources.includes(record.source)) &&
@@ -4431,24 +4437,36 @@ async function tagPreviewHistory(signal) {
 
 async function tagPreviewViewed(tag, scope, signal) {
   if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
-  const match = item => DartTagPreview.matchesTag(item, tag) && tagPreviewAllowed(item, scope);
-  const recentItem = recent.find(match);
-  if (recentItem) return [recentItem];
-  for (const tab of tabs) {
-    const dated = tab.favoriteSummary?.works?.find(match);
-    if (dated) return [dated];
-  }
+  const pool = DartTagPreview.createExamplePool({ tag, scope, logic: CatalogLogic, allowed: tagPreviewAllowed });
+  const collections = [[recent, false], ...tabs.map(tab => [tab.favoriteSummary?.works || [], false]),
+    [likes, true], [bookmarks, true], [itemIndex.values(), true]];
   let deadline = performance.now() + 6;
-  for (const collection of [likes, bookmarks, itemIndex.values()]) for (const item of collection) {
-    if (match(item) && CatalogLogic.workHistoryTokens(item).some(token => viewedTokens.has(token) || viewedPending.has(token)))
-      return [item];
+  for (const [collection, needsProof] of collections) for (const item of collection) {
+    if (DartTagPreview.matchesTag(item, tag) && tagPreviewAllowed(item, scope) &&
+        (!needsProof || DartTagPreview.exclusionTokens(item, CatalogLogic).some(token => viewedTokens.has(token) || viewedPending.has(token)))) {
+      for (const example of DartTagPreview.representativeCandidates(item, tag)) {
+        if (pool.add(example)) return pool.items;
+      }
+    }
     if (performance.now() >= deadline) {
       await new Promise(resolve => setTimeout(resolve, 0));
       if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
       deadline = performance.now() + 6;
     }
   }
-  return tagPreviewHistory(signal);
+  if (pool.items.length) return pool.items;
+  const history = await tagPreviewHistory(signal);
+  for (const item of history) {
+    if (DartTagPreview.matchesTag(item, tag) && tagPreviewAllowed(item, scope))
+      for (const example of DartTagPreview.representativeCandidates(item, tag))
+        if (pool.add(example)) return pool.items;
+    if (performance.now() >= deadline) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+      deadline = performance.now() + 6;
+    }
+  }
+  return pool.items;
 }
 
 async function loadTagPreviewImage(item, signal) {
@@ -4478,9 +4496,8 @@ async function loadTagPreviewImage(item, signal) {
 
 async function searchTagPreview(tag, scope, signal) {
   let failure;
-  const batches = [], eligible = item => item && DartTagPreview.matchesTag(item, tag) && tagPreviewAllowed(item, scope);
-  // A poster does not need to wait for every provider's complete first page.
-  // Preserve catalog order, trying the next only after no eligible example.
+  // Rank a bounded page of actual tag-owning thumbnails. A useful example
+  // does not need to wait for all catalogs once this page has eligible choices.
   for (const source of scope.sources) {
     signal.throwIfAborted();
     const bounded = AbortSignal.any([signal, AbortSignal.timeout(scope.sources.length === 1 ? 7000 : 2000)]);
@@ -4489,17 +4506,15 @@ async function searchTagPreview(tag, scope, signal) {
     try {
       const result = await request(`/api/search?${params}`, { signal: bounded, priority: 'background' });
       signal.throwIfAborted();
-      const items = result.items || [];
-      batches.push(items);
-      if (eligible(items[0])) return [items[0]];
+      const pool = DartTagPreview.createExamplePool({ tag, scope, logic: CatalogLogic, allowed: tagPreviewAllowed });
+      for (const item of result.items || []) if (tagPreviewAllowed(item, scope)) {
+        for (const example of DartTagPreview.representativeCandidates(item, tag)) if (pool.add(example)) break;
+        if (pool.items.length >= 48) break;
+      }
+      if (pool.items.length) return pool.items;
       if (Object.keys(result.errors || {}).length) failure = new Error('Preview catalog unavailable');
     } catch (error) { signal.throwIfAborted(); failure = error; }
   }
-  // Search interleaves catalog rows: A1, B1, C1, A2, B2, C2. When the first
-  // result is filtered, check the other first rows before selecting A2.
-  const length = Math.max(0, ...batches.map(items => items.length));
-  for (let index = 1; index < length; index++)
-    for (const items of batches) if (eligible(items[index])) return [items[index]];
   if (failure) throw failure;
   return [];
 }
@@ -4509,7 +4524,8 @@ function tagPreviewController() {
   return tagPreviewController.instance ||= DartTagPreview.create({
     document, selector: contentTagSelector,
     getTag: trigger => contentContextTarget(trigger)?.tag || '', getScope: tagPreviewScope,
-    resolver: DartTagPreview.createResolver({ getViewed: tagPreviewViewed, allowed: tagPreviewAllowed, search: searchTagPreview }),
+    resolver: DartTagPreview.createResolver({ getViewed: tagPreviewViewed, allowed: tagPreviewAllowed,
+      search: searchTagPreview, score: DartTagPreview.exampleScore }),
     loadImage: loadTagPreviewImage, translate: value => globalThis.DartI18n?.translate(value) || value
   });
 }

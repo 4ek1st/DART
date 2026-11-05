@@ -1,11 +1,16 @@
 // Real rendered frontend, neutral SVG media and an isolated synthetic profile.
-// --compare-ref pins old index/app bytes; --expect-regression proves no tooltip.
+// --compare-ref pins coherent frontend bytes; --expect-regression proves no
+// tooltip, --expect-current-art-regression reproduces the old self-preview.
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),cp=require('node:child_process'),crypto=require('node:crypto'),http=require('node:http'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.DART_PLAYWRIGHT_PATH||'playwright');
 const root=path.resolve(__dirname,'../..'),web=path.join(root,'wwwroot');
 const refAt=process.argv.indexOf('--compare-ref'),ref=refAt<0?'':process.argv[refAt+1];
-const pinned=new Map(['index.html','app.js',...(!ref?['tag-preview.js','tag-preview.css']:[])].map(name=>[name,ref?cp.execFileSync('git',['show',ref+':wwwroot/'+name],{cwd:root}):fs.readFileSync(path.join(web,name))]));
+const pinned=new Map();
+for(const name of ['index.html','app.js','tag-preview.js','tag-preview.css']){
+ try{pinned.set(name,ref?cp.execFileSync('git',['show',ref+':wwwroot/'+name],{cwd:root,stdio:['ignore','pipe','ignore']}):fs.readFileSync(path.join(web,name)));}
+ catch(error){if(!ref||name==='index.html'||name==='app.js')throw error;}
+}
 const output=process.env.DART_QA_OUTPUT||path.join(os.tmpdir(),'DART-tag-hover-'+crypto.randomUUID());
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const make=(id,tags,extra={})=>({key:'danbooru:'+id,source:'danbooru',id:String(id),title:'Neutral geometric landscape '+id,
@@ -18,11 +23,29 @@ const home=[loaded,...Array.from({length:47},(_,i)=>make(1000+i,['woodland_scene
 const favoriteTags=['seen_tag','unseen_tag','leave_fast','fallback_a','fallback_b','cache_tag','filtered_tag','history_tag','empty_tag','excluded_tag'];
 const hidden=make(52,['filtered_tag']);
 const samples={unseen_tag:[make(400,['unseen_tag_gloves']),make(401,['unseen_tag']),make(402,['unseen_tag'])],
- fallback_a:[make(101,['fallback_a'])],fallback_b:[make(102,['fallback_b'])],cache_tag:[make(103,['cache_tag'])],
+ fallback_a:[make(101,['fallback_a'])],fallback_b:[make(102,['fallback_b'])],cache_tag:[make(103,['cache_tag']),make(105,['cache_tag'])],
  filtered_tag:[make(49,['filtered_tag'],{rating:'e'}),make(50,['filtered_tag'],{creatorTag:'blocked_artist'}),hidden,make(53,['filtered_tag'])],
  empty_tag:[]};
-let client={recent:[seen],session:{savedWorksVersion:1,activeIndex:0,tabs:[{kind:'home',title:'Home',rating:'general',selectedSources:['danbooru']}]}};
-const known=new Map([...home,seen,dated,...seeds,...Object.values(samples).flat()].map(item=>[item.key,item]));
+const currentLeaf={...samples.cache_tag[0],contentHash:'a'.repeat(32),tags:['cache_tag','detail_choice','fern','blue_eyes','search_character'],characterTags:['fern','search_character']};
+const currentVersion=make(1201,['detail_choice'],{creatorTag:currentLeaf.creatorTag,groupKey:'danbooru:parent:103',contentHash:'b'.repeat(32)});
+const currentMirror=make(1301,['detail_choice'],{key:'rule34:1301',source:'rule34',creatorTag:currentLeaf.creatorTag,contentHash:'a'.repeat(32),thumbnail:currentLeaf.thumbnail,images:currentLeaf.images});
+const lateViewedExclusions=[currentVersion,currentMirror];
+const viewedAlternatives=[make(1320,['detail_choice']),
+ make(1401,['fern'],{characterTags:['fern','other_character']}),make(1402,['fern'],{characterTags:['fern']}),
+ make(1451,['blue_eyes','portrait']),make(1452,['blue_eyes','eye_focus'])];
+const currentDetail={...currentLeaf,groupKey:'danbooru:parent:103',groupCount:2,
+ images:[...currentLeaf.images,...currentVersion.images],memberKeys:[currentLeaf.key,currentVersion.key],
+ groupMembers:[currentLeaf,currentVersion],imageRecords:[{url:currentLeaf.images[0],hash:currentLeaf.contentHash,owner:currentLeaf.key},
+  {url:currentVersion.images[0],hash:currentVersion.contentHash,owner:currentVersion.key}]};
+// The real listing is already complete, so opening it legitimately skips a
+// redundant detail fetch. Supply its grouped/typed metadata at that boundary.
+samples.cache_tag[0]=currentDetail;
+samples.detail_choice=[currentDetail,currentVersion,currentMirror,make(1321,['detail_choice'])];
+samples.fern=[currentDetail,make(1403,['fern'],{characterTags:['fern','other_character']}),make(1404,['fern'],{characterTags:['fern']})];
+samples.blue_eyes=[currentDetail,make(1453,['blue_eyes','portrait']),make(1454,['blue_eyes','eye_focus'])];
+samples.search_character=[currentDetail,make(1501,['search_character'],{characterTags:['search_character','other_character']}),make(1502,['search_character'],{characterTags:['search_character']})];
+let client={recent:[...viewedAlternatives,seen],session:{savedWorksVersion:1,activeIndex:0,tabs:[{kind:'home',title:'Home',rating:'general',selectedSources:['danbooru']}]}};
+const known=new Map([...home,seen,dated,...seeds,...Object.values(samples).flat(),...viewedAlternatives,...lateViewedExclusions,currentDetail].map(item=>[item.key,item]));
 const report={revision:ref||'working-tree',viewport:'2560x1440',checks:[],failures:[],errors:[],requests:[],observations:[],sources:Object.fromEntries([...pinned].map(([name,bytes])=>[name,crypto.createHash('sha256').update(bytes).digest('hex')]))};
 const check=(condition,label,data={})=>{report.checks.push(label);if(!condition)report.failures.push({label,...data});};
 const json=(res,value)=>{if(!res.destroyed){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(value));}};
@@ -30,14 +53,14 @@ const server=http.createServer(async(req,res)=>{try{
  const url=new URL(req.url,'http://localhost'),chunks=[];for await(const chunk of req)chunks.push(chunk);
  const body=chunks.length?JSON.parse(Buffer.concat(chunks)):{};
  if(url.pathname.startsWith('/api/')){
-  report.requests.push({path:url.pathname,method:req.method,q:url.searchParams.get('q'),rating:url.searchParams.get('rating'),url:url.searchParams.get('url')});
+  report.requests.push({path:url.pathname,method:req.method,q:url.searchParams.get('q'),rating:url.searchParams.get('rating'),url:url.searchParams.get('url'),id:url.searchParams.get('id'),source:url.searchParams.get('source')});
   if(url.pathname==='/api/client-state'){if(req.method==='POST')client={...client,...body};return json(res,req.method==='GET'?client:{saved:true});}
   if(url.pathname==='/api/settings')return json(res,{hasApiKey:true,hasRule34ApiKey:true,sankakuAvailable:true});
   if(url.pathname==='/api/content-preferences')return json(res,{language:'en',aiMode:'all',hideViewedAndSaved:true,excludedTags:['excluded_tag'],hiddenAuthors:[{source:'artist',artistId:'blocked_artist',name:'Blocked Artist'}]});
   if(url.pathname==='/api/recommendation-tag-preferences')return json(res,{preferences:{},initialized:true});
   if(url.pathname==='/api/favorite-tags')return json(res,favoriteTags);
   if(url.pathname==='/api/hidden-artworks')return json(res,[hidden]);
-  if(url.pathname==='/api/viewed-identities')return json(res,req.method==='GET'?['key:'+seen.key]:{});
+  if(url.pathname==='/api/viewed-identities')return json(res,req.method==='GET'?[...viewedAlternatives,seen].map(item=>'key:'+item.key):{});
   if(url.pathname==='/api/likes')return json(res,seeds);
   if(['/api/bookmarks','/api/favorite-artworks','/api/favorite-artwork-groups','/api/follows'].includes(url.pathname))return json(res,[]);
   if(url.pathname==='/api/favorites')return json(res,{totalWorks:1,kinds:{},entries:[{tag:'history_tag',kind:'tag',count:1,lastWorkKey:dated.key}],works:[dated]});
@@ -124,14 +147,40 @@ let browser,page;
  check(await page.evaluate(()=>main.scrollWidth<=main.clientWidth+1),'narrow:no-main-overflow');await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await hiddenTip('blur:hides');
   await blank();await chip('cache_tag').hover();await inspect('before-click','cache_tag',103,'search');await chip('cache_tag').click();await page.waitForFunction(()=>currentTab().kind==='search'&&currentTab().query==='cache_tag');
  check(await page.evaluate(()=>currentTab().id)!==keyBefore,'tag-click:navigates');await hiddenTip('tag-click:preview-hides');
- await page.setViewportSize({width:2560,height:1440});await frames();await click(page.locator('article.card button.card-art').first());await page.locator('.tag-link[data-query="cache_tag"]').waitFor();
+ await page.setViewportSize({width:2560,height:1440});await frames();
+ report.observations.push({stage:'search-before-opening-detail',...await page.evaluate(()=>({cards:[...main.querySelectorAll('article.card[data-work-key]')].map(node=>node.dataset.workKey),
+  items:currentTab().items.map(item=>({key:item.key,known:CatalogLogic.workHistoryTokens(item).some(token=>viewedTokens.has(token)||viewedPending.has(token))}))}))});
+ await click(page.locator('article.card[data-work-key="danbooru:103"] button.card-art'));await page.waitForFunction(()=>currentTab()?.kind==='detail'&&!currentTab().detailLoading);
+ report.observations.push({stage:'opened-detail-metadata',...await page.evaluate(()=>({item:{key:currentTab().item.key,id:currentTab().item.id,tags:currentTab().item.tags,characters:currentTab().item.characterTags,members:currentTab().item.memberKeys},error:currentTab().detailError}))});
+ await page.locator('.tag-link[data-query="fern"]').waitFor();
+ // A previously seen mirror would correctly hide this discovery card before
+ // opening. Add neutral historical mirror/version evidence only after entry.
+ await page.evaluate(items=>{for(const item of items){rememberItem(item);for(const token of CatalogLogic.workHistoryTokens(item))viewedTokens.add(token);}
+  recent=[recent[0],...items,...recent.slice(1)];},lateViewedExclusions);
  const detailTag=page.locator('.tag-link[data-query="cache_tag"]');await detailTag.scrollIntoViewIfNeeded();await frames();await blank();const detailHint=await detailTag.getAttribute('title');
- await detailTag.hover();await inspect('detail-tag-origin','cache_tag',103,'viewed');await page.evaluate(()=>render());await frames();await inspect('detail-render-origin','cache_tag',103,'viewed');
+ await detailTag.hover();
+ if(process.argv.includes('--expect-current-art-regression')){
+  await inspect('baseline-current-art-repeated','cache_tag',103,'viewed');check(true,'baseline:opened-artwork-repeated');assert.equal(report.failures.length,0,'Baseline must isolate the self-preview behavior');return;
+ }
+ await inspect('detail-tag-uses-other-search-example','cache_tag',105,'search');await page.evaluate(()=>render());await frames();await inspect('detail-render-origin','cache_tag',105,'search');
  check(await detailTag.getAttribute('title')===null,'detail-render:native-title-suppressed');
  check((await detailTag.getAttribute('aria-describedby')||'').split(/\s+/).includes('tag-hover-preview'),'detail-render:tooltip-description-retained');
  await blank();check(await detailTag.getAttribute('title')===detailHint,'detail-render:native-hint-restored');
- await detailTag.hover();await wait(120);await page.evaluate(()=>render());await inspect('detail-pending-render-origin','cache_tag',103,'viewed');
+ await detailTag.hover();await wait(120);await page.evaluate(()=>render());await inspect('detail-pending-render-origin','cache_tag',105,'search');
  check(await detailTag.getAttribute('title')===null,'detail-pending-render:native-title-suppressed');await blank();
+ for(const [tag,id,origin,label] of [['detail_choice',1320,'viewed','detail-excludes-group-versions-and-hash-mirrors'],
+   ['fern',1402,'viewed','representative-character-prefers-solo'],['blue_eyes',1452,'viewed','representative-content-prefers-focus'],
+   ['search_character',1502,'search','representative-search-prefers-solo']]){
+  const control=page.locator('.tag-link[data-query="'+tag+'"]');await control.scrollIntoViewIfNeeded();await frames();await blank();
+  // Detail's normal related-work queries may share the tag. Count hover's
+  // additional requests only, after those ordinary detail tasks have settled.
+  const callsBefore=searches(tag),writesBefore=report.requests.filter(entry=>entry.method!=='GET'&&entry.path!=='/api/client-state').length,detailId=await page.evaluate(()=>currentTab().id);
+  await control.hover();await inspect(label,tag,id,origin);
+  if(origin==='viewed')check(searches(tag)===callsBefore,label+':no-hover-search');
+  check(writesBefore===report.requests.filter(entry=>entry.method!=='GET'&&entry.path!=='/api/client-state').length,label+':no-hover-writes');
+  check(await page.evaluate(()=>currentTab().id)===detailId,label+':no-navigation');
+ }
+ await page.screenshot({path:path.join(output,'neutral-tag-preview-representative.png')});
  await click(page.locator('[data-nav="favorites"]'));await click(page.locator('[data-action="favorites-type"][data-value="tag"]'));await page.waitForFunction(()=>!currentTab().favoriteLoading);
  const favoriteTag=page.locator('.favorite-entity [data-context-tag="seen_tag"], .favorite-entity .favorite-tag-button[data-tag="seen_tag"]').first();
  await favoriteTag.scrollIntoViewIfNeeded();await frames();await blank();await favoriteTag.hover();await inspect('Favorites-tag-origin','seen_tag',20,'viewed');

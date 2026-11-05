@@ -1,11 +1,11 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const Preview=require('../wwwroot/tag-preview.js'),app=fs.readFileSync(require.resolve('../wwwroot/app.js'),'utf8');
+const Preview=require('../wwwroot/tag-preview.js'),Logic=require('../wwwroot/catalog-logic.js'),app=fs.readFileSync(require.resolve('../wwwroot/app.js'),'utf8');
 const item=(id,tags=['forest'],more={})=>({key:'danbooru:'+id,tags,...more});
 const scope={sources:['danbooru','rule34','sankaku'],rating:'all'};
 function fixture(load){
  const calls=[],context=vm.createContext({AbortSignal:{any:AbortSignal.any,timeout:()=>AbortSignal.timeout(5)},URLSearchParams,
-  DartTagPreview:Preview,tagPreviewAllowed:work=>!work.hidden,request:async(url,options)=>{
+  DartTagPreview:Preview,CatalogLogic:Logic,tagPreviewAllowed:work=>!work.hidden,request:async(url,options)=>{
    const params=new URL(url,'https://example.test').searchParams;calls.push({source:params.get('sources'),q:params.get('q'),priority:options.priority});
    return load(params.get('sources'),options.signal);
   }});
@@ -16,14 +16,15 @@ function fixture(load){
 test('a preview stops at the first catalog with an eligible exact example and keeps provider result order',async()=>{
  const eligible=[item(3),item(2)];
  const f=fixture(async source=>({items:source==='danbooru'?[item(1,['forest_path']),item(4,['forest'],{hidden:true})]:eligible}));
- assert.deepEqual(Array.from(await f.search()),[eligible[0]]);assert.deepEqual(f.calls.map(x=>x.source),['danbooru','rule34']);
+ assert.deepEqual(Array.from(await f.search()),eligible);assert.deepEqual(f.calls.map(x=>x.source),['danbooru','rule34']);
  assert(f.calls.every(x=>x.priority==='background'&&x.q==='forest'));
 });
-test('filtered first rows retain the same round-robin order as the actual search interface',async()=>{
+test('a filtered first result can use a later exact example without waiting for unrelated catalogs',async()=>{
  const a=fixture(async source=>({items:source==='danbooru'?[item(1,['forest'],{hidden:true}),item(2)]:[item(3)]}));
- assert.equal((await a.search())[0].key,'danbooru:3','B1 precedes the eligible A2');
+ assert.equal((await a.search())[0].key,'danbooru:2','eligible A2 can be scored immediately');
+ assert.equal(a.calls.length,1);
  const b=fixture(async source=>({items:[item(1,['forest_path']),item(source==='danbooru'?2:3)]}));
- assert.equal((await b.search())[0].key,'danbooru:2','A2 precedes B2 after all first rows were checked');
+ assert.equal((await b.search())[0].key,'danbooru:2','the first useful page supplies its examples in stable order');
 });
 test('one stalled catalog cannot hold the next preview catalog',async()=>{
  const f=fixture((source,signal)=>source==='danbooru'?new Promise((resolve,reject)=>{
