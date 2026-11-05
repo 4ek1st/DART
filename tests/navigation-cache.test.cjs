@@ -6,8 +6,10 @@ const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
 const between = (a,b) => source.slice(source.indexOf(a), source.indexOf(b, source.indexOf(a)));
 
 test('matching catalog requests share one response without sharing mutable artwork objects', async () => {
-  const calls = [];
+  const calls = [], previewClears = [];
   const context = vm.createContext({ CatalogLogic, DartResourceCache, URLSearchParams, structuredClone,
+    tagPreviewController: { instance: { clear: () => previewClears.push('preview') } },
+    tagPreviewHistory: { cache: { clear: () => previewClears.push('history') }, retryAt: 10000 },
     fetch: async path => { calls.push(path); return { ok: true, json: async () => ({ items: [{key:'danbooru:1',source:'danbooru',tags:[]}] }) }; }
   });
   vm.runInContext(between('async function request(', '\nconst visualHashJobs'), context);
@@ -17,6 +19,7 @@ test('matching catalog requests share one response without sharing mutable artwo
   const [a,b] = await Promise.all([context.request(first), context.request(second)]);
   a.items[0].tags.push('changed'); assert.deepEqual(b.items[0].tags, []); assert.equal(calls.length, 1);
   context.clearCatalogResponses(); await context.request(second); assert.equal(calls.length, 2);
+  assert.deepEqual(previewClears, ['preview', 'history']); assert.equal(context.tagPreviewHistory.retryAt, 0);
   await context.request(first.replace('rating=all','rating=general')); assert.equal(calls.length, 3);
   await context.request(first.replace('danbooru:0','danbooru:1')); assert.equal(calls.length, 4);
   await context.request('/api/detail?source=sankaku&id=one');

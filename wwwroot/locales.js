@@ -3,6 +3,9 @@
 (function(root) {
   const rows = `
 Home|Главная|Startseite
+Loading preview…|Загружаем превью…|Vorschau wird geladen…
+No preview available|Нет доступного превью|Keine Vorschau verfügbar
+Search preview|Пример из поиска|Suchvorschau
 Date|Дата|Datum
 Random|Случайно|Zufällig
 Following order|Порядок подписок|Reihenfolge der Abonnements

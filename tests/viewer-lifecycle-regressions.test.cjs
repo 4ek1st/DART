@@ -71,6 +71,7 @@ const expired = 'https://s.sankakucomplex.com/data/fixture.png?e=1&m=expired';
 const fresh = 'https://s.sankakucomplex.com/data/fixture.png?e=4102444800&m=fresh';
 function imageFixture({ original = expired, recover = async () => fresh, available = fresh, realRecovery = false } = {}) {
   const reads = [], recoveries = [], metadata = [], entries = new Map();
+  const tagTooltip = { visible: true, hides: 0, hide() { this.visible = false; this.hides++; } };
   let src = '';
   const media = { dataset: {}, isConnected: true, addEventListener() {},
     closest: () => ({ dataset: { workKey: 'sankaku:fixture' } }),
@@ -84,6 +85,7 @@ function imageFixture({ original = expired, recover = async () => fresh, availab
     thumbnail: 'https://s.sankakucomplex.com/preview/fixture.jpg?e=4102444800&m=fresh' };
   const route = { engine: { select() {}, cancel() {} } };
   const context = vm.createContext({ CatalogLogic: Logic, DartResourceCache: ResourceCache,
+    tagPreviewController: { instance: tagTooltip },
     AbortController, AbortSignal, clearTimeout, URL,
     quickPreview: preview, quickPreviewRoute: null, quickPreviewGeneration: 0, quickPreviewMediaController: null,
     quickPreviewZoomTimer: null, quickPreviewWork: null, quickPreviewView: null, quickPreviewDrag: null,
@@ -109,14 +111,17 @@ function imageFixture({ original = expired, recover = async () => fresh, availab
   vm.runInContext(block('function readMediaBlob(', '\nconst visualHashJobs'), context);
   if (realRecovery) vm.runInContext(block('const sankakuMediaRecovery = {', '\n// Portable profiles'), context);
   vm.runInContext(block('function stopQuickPreviewMedia(', '\nasync function toggleSavedWork('), context);
-  return { context, reads, recoveries, metadata, media, item, open() {
+  return { context, reads, recoveries, metadata, media, item, tagTooltip, open() {
     context.openQuickPreview({ item, url: original, route, image: { currentSrc: 'blob:small-cached-thumbnail' } }, 'fullscreen');
   } };
 }
 
 test('fullscreen renews an expired signed original before fetching and replaces its thumbnail', async () => {
   const f = imageFixture();
-  f.open(); await tick();
+  f.open();
+  assert.equal(f.tagTooltip.visible, false, 'Opening the main artwork viewer immediately dismisses its tag tooltip');
+  assert.equal(f.tagTooltip.hides, 1);
+  await tick();
   assert.deepEqual(f.reads, [fresh], 'Known expired originals must be renewed before the image request');
   assert.equal(f.media.src, 'blob:decoded-full-image');
   assert.equal(f.media.dataset.imageUrl, fresh);
@@ -158,6 +163,7 @@ test('closing during signature renewal cancels the modal consumer before fetchin
   const pending = new Promise(resolve => { finish = resolve; });
   const f = imageFixture({ recover: () => pending });
   f.open();
+  assert.equal(f.tagTooltip.visible, false, 'Tag tooltip dismissal does not wait for signature renewal');
   f.context.closeQuickPreview();
   finish(fresh); await tick();
   assert.deepEqual(f.reads, []);

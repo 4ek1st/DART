@@ -283,6 +283,9 @@ function catalogRequestKey(path) {
 
 function clearCatalogResponses() {
   request.catalogCache?.clear();
+  tagPreviewController.instance?.clear();
+  tagPreviewHistory.cache?.clear();
+  tagPreviewHistory.retryAt = 0;
   if (typeof sankakuMediaRecovery !== 'undefined') sankakuMediaRecovery.posts.clear();
   if (typeof transferredMediaHydration !== 'undefined') transferredMediaHydration.reset();
 }
@@ -773,6 +776,7 @@ function abortTab(tab) {
 }
 
 function activate(id, record = true, view = null, keepQuickPreview = false) {
+  tagPreviewController.instance?.hide();
   if (!findTab(id)) return;
   if (activeId === id && (!view || view === currentTab())) return;
   if (!keepQuickPreview) closeQuickPreview();
@@ -3710,6 +3714,7 @@ function stopQuickPreviewMedia() {
 }
 
 function openQuickPreview({ item, image, url, route }, mode = 'window') {
+  tagPreviewController.instance?.hide();
   if (!item || !url || quickPreview.open && (!route || route !== quickPreviewRoute)) return;
   if (!quickPreview.open) quickPreviewReturnFocus = image?.closest?.(
     'button.card-art[data-action="open"], .detail-image > img[data-image-url], .detail-video > video[data-video-url]') || null;
@@ -4068,6 +4073,7 @@ function pauseDetailVideos() {
 }
 
 function render() {
+  tagPreviewController.instance?.reconcile();
   // Feed publications keep advancing behind the modal. Paint their newest
   // snapshot once it closes instead of interrupting image zoom and panning.
   if (quickPreview.open) { quickPreviewRenderPending = true; return; }
@@ -4386,6 +4392,127 @@ function closeRecommendationTagMenu(returnFocus = false) {
 }
 
 const contentTagSelector = '.tag-link[data-query], .tag-chip[data-query], [data-recommendation-tag], .tag-suggestion[data-tag], .favorite-tag-button[data-tag], .excluded-tag[data-tag], [data-context-tag]';
+function tagPreviewScope(trigger) {
+  const tab = currentTab(), actions = artworkActionsController();
+  const tag = contentContextTarget(trigger)?.tag;
+  const rating = selectedRating(tab);
+  const sources = defaultSources.filter(source => (tab?.selectedSources || defaultSources).includes(source));
+  const preferences = contentPreferences;
+  const blocked = tag && CatalogLogic.isWorkHidden({ tags: [tag], allTags: [tag] }, preferences);
+  return { tab, preferences, sources, rating: blocked || !sources.length ? 'none' : rating,
+    key: JSON.stringify([rating, sources.slice().sort(), preferences, actions.revision,
+      preferences.hideFollowedArtists && isFollowedArtistFeed(tab), preferences.hideFollowedArtists ? follows : null]) };
+}
+
+function tagPreviewAllowed(item, scope) {
+  return !!item?.thumbnail && item.filteringComplete !== false &&
+    !CatalogLogic.videoMimeType(item.thumbnail) &&
+    (!CatalogLogic.signedMediaExpired(item.thumbnail) || !!imageLoader.cached(item.thumbnail)) &&
+    CatalogLogic.workSources(item).some(record => scope.sources.includes(record.source)) &&
+    CatalogLogic.matchesRating(item, scope.rating) && !CatalogLogic.isWorkHidden(item, scope.preferences) &&
+    !artworkActionsController().isHidden(item) && !isFollowedArtistHidden(item, scope.tab);
+}
+
+async function tagPreviewHistory(signal) {
+  if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+  if (Date.now() < (tagPreviewHistory.retryAt || 0)) return [];
+  tagPreviewHistory.cache ||= DartResourceCache.create({
+    load: async (_, signal) => (await request('/api/favorites?rating=all', { signal, priority: 'background' })).works || [],
+    ttl: 60000, timeout: 2000, maxEntries: 1, maxBytes: 6 * 1024 * 1024,
+    size: items => JSON.stringify(items).length * 2, concurrency: 1
+  });
+  try { return await tagPreviewHistory.cache.get('viewed', signal, { priority: 'background' }); }
+  catch (error) {
+    if (signal.aborted) throw error;
+    tagPreviewHistory.retryAt = Date.now() + 15000;
+    return [];
+  }
+}
+
+async function tagPreviewViewed(tag, scope, signal) {
+  if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+  const match = item => DartTagPreview.matchesTag(item, tag) && tagPreviewAllowed(item, scope);
+  const recentItem = recent.find(match);
+  if (recentItem) return [recentItem];
+  for (const tab of tabs) {
+    const dated = tab.favoriteSummary?.works?.find(match);
+    if (dated) return [dated];
+  }
+  let deadline = performance.now() + 6;
+  for (const collection of [likes, bookmarks, itemIndex.values()]) for (const item of collection) {
+    if (match(item) && CatalogLogic.workHistoryTokens(item).some(token => viewedTokens.has(token) || viewedPending.has(token)))
+      return [item];
+    if (performance.now() >= deadline) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+      deadline = performance.now() + 6;
+    }
+  }
+  return tagPreviewHistory(signal);
+}
+
+async function loadTagPreviewImage(item, signal) {
+  const url = item.thumbnail, release = imageLoader.pin(url);
+  let cancel;
+  const cancellation = new Promise((_, reject) => {
+    cancel = () => { release(); reject(new DOMException('Preview cancelled', 'AbortError')); };
+    signal.addEventListener('abort', cancel, { once: true });
+    if (signal.aborted) cancel();
+  });
+  try {
+    return await Promise.race([cancellation, (async () => {
+      if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+      let entry = imageLoader.cached(url);
+      if (!entry) {
+        const blob = await readMediaBlob(url, signal, { priority: 'background' });
+        if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+        entry = imageLoader.rememberBlob(url, blob);
+      }
+      await imageLoader.decode(entry);
+      if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+      return { url: entry.blobUrl, release };
+    })()]);
+  } catch (error) { release(); throw error; }
+  finally { signal.removeEventListener('abort', cancel); }
+}
+
+async function searchTagPreview(tag, scope, signal) {
+  let failure;
+  const batches = [], eligible = item => item && DartTagPreview.matchesTag(item, tag) && tagPreviewAllowed(item, scope);
+  // A poster does not need to wait for every provider's complete first page.
+  // Preserve catalog order, trying the next only after no eligible example.
+  for (const source of scope.sources) {
+    signal.throwIfAborted();
+    const bounded = AbortSignal.any([signal, AbortSignal.timeout(scope.sources.length === 1 ? 7000 : 2000)]);
+    const params = new URLSearchParams({ q: tag, page: '0', sources: source,
+      rating: scope.rating, sort: 'recent', kind: 'illustrations' });
+    try {
+      const result = await request(`/api/search?${params}`, { signal: bounded, priority: 'background' });
+      signal.throwIfAborted();
+      const items = result.items || [];
+      batches.push(items);
+      if (eligible(items[0])) return [items[0]];
+      if (Object.keys(result.errors || {}).length) failure = new Error('Preview catalog unavailable');
+    } catch (error) { signal.throwIfAborted(); failure = error; }
+  }
+  // Search interleaves catalog rows: A1, B1, C1, A2, B2, C2. When the first
+  // result is filtered, check the other first rows before selecting A2.
+  const length = Math.max(0, ...batches.map(items => items.length));
+  for (let index = 1; index < length; index++)
+    for (const items of batches) if (eligible(items[index])) return [items[index]];
+  if (failure) throw failure;
+  return [];
+}
+
+function tagPreviewController() {
+  if (!globalThis.DartTagPreview) return null;
+  return tagPreviewController.instance ||= DartTagPreview.create({
+    document, selector: contentTagSelector,
+    getTag: trigger => contentContextTarget(trigger)?.tag || '', getScope: tagPreviewScope,
+    resolver: DartTagPreview.createResolver({ getViewed: tagPreviewViewed, allowed: tagPreviewAllowed, search: searchTagPreview }),
+    loadImage: loadTagPreviewImage, translate: value => globalThis.DartI18n?.translate(value) || value
+  });
+}
 const nsfwFilterSelector = '[data-action="category"][data-category="explicit"], [data-action="mode"][data-mode="explicit"], [data-action="recommendation-rating"][data-rating="explicit"], [data-action="follow-rating"][data-rating="explicit"], [data-action="profile-rating"][data-rating="explicit"], [data-action="favorites-rating"][data-value="explicit"]';
 function contentContextTarget(target) {
   const nsfw=target.closest(nsfwFilterSelector); if(nsfw)return{trigger:nsfw,kind:'nsfw'};
@@ -7086,6 +7213,7 @@ main.addEventListener('click', event => {
 window.addEventListener('online', () => { void clientStateWriter.flush(); });
 window.addEventListener('resize', () => { if (quickPreview.open) paintQuickPreview(true); });
 window.addEventListener('beforeunload', () => {
+  tagPreviewController.instance?.dispose();
   recommendationExposureTracker.stop();
   groupRepairs.stop(); stopQuickPreviewMedia();
   saveSession();
@@ -7113,6 +7241,8 @@ globalThis.DartUpscale?.configure({ readImage: DartUpscaleMedia.create({
   }) || images.find(image => image.getBoundingClientRect().bottom > bounds.top) || images[0];
   return image ? { item: currentTab().item, url: image.dataset.imageUrl } : null;
 } });
+
+tagPreviewController();
 
 Promise.allSettled([refreshBookmarks(), refreshLikes(), refreshFollows(), loadSettings(),
   loadContentPreferences(), loadClientState(), loadRecommendationTagPreferences(),
