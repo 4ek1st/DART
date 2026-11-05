@@ -94,8 +94,8 @@ network.Envelope = networkEnvelope.Replace("signature", "invalidSignature");
 Expect(!(await updater.CheckAsync(true, default)).Available, "invalid remote signature exposed install action");
 Console.WriteLine("Repository boundary, verified network discovery, corrupted download rejection and explicit activation: PASS");
 
-// RED against the previous updater: rate-limit responses had no retry metadata,
-// every forced check repeated the API request, and a signed public fallback was never requested.
+// Public discovery must not inherit GitHub API quota or a legacy API pause.
+// The signed manifest is the primary route; only private sources need API assets.
 string UpdateInstallation(string name)
 {
     var root = Path.Combine(folder, name); Directory.CreateDirectory(root);
@@ -123,7 +123,7 @@ const string apiRelease = """
     """;
 var clock = new UpdateClock(new DateTimeOffset(2027, 1, 1, 12, 0, 0, TimeSpan.Zero));
 var resetAt = clock.GetUtcNow().AddMinutes(2);
-var fallbackRoot = UpdateInstallation("fallback");
+var fallbackRoot = UpdateInstallation("public-primary");
 var download = "network build";
 using var fallbackTransport = new ScriptedUpdateTransport(request => Task.FromResult(
     request.RequestUri!.AbsoluteUri == latestApi
@@ -135,15 +135,19 @@ using var fallbackClient = new HttpClient(fallbackTransport);
 var fallback = new UpdateService(fallbackRoot, fallbackClient, clock);
 fallback.Configure(new("https://github.com/4ek1st/DART"));
 var recovered = await fallback.CheckAsync(true, default);
-Expect(recovered.Available && recovered.Verified && recovered.Error.Length == 0 && recovered.Notice.Length > 0 &&
-    recovered.RateLimited && recovered.RetryAt >= resetAt, "rate-limited public discovery did not offer the verified fallback");
-Expect(fallbackTransport.Requests.Count == 2 && fallbackTransport.Requests.All(request => request.Authorization is null),
-    "public fallback sent credentials or unexpected requests");
-await fallback.CheckAsync(true, default); await fallback.CheckAsync(false, default);
-Expect(fallbackTransport.Requests.Count == 2, "force/focus bypassed API cooldown or repeated fallback during cooldown");
+Expect(recovered.Available && recovered.Verified && recovered.Error.Length == 0 && recovered.Notice.Length == 0 &&
+    !recovered.RateLimited && recovered.RetryAt is null, "working public manifest inherited GitHub API quota status");
+Expect(fallbackTransport.Requests.Count == 1 && fallbackTransport.Requests[0].Uri.AbsoluteUri == latestSignature &&
+    fallbackTransport.Requests.All(request => request.Authorization is null),
+    "public discovery contacted the API or sent credentials instead of the signed manifest");
+await fallback.CheckAsync(false, default);
+Expect(fallbackTransport.Requests.Count == 1, "a cached successful public check was repeated without force");
+await fallback.CheckAsync(true, default);
+Expect(fallbackTransport.Requests.Count == 2 && fallbackTransport.Requests.All(request => request.Uri.AbsoluteUri == latestSignature),
+    "an explicit public check did not refresh the signed manifest directly");
 var restarted = new UpdateService(fallbackRoot, fallbackClient, clock);
-Expect((await restarted.CheckAsync(true, default)).RetryAt >= resetAt && fallbackTransport.Requests.Count == 2,
-    "a new updater instance forgot the persisted API cooldown");
+Expect((await restarted.CheckAsync(true, default)).Available && fallbackTransport.Requests.Count == 3,
+    "a new public updater could not rediscover the verified manifest");
 download = "network buile"; // Same length, wrong hash.
 try { await fallback.PrepareAsync(default); throw new Exception("corrupted fallback binary accepted"); }
 catch (InvalidOperationException) { }
@@ -151,12 +155,46 @@ download = "network build";
 var fallbackPrepared = await fallback.PrepareAsync(default);
 ReleaseProtocol.VerifyArtifact(networkRelease, Path.Combine(fallbackPrepared, "DART.Windows.exe"));
 Expect(new Installation(fallbackRoot).Current().BuildId == secondManifest.BuildId,
-    "fallback preparation activated a release");
+    "public preparation activated a release");
 fallback.InstallationFailed();
 clock.Advance(TimeSpan.FromMinutes(3));
-await fallback.CheckAsync(false, default);
-Expect(fallbackTransport.Requests.Count(request => request.Uri.AbsoluteUri == latestApi) == 2,
-    "an API error was negative-cached for twenty minutes");
+await fallback.CheckAsync(true, default);
+Expect(fallbackTransport.Requests.All(request => request.Uri.Host == "github.com" && request.Authorization is null),
+    "public checking or a pinned download contacted the API or sent credentials");
+
+var legacyRoot = UpdateInstallation("legacy-api-pause");
+var legacyDeadline = clock.GetUtcNow().AddHours(1);
+var publicScope = ReleaseProtocol.Hash(System.Text.Encoding.UTF8.GetBytes("4ek1st/dart\n"));
+File.WriteAllBytes(Path.Combine(legacyRoot, "update-retry.bin"), UpdateProtection.Protect(JsonSerializer.SerializeToUtf8Bytes(new
+    { scope = publicScope, retryAt = legacyDeadline, rateLimited = true, failures = 1, error = "legacy API quota" }, ReleaseProtocol.Json)));
+var publicEnvelope = File.ReadAllText(Path.Combine(second, "signed-release.json"));
+using var legacyTransport = new ScriptedUpdateTransport(request => Task.FromResult(request.RequestUri!.AbsoluteUri == latestApi
+    ? Reply(System.Net.HttpStatusCode.Forbidden, remaining: "0", reset: legacyDeadline.ToUnixTimeSeconds().ToString())
+    : Reply(System.Net.HttpStatusCode.OK, publicEnvelope)));
+using var legacyClient = new HttpClient(legacyTransport);
+var legacyService = new UpdateService(legacyRoot, legacyClient, clock);
+legacyService.Configure(new("https://github.com/4ek1st/DART"));
+var currentPublic = await legacyService.CheckAsync(true, default);
+Expect(!currentPublic.Available && currentPublic.Error.Length == 0 && !currentPublic.RateLimited && currentPublic.RetryAt is null &&
+    legacyTransport.Requests.Count == 1 && legacyTransport.Requests[0].Uri.AbsoluteUri == latestSignature,
+    "a legacy API pause blocked the independent public current-version check");
+publicEnvelope = networkEnvelope;
+var publishedLater = await legacyService.CheckAsync(true, default);
+Expect(publishedLater.Available && publishedLater.Verified && publishedLater.Version == "0.2.3" &&
+    publishedLater.Error.Length == 0 && clock.GetUtcNow() < legacyDeadline && legacyTransport.Requests.Count == 2 &&
+    legacyTransport.Requests.All(request => request.Uri.AbsoluteUri == latestSignature && request.Authorization is null),
+    "a newly published public release stayed invisible until the obsolete API reset");
+
+var legacyPrivateRoot = UpdateInstallation("legacy-private-api-pause");
+var legacyPrivate = new UpdateService(legacyPrivateRoot, legacyClient, clock);
+legacyPrivate.Configure(new("https://github.com/4ek1st/DART", "private-fixture-token"));
+var privateScope = ReleaseProtocol.Hash(System.Text.Encoding.UTF8.GetBytes("4ek1st/dart\nprivate-fixture-token"));
+File.WriteAllBytes(Path.Combine(legacyPrivateRoot, "update-retry.bin"), UpdateProtection.Protect(JsonSerializer.SerializeToUtf8Bytes(new
+    { scope = privateScope, retryAt = legacyDeadline, rateLimited = true, failures = 1, error = "legacy API quota" }, ReleaseProtocol.Json)));
+var privatePaused = await legacyPrivate.CheckAsync(true, default);
+Expect(privatePaused.RateLimited && privatePaused.RetryAt == legacyDeadline && legacyTransport.Requests.Count == 2,
+    "migrating public discovery bypassed an unchanged private API cooldown");
+Console.WriteLine("Public signed-manifest primary discovery, forced refresh, legacy API separation and pinned download: PASS");
 
 foreach (var header in new[] { "90", clock.GetUtcNow().AddSeconds(90).ToString("R"), "864000", "not-a-date", "-10", "999999999999999999999" })
 {
@@ -206,109 +244,135 @@ Expect(secondaryPause.RateLimited && secondaryPause.RetryAt == clock.GetUtcNow()
 foreach (var networkFailure in new[] { false, true })
 {
     var root = UpdateInstallation("public-transient-" + networkFailure);
-    using var handler = new ScriptedUpdateTransport(request => request.RequestUri!.AbsoluteUri == latestApi
+    var unavailable = true;
+    using var handler = new ScriptedUpdateTransport(request => unavailable
         ? networkFailure ? Task.FromException<HttpResponseMessage>(new HttpRequestException("offline"))
             : Task.FromResult(Reply(System.Net.HttpStatusCode.ServiceUnavailable))
         : Task.FromResult(Reply(System.Net.HttpStatusCode.OK, networkEnvelope)));
     using var transientClient = new HttpClient(handler);
     var service = new UpdateService(root, transientClient, clock); service.Configure(new("https://github.com/4ek1st/DART"));
+    var pendingPublic = await service.CheckAsync(true, default);
+    Expect(!pendingPublic.Available && !pendingPublic.RateLimited && pendingPublic.Error.Length > 0 &&
+        pendingPublic.RetryAt == clock.GetUtcNow().AddSeconds(60) && handler.Requests.Count == 1 &&
+        handler.Requests[0].Uri.AbsoluteUri == latestSignature,
+        "a public manifest transport failure lost its own bounded retry");
+    unavailable = false;
+    await service.CheckAsync(true, default);
+    Expect(handler.Requests.Count == 1, "force bypassed a public manifest transport cooldown");
+    clock.Advance(TimeSpan.FromSeconds(61));
     var recoveredTransient = await service.CheckAsync(true, default);
     Expect(recoveredTransient.Available && recoveredTransient.Verified && !recoveredTransient.RateLimited &&
-        recoveredTransient.Error.Length == 0 && recoveredTransient.RetryAt == clock.GetUtcNow().AddSeconds(60),
-        "a public transient API failure did not recover from the signed fallback");
+        recoveredTransient.Error.Length == 0 && recoveredTransient.RetryAt is null && handler.Requests.Count == 2 &&
+        handler.Requests.All(request => request.Uri.AbsoluteUri == latestSignature && request.Authorization is null),
+        "a recovered public manifest remained unavailable or contacted the API");
 }
 
 foreach (var limits in new[]
 {
-    (ApiSeconds: 0, FallbackCode: System.Net.HttpStatusCode.TooManyRequests, FallbackSeconds: 3600, ExpectedSeconds: 3600),
-    (ApiSeconds: 0, FallbackCode: System.Net.HttpStatusCode.ServiceUnavailable, FallbackSeconds: 1800, ExpectedSeconds: 1800),
-    (ApiSeconds: 600, FallbackCode: System.Net.HttpStatusCode.TooManyRequests, FallbackSeconds: 120, ExpectedSeconds: 600)
+    (Code: System.Net.HttpStatusCode.TooManyRequests, Seconds: 3600),
+    (Code: System.Net.HttpStatusCode.ServiceUnavailable, Seconds: 1800),
+    (Code: System.Net.HttpStatusCode.TooManyRequests, Seconds: 120)
 })
 {
-    var root = UpdateInstallation("fallback-deadline-" + limits.ExpectedSeconds);
+    var root = UpdateInstallation("public-deadline-" + limits.Seconds);
     var failDiscovery = false;
     using var handler = new ScriptedUpdateTransport(request => Task.FromResult(!failDiscovery
-        ? Reply(System.Net.HttpStatusCode.OK, request.RequestUri!.AbsoluteUri == latestApi ? apiRelease : networkEnvelope)
-        : request.RequestUri!.AbsoluteUri == latestApi
-            ? limits.ApiSeconds > 0 ? Reply(System.Net.HttpStatusCode.Forbidden, remaining: "0",
-                reset: clock.GetUtcNow().AddSeconds(limits.ApiSeconds).ToUnixTimeSeconds().ToString())
-                : Reply(System.Net.HttpStatusCode.ServiceUnavailable)
-            : Reply(limits.FallbackCode, retryAfter: limits.FallbackSeconds.ToString())));
+        ? Reply(System.Net.HttpStatusCode.OK, networkEnvelope)
+        : Reply(limits.Code, retryAfter: limits.Seconds.ToString())));
     using var deadlineClient = new HttpClient(handler);
     var service = new UpdateService(root, deadlineClient, clock); service.Configure(new("https://github.com/4ek1st/DART"));
-    Expect((await service.CheckAsync(true, default)).Available, "candidate missing before fallback deadline test");
+    Expect((await service.CheckAsync(true, default)).Available, "candidate missing before public deadline test");
     failDiscovery = true;
     var waiting = await service.CheckAsync(true, default);
-    Expect(waiting.RetryAt == clock.GetUtcNow().AddSeconds(limits.ExpectedSeconds) &&
-        waiting.RateLimited == (limits.ApiSeconds > 0 || limits.FallbackCode == System.Net.HttpStatusCode.TooManyRequests) &&
+    Expect(waiting.RetryAt == clock.GetUtcNow().AddSeconds(limits.Seconds) &&
+        waiting.RateLimited == (limits.Code == System.Net.HttpStatusCode.TooManyRequests) &&
         waiting.Available && waiting.Verified && waiting.Error.Length == 0 && waiting.Notice.Length > 0,
-        "fallback shortened/lost a server deadline or discarded a verified candidate");
+        "public discovery shortened its server deadline or discarded a verified candidate");
     await service.CheckAsync(true, default);
     var newWindow = new UpdateService(root, deadlineClient, clock);
-    Expect((await newWindow.CheckAsync(true, default)).RetryAt == waiting.RetryAt && handler.Requests.Count == 4,
-        "fallback deadline was not persisted across forced checks/new windows");
+    Expect((await newWindow.CheckAsync(true, default)).RetryAt == waiting.RetryAt && handler.Requests.Count == 2 &&
+        handler.Requests.All(request => request.Uri.AbsoluteUri == latestSignature && request.Authorization is null),
+        "public manifest cooldown was not persisted across forced checks/new windows");
+    clock.Advance(TimeSpan.FromSeconds(limits.Seconds + 1)); failDiscovery = false;
+    var recoveredPublic = await newWindow.CheckAsync(true, default);
+    Expect(recoveredPublic.Available && recoveredPublic.Verified && recoveredPublic.RetryAt is null &&
+        recoveredPublic.Error.Length == 0 && !recoveredPublic.RateLimited && handler.Requests.Count == 3,
+        "public manifest discovery did not resume after its own server deadline");
 }
 
 foreach (var statusCode in new[] { System.Net.HttpStatusCode.Forbidden, System.Net.HttpStatusCode.Unauthorized,
     System.Net.HttpStatusCode.NotFound })
 {
-    var root = UpdateInstallation("no-fallback-" + (int)statusCode);
+    var root = UpdateInstallation("public-denied-" + (int)statusCode);
     using var handler = new ScriptedUpdateTransport(request => Task.FromResult(Reply(statusCode)));
     using var deniedClient = new HttpClient(handler);
     var service = new UpdateService(root, deniedClient, clock); service.Configure(new("https://github.com/4ek1st/DART"));
     var denied = await service.CheckAsync(true, default);
-    Expect(!denied.Available && denied.Error.Length > 0 && handler.Requests.Count == 1,
-        "access denial or missing release used the public fallback or appeared up to date");
+    Expect(!denied.Available && denied.Error.Length > 0 && handler.Requests.Count == 1 &&
+        handler.Requests[0].Uri.AbsoluteUri == latestSignature,
+        "public access denial or missing manifest used the API or appeared up to date");
+    var privateRoot = UpdateInstallation("private-denied-" + (int)statusCode);
+    using var privateHandler = new ScriptedUpdateTransport(request => Task.FromResult(Reply(statusCode)));
+    using var privateClient = new HttpClient(privateHandler);
+    var privateService = new UpdateService(privateRoot, privateClient, clock);
+    privateService.Configure(new("https://github.com/4ek1st/DART", "private-fixture-token"));
+    var privateDenied = await privateService.CheckAsync(true, default);
+    Expect(!privateDenied.Available && privateDenied.Error.Length > 0 && privateHandler.Requests.Count == 1 &&
+        privateHandler.Requests[0].Uri.AbsoluteUri == latestApi && privateHandler.Requests[0].Authorization == "Bearer private-fixture-token",
+        "private access denial or missing release fell back publicly or appeared up to date");
 }
 
 foreach (var invalidEnvelope in new[] { networkEnvelope.Replace("signature", "invalidSignature"),
     ReleaseProtocol.Sign(networkRelease with { Ancestors = [new string('e', 64)] }, key),
     ReleaseProtocol.Sign(networkRelease with { Version = "0.1.0" }, key) })
 {
-    var root = UpdateInstallation("invalid-fallback-" + Guid.NewGuid().ToString("N"));
+    var root = UpdateInstallation("invalid-public-manifest-" + Guid.NewGuid().ToString("N"));
     var fallbackFault = false;
-    using var handler = new ScriptedUpdateTransport(request => Task.FromResult(request.RequestUri!.AbsoluteUri == latestApi
-        ? fallbackFault ? Reply(System.Net.HttpStatusCode.ServiceUnavailable) : Reply(System.Net.HttpStatusCode.OK, apiRelease)
-        : Reply(System.Net.HttpStatusCode.OK, fallbackFault ? invalidEnvelope : networkEnvelope)));
+    using var handler = new ScriptedUpdateTransport(request => Task.FromResult(
+        Reply(System.Net.HttpStatusCode.OK, fallbackFault ? invalidEnvelope : networkEnvelope)));
     using var invalidClient = new HttpClient(handler);
     var service = new UpdateService(root, invalidClient, clock); service.Configure(new("https://github.com/4ek1st/DART"));
-    Expect((await service.CheckAsync(true, default)).Available, "valid candidate missing before invalid fallback test");
+    Expect((await service.CheckAsync(true, default)).Available, "valid candidate missing before invalid public manifest test");
     fallbackFault = true;
     var rejected = await service.CheckAsync(true, default);
     Expect(!rejected.Available && !rejected.Verified && rejected.Error.Length > 0,
-        "invalid fallback signature/ancestry/version exposed installation or up-to-date state");
-    try { await service.PrepareAsync(default); throw new Exception("unverified fallback prepared a binary"); }
+        "invalid public signature/ancestry/version exposed installation or up-to-date state");
+    Expect(handler.Requests.All(request => request.Uri.AbsoluteUri == latestSignature && request.Authorization is null),
+        "invalid public manifest triggered API discovery or sent credentials");
+    try { await service.PrepareAsync(default); throw new Exception("unverified public manifest prepared a binary"); }
     catch (InvalidOperationException) { }
 }
 
-foreach (var badUrl in new[] { "https://github.com.evil.test/4ek1st/DART/releases/download/v0.2.3/DART.Windows.exe",
-    "https://github.com/other/repo/releases/download/v0.2.3/DART.Windows.exe",
-    "https://github.com:444/4ek1st/DART/releases/download/v0.2.3/DART.Windows.exe" })
+foreach (var badUrl in new[] { "https://api.github.com.evil.test/repos/4ek1st/DART/releases/assets/2",
+    "https://api.github.com/repos/other/repo/releases/assets/2",
+    "https://api.github.com:444/repos/4ek1st/DART/releases/assets/2" })
 {
     var root = UpdateInstallation("invalid-url-" + Guid.NewGuid().ToString("N"));
     var replaceUrl = false;
     using var handler = new ScriptedUpdateTransport(request => Task.FromResult(Reply(System.Net.HttpStatusCode.OK,
-        request.RequestUri!.AbsoluteUri == latestApi ? replaceUrl ? apiRelease.Replace(pinnedBinary, badUrl) : apiRelease : networkEnvelope)));
+        request.RequestUri!.AbsoluteUri == latestApi ? replaceUrl ? apiRelease.Replace(
+            "https://api.github.com/repos/4ek1st/DART/releases/assets/2", badUrl) : apiRelease : networkEnvelope)));
     using var invalidClient = new HttpClient(handler);
-    var service = new UpdateService(root, invalidClient, clock); service.Configure(new("https://github.com/4ek1st/DART"));
+    var service = new UpdateService(root, invalidClient, clock); service.Configure(new("https://github.com/4ek1st/DART", "private-fixture-token"));
     Expect((await service.CheckAsync(true, default)).Available, "valid candidate missing before invalid URL test");
     replaceUrl = true;
     Expect(!(await service.CheckAsync(true, default)).Available &&
-        handler.Requests.All(request => request.Uri.AbsoluteUri != latestSignature), "untrusted asset URL fell back or was accepted");
+        handler.Requests.All(request => request.Uri.Host == "api.github.com" &&
+            request.Authorization == "Bearer private-fixture-token"), "untrusted private asset URL fell back, leaked credentials or was accepted");
 }
 
 foreach (var declaredLength in new[] { true, false })
 {
     var root = UpdateInstallation("oversized-manifest-" + declaredLength);
     using var oversized = new MeasuredUpdateContent(200_000, declaredLength);
-    using var handler = new ScriptedUpdateTransport(request => Task.FromResult(request.RequestUri!.AbsoluteUri == latestApi
-        ? Reply(System.Net.HttpStatusCode.ServiceUnavailable)
-        : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = oversized }));
+    using var handler = new ScriptedUpdateTransport(request => Task.FromResult(
+        new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = oversized }));
     using var oversizedClient = new HttpClient(handler);
     var service = new UpdateService(root, oversizedClient, clock); service.Configure(new("https://github.com/4ek1st/DART"));
     var rejected = await service.CheckAsync(true, default);
     Expect(!rejected.Available && rejected.Error.Length > 0 && oversized.BytesRead <= 128_000 + 8192 &&
-        (declaredLength ? oversized.BytesRead == 0 : oversized.BytesRead > 128_000),
+        (declaredLength ? oversized.BytesRead == 0 : oversized.BytesRead > 128_000) && handler.Requests.Count == 1 &&
+        handler.Requests[0].Uri.AbsoluteUri == latestSignature,
         "oversized declared/streamed manifest was fully downloaded before verification");
 }
 
@@ -368,8 +432,8 @@ var secondCheck = windowTwo.CheckAsync(true, default); releaseResponse.TrySetRes
 await Task.WhenAll(firstCheck, secondCheck);
 Expect(concurrentTransport.Requests.Count == 1, "concurrent windows made duplicate rate-limited API requests");
 Expect(ReleaseProtocol.FileHash(Path.Combine(folder, "profile", "bookmarks.json")) == profileHash,
-    "update retry/fallback changed profile state");
-Console.WriteLine("Rate-limit persistence/force, Retry-After, signed public fallback, private isolation and recovery: PASS");
+    "update discovery or retry changed profile state");
+Console.WriteLine("Independent public retry/recovery, private API rate-limit persistence/force, Retry-After and source boundaries: PASS");
 var publicationRoot = Path.Combine(folder, "publication"); Directory.CreateDirectory(publicationRoot);
 File.WriteAllText(Path.Combine(publicationRoot, "update-system.json"), JsonSerializer.Serialize(new InstallationConfig
     { PublicKey = publicKey, SourceRoot = folder, ProfilePath = Path.Combine(folder, "profile") }, ReleaseProtocol.Json));

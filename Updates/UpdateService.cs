@@ -40,7 +40,7 @@ internal sealed class UpdateService(string? installationRoot, HttpClient? transp
     private const string UnavailableMessage = "Проверка обновлений временно недоступна. Повторите позже.";
     private const string RateMessage = "GitHub временно ограничил частоту проверки обновлений.";
     private sealed record RetryState(string Scope, DateTimeOffset? RetryAt = null, bool RateLimited = false,
-        int Failures = 0, string Error = "");
+        int Failures = 0, string Error = "", string Channel = "github-api");
     private sealed class DiscoveryUnavailable(bool rateLimited, DateTimeOffset? retryAt, string message) : Exception(message)
     {
         public bool RateLimited { get; } = rateLimited;
@@ -116,16 +116,18 @@ internal sealed class UpdateService(string? installationRoot, HttpClient? transp
             catch (IOException) when (attempt < 100) { await Task.Delay(50, cancellationToken); }
         }
     }
-    private RetryState ReadRetry(string scope)
+    private RetryState ReadRetry(string scope, string channel)
     {
-        if (!File.Exists(RetryFile)) return new(scope);
+        if (!File.Exists(RetryFile)) return new(scope, Channel: channel);
         try
         {
-            if (new FileInfo(RetryFile).Length > 16_000) return new(scope);
+            if (new FileInfo(RetryFile).Length > 16_000) return new(scope, Channel: channel);
             var saved = JsonSerializer.Deserialize<RetryState>(UpdateProtection.Unprotect(File.ReadAllBytes(RetryFile)), ReleaseProtocol.Json);
-            return saved is not null && saved.Scope == scope ? saved : new(scope);
+            // Legacy records describe the old API-led discovery. Its quota
+            // pause must not block a different, healthy public download route.
+            return saved is not null && saved.Scope == scope && saved.Channel == channel ? saved : new(scope, Channel: channel);
         }
-        catch (Exception error) when (error is JsonException or CryptographicException) { return new(scope); }
+        catch (Exception error) when (error is JsonException or CryptographicException) { return new(scope, Channel: channel); }
     }
     private void SaveRetry(RetryState retry) => ReleaseProtocol.WriteAtomic(RetryFile,
         UpdateProtection.Protect(JsonSerializer.SerializeToUtf8Bytes(retry, ReleaseProtocol.Json)));
@@ -140,7 +142,7 @@ internal sealed class UpdateService(string? installationRoot, HttpClient? transp
         var failures = Math.Clamp(previous.Failures, 0, 3) + 1;
         var fallback = now.AddSeconds(rateLimited ? 60 : Math.Min(60 * (1 << (failures - 1)), 300));
         var deadline = BoundedDeadline(requested ?? fallback);
-        var retry = new RetryState(previous.Scope, deadline, rateLimited, failures, error);
+        var retry = new RetryState(previous.Scope, deadline, rateLimited, failures, error, previous.Channel);
         SaveRetry(retry); return retry;
     }
     private DateTimeOffset? RetryDeadline(HttpResponseMessage response, bool primaryLimit)
@@ -240,57 +242,42 @@ internal sealed class UpdateService(string? installationRoot, HttpClient? transp
                 RetryAt = null, RateLimited = false, Notice = "", Error = "" };
             statusScope = scope;
             await using var lease = await RetryLeaseAsync(cancellationToken);
-            var retry = ReadRetry(scope);
+            var publicSource = source.Token.Length == 0;
+            var channel = publicSource ? "public-manifest" : "github-api";
+            var retry = ReadRetry(scope, channel);
             if (retry.RetryAt > clock.GetUtcNow()) { ReportPause(retry); return status; }
             try
             {
                 var repository = RepositoryName(source.Repository);
-                using var json = JsonDocument.Parse(await ReadRemoteAsync(new("https://api.github.com/repos/" + repository + "/releases/latest"),
-                    source, false, 1_000_000, cancellationToken));
-                var release = json.RootElement;
-                if (release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean()) ClearCandidate();
+                if (publicSource)
+                {
+                    // Public releases need the signed manifest, not API quota.
+                    // Only its verified version chooses the immutable binary.
+                    var envelope = await ReadRemoteAsync(new("https://github.com/" + repository +
+                        "/releases/latest/download/signed-release.json"), source, true, 128_000, cancellationToken);
+                    Offer(envelope, current, scope, manifest => new("https://github.com/" + repository +
+                        "/releases/download/" + Uri.EscapeDataString("v" + manifest.Version) + "/" + manifest.ArtifactName));
+                }
                 else
                 {
-                    var assets = release.GetProperty("assets");
-                    var signatureUri = Asset(assets, "signed-release.json", repository, source.Token.Length > 0);
-                    var envelope = await ReadRemoteAsync(signatureUri, source, true, 128_000, cancellationToken);
-                    Offer(envelope, current, scope, manifest => Asset(assets, manifest.ArtifactName, repository, source.Token.Length > 0));
+                    using var json = JsonDocument.Parse(await ReadRemoteAsync(new("https://api.github.com/repos/" + repository + "/releases/latest"),
+                        source, false, 1_000_000, cancellationToken));
+                    var release = json.RootElement;
+                    if (release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean()) ClearCandidate();
+                    else
+                    {
+                        var assets = release.GetProperty("assets");
+                        var signatureUri = Asset(assets, "signed-release.json", repository, true);
+                        var envelope = await ReadRemoteAsync(signatureUri, source, true, 128_000, cancellationToken);
+                        Offer(envelope, current, scope, manifest => Asset(assets, manifest.ArtifactName, repository, true));
+                    }
                 }
-                SaveRetry(new(scope)); checkedAt = clock.GetUtcNow();
+                SaveRetry(new(scope, Channel: channel)); checkedAt = clock.GetUtcNow();
             }
             catch (DiscoveryUnavailable error)
             {
                 retry = Pause(retry, error.RateLimited, error.RetryAt, error.Message);
                 ReportPause(retry);
-                if (source.Token.Length == 0)
-                {
-                    try
-                    {
-                        var repository = RepositoryName(source.Repository);
-                        var envelope = await ReadRemoteAsync(new("https://github.com/" + repository +
-                            "/releases/latest/download/signed-release.json"), source, true, 128_000, cancellationToken);
-                        // latest identifies only the signed manifest. The verified version pins the executable.
-                        Offer(envelope, current, scope, manifest => new("https://github.com/" + repository +
-                            "/releases/download/" + Uri.EscapeDataString("v" + manifest.Version) + "/" + manifest.ArtifactName));
-                        status = status with { Error = "" };
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                    catch (DiscoveryUnavailable fallbackError)
-                    {
-                        // Both endpoints must respect their server deadlines; this is one failed check.
-                        var deadline = BoundedDeadline(fallbackError.RetryAt ?? clock.GetUtcNow().AddSeconds(60));
-                        if (retry.RetryAt is { } previousDeadline && previousDeadline > deadline) deadline = previousDeadline;
-                        var limited = retry.RateLimited || fallbackError.RateLimited;
-                        retry = retry with { RetryAt = deadline, RateLimited = limited,
-                            Error = limited ? RateMessage : UnavailableMessage };
-                        SaveRetry(retry); ReportPause(retry);
-                    }
-                    catch (Exception fallbackError) when (fallbackError is InvalidOperationException or JsonException)
-                    {
-                        ClearCandidate(); status = status with { Error = fallbackError is InvalidOperationException ? fallbackError.Message : UnavailableMessage };
-                        SaveRetry(retry with { Error = status.Error });
-                    }
-                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception error) when (error is InvalidOperationException or JsonException or KeyNotFoundException)
