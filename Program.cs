@@ -58,6 +58,7 @@ internal static class Program
         });
         app.UseDefaultFiles();
         UpdateEndpoints.Map(app);
+        SourceStatusEndpoints.Map(app);
         ProfileTransferEndpoints.Map(app);
         UpscaleEndpoints.Map(app);
         app.UseStaticFiles(new StaticFileOptions
@@ -104,14 +105,36 @@ internal static class Program
                     rating, context.RequestAborted);
                 return profile is null ? Results.NotFound() : Results.Ok(profile);
             }
+            catch (DanbooruRequestException ex)
+            {
+                var retryAt = SourceAvailability.Default.GetRetryAt(source);
+                if (ex.RetryAt is not null && (retryAt is null || ex.RetryAt > retryAt)) retryAt = ex.RetryAt;
+                return Results.Json(new { error = ex.Message, retryAt = retryAt?.ToUnixTimeMilliseconds() }, statusCode: (int)ex.StatusCode);
+            }
+            catch (SourceWebsiteUnavailableException ex)
+            {
+                return Results.Json(new { error = "Источник временно недоступен. Повторим после паузы сайта.", retryAt = ex.RetryAt.ToUnixTimeMilliseconds() }, statusCode: 503);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is not null && (int)ex.StatusCode >= 500 &&
+                                                SourceAvailability.Default.GetRetryAt(source) is not null)
+            {
+                return Results.Json(new { error = $"Источник временно недоступен (HTTP {(int)ex.StatusCode}).", retryAt = SourceAvailability.Default.GetRetryAt(source)?.ToUnixTimeMilliseconds() }, statusCode: 503);
+            }
             catch (Rule34RequestException ex)
             {
-                return Results.Json(new { error = ex.Message, retryAt = ex.RetryAt?.ToUnixTimeMilliseconds() },
-                    statusCode: ex.RetryAt is null ? 401 : 503);
+                var retryAt = ex.RetryAt;
+                var websiteRetryAt = SourceAvailability.Default.GetRetryAt(source);
+                if (retryAt is not null && websiteRetryAt > retryAt) retryAt = websiteRetryAt;
+                return Results.Json(new { error = ex.Message, retryAt = retryAt?.ToUnixTimeMilliseconds() },
+                    statusCode: retryAt is null ? 401 : 503);
             }
             catch (SankakuAccessException ex)
             {
                 return Results.Json(new { error = ex.Message, authRequired = ex.LoginRequired }, statusCode: 401);
+            }
+            catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
+            {
+                return Results.Json(new { error = "Источник не ответил вовремя. Повторите запрос." }, statusCode: 504);
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or
                                        System.Text.Json.JsonException or InvalidOperationException)
@@ -147,14 +170,36 @@ internal static class Program
                 }
                 return item is null ? Results.NotFound() : Results.Ok(item);
             }
+            catch (DanbooruRequestException ex)
+            {
+                var retryAt = SourceAvailability.Default.GetRetryAt(source);
+                if (ex.RetryAt is not null && (retryAt is null || ex.RetryAt > retryAt)) retryAt = ex.RetryAt;
+                return Results.Json(new { error = ex.Message, retryAt = retryAt?.ToUnixTimeMilliseconds() }, statusCode: (int)ex.StatusCode);
+            }
+            catch (SourceWebsiteUnavailableException ex)
+            {
+                return Results.Json(new { error = "Источник временно недоступен. Повторим после паузы сайта.", retryAt = ex.RetryAt.ToUnixTimeMilliseconds() }, statusCode: 503);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is not null && (int)ex.StatusCode >= 500 &&
+                                                SourceAvailability.Default.GetRetryAt(source) is not null)
+            {
+                return Results.Json(new { error = $"Источник временно недоступен (HTTP {(int)ex.StatusCode}).", retryAt = SourceAvailability.Default.GetRetryAt(source)?.ToUnixTimeMilliseconds() }, statusCode: 503);
+            }
             catch (Rule34RequestException ex)
             {
-                return Results.Json(new { error = ex.Message, retryAt = ex.RetryAt?.ToUnixTimeMilliseconds() },
-                    statusCode: ex.RetryAt is null ? 401 : 503);
+                var retryAt = ex.RetryAt;
+                var websiteRetryAt = SourceAvailability.Default.GetRetryAt(source);
+                if (retryAt is not null && websiteRetryAt > retryAt) retryAt = websiteRetryAt;
+                return Results.Json(new { error = ex.Message, retryAt = retryAt?.ToUnixTimeMilliseconds() },
+                    statusCode: retryAt is null ? 401 : 503);
             }
             catch (SankakuAccessException ex)
             {
                 return Results.Json(new { error = ex.Message, authRequired = ex.LoginRequired }, statusCode: 401);
+            }
+            catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
+            {
+                return Results.Json(new { error = "Источник не ответил вовремя. Повторите запрос." }, statusCode: 504);
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or
                                        System.Text.Json.JsonException or InvalidOperationException)

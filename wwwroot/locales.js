@@ -3,7 +3,14 @@
 (function(root) {
   const rows = `
 Home|Главная|Startseite
+Problems on the website side.|Проблемы на стороне сайта.|Probleme aufseiten der Website.
 Loading preview…|Загружаем превью…|Vorschau wird geladen…
+Artwork pages|Страницы работы|Werkseiten
+Loading…|Загружаем…|Wird geladen…
+Previous image|Предыдущее изображение|Vorheriges Bild
+Next image|Следующее изображение|Nächstes Bild
+Next video|Следующее видео|Nächstes Video
+Could not load this image.|Не удалось загрузить изображение.|Dieses Bild konnte nicht geladen werden.
 No preview available|Нет доступного превью|Keine Vorschau verfügbar
 Search preview|Пример из поиска|Suchvorschau
 Date|Дата|Datum

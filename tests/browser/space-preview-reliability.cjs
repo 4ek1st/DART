@@ -114,10 +114,17 @@ let browser;
     // artwork focus. Reentering the viewport hands control back to the mouse.
     await page.mouse.move(-20, -20);
     await page.keyboard.press('Escape'); await page.waitForFunction(() => !quickPreview.open);
+    assert.equal(await page.locator('.artwork-return-highlight').getAttribute('data-work-key'), afterScroll,
+      'Closing returns to and highlights the last displayed artwork');
     await page.keyboard.press('Space');
     assert.equal(await page.evaluate(() => quickPreview.open), false, 'Space outside the viewport must not reopen stale artwork');
-    await page.mouse.move(thirdPosition.x, thirdPosition.y); await page.keyboard.press('Space');
-    assert.equal(await page.evaluate(() => quickPreview.open && quickPreviewWork.key), afterScroll,
+    await page.mouse.move(thirdPosition.x, thirdPosition.y);
+    // Returning now centers the last work. Read the real post-return mouse
+    // target instead of assuming that scrolling left the old pixels in place.
+    const reentryTarget = await page.evaluate(({x,y}) => document.elementFromPoint(x,y)?.closest('button.card-art')?.dataset.key, thirdPosition);
+    assert(reentryTarget, 'Mouse reentry is over an actual visible card after return scrolling');
+    await page.keyboard.press('Space');
+    assert.equal(await page.evaluate(() => quickPreview.open && quickPreviewWork.key), reentryTarget,
       'Mouse reentry selects the current artwork');
     await page.keyboard.down('Space');
     assert.equal(await page.evaluate(() => quickPreview.open), false);
@@ -128,8 +135,10 @@ let browser;
     assert.equal(await page.evaluate(() => quickPreviewSpaceHeld), false);
     await page.keyboard.up('Space');
     await page.mouse.move(thirdPosition.x + 1, thirdPosition.y); await page.mouse.move(thirdPosition.x, thirdPosition.y);
+    const blurTarget = await page.evaluate(({x,y}) => document.elementFromPoint(x,y)?.closest('button.card-art')?.dataset.key, thirdPosition);
+    assert(blurTarget, 'Mouse targets an actual visible card after blur and return scrolling');
     await page.keyboard.press('Space');
-    assert.equal(await page.evaluate(() => quickPreview.open && quickPreviewWork.key), afterScroll,
+    assert.equal(await page.evaluate(() => quickPreview.open && quickPreviewWork.key), blurTarget,
       'The blur lifecycle reset cannot leave later separate Space presses blocked');
     assert.deepEqual(errors, []);
     console.log('PASS: real pointer/key Space after unliking/deferred collection repaint, modal movement, 24 rapid pairs, scroll and viewport leave/reentry; explicit blur lifecycle reset.');

@@ -32,11 +32,11 @@ internal sealed class SankakuLoginRequest
 
 internal sealed class SankakuApi(ISankakuSessionStore sessions, HttpClient? transport = null)
 {
-    private static readonly HttpClient DefaultClient = new(new HttpClientHandler
+    private static readonly HttpClient DefaultClient = new(new SourceAvailabilityHandler(new HttpClientHandler
     {
         AllowAutoRedirect = false,
         AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-    }) { Timeout = TimeSpan.FromSeconds(20) };
+    })) { Timeout = TimeSpan.FromSeconds(20) };
     private readonly HttpClient http = transport ?? DefaultClient;
     private readonly SemaphoreSlim authGate = new(1, 1);
 

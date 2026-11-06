@@ -7,8 +7,9 @@
   function create({ load, key = value => value, size = () => 1, keep = () => true,
     ttl = 60000, maxEntries = 80, maxBytes = 8 * 1024 * 1024,
     concurrency = 6, foregroundReserve = 0, backgroundConcurrency = concurrency,
+    group = () => [], groupConcurrency = Infinity,
     timeout = 20000, grace = 250, now = Date.now }) {
-    const cache = new Map(), pending = new Map(), queue = [], running = new Set();
+    const cache = new Map(), pending = new Map(), queue = [], running = new Set(), groups = new Map();
     const reserve = Math.min(Math.max(0, foregroundReserve), Math.max(0, concurrency - 1));
     const priorityOf = value => value === 'foreground' ? 2 : value === 'background' ? 0 : 1;
     const priorityName = value => value === 2 ? 'foreground' : value === 0 ? 'background' : 'normal';
@@ -33,18 +34,25 @@
           const candidate = queue[index];
           if (!candidate.controller.signal.aborted &&
               (candidate.priority < 2 && active >= concurrency - reserve ||
-               candidate.priority === 0 && background >= backgroundConcurrency)) continue;
+               candidate.priority === 0 && background >= backgroundConcurrency ||
+               candidate.groups.some(value => (groups.get(value) || 0) >=
+                 groupConcurrency + (candidate.priority === 2 ? reserve : 0)))) continue;
           if (position < 0 || candidate.priority > queue[position].priority) position = index;
         }
         if (position < 0) return;
         const [job] = queue.splice(position, 1);
         if (job.controller.signal.aborted) continue;
         active++; running.add(job);
+        for (const value of job.groups) groups.set(value, (groups.get(value) || 0) + 1);
         const timer = setTimeout(() => job.controller.abort(), timeout);
         const finish = (handler, value) => {
           clearTimeout(timer); clearTimeout(job.cancelTimer);
           if (pending.get(job.id) === job) pending.delete(job.id);
           job.done = true; active--; running.delete(job);
+          for (const value of job.groups) {
+            const remaining = (groups.get(value) || 1) - 1;
+            if (remaining) groups.set(value, remaining); else groups.delete(value);
+          }
           job.priorityListeners.clear();
           handler(value); drain();
         };
@@ -83,7 +91,9 @@
       }
       let job = pending.get(id);
       if (!job || job.controller.signal.aborted) {
+        const values = group(input), grouped = Array.isArray(values) ? values : [values];
         job = { id, input, revision, readers: 0, priority: priorityOf(options.priority),
+          groups: [...new Set(grouped.filter(value => typeof value === 'string' && value.length > 0))],
           priorityListeners: new Set(), controller: new AbortController() };
         job.promise = new Promise((resolve, reject) => { job.resolve = resolve; job.reject = reject; });
         pending.set(id, job); queue.push(job);
@@ -122,26 +132,31 @@
       if (entry) { cache.delete(id); bytes -= entry.size; }
       if (job) { job.discarded = true; pending.delete(id); }
     }, clear() { revision++; cache.clear(); bytes = 0; pending.clear(); },
-      get stats() { return { entries: cache.size, bytes, active, queued: queue.length }; } };
+      get stats() { return { entries: cache.size, bytes, active, queued: queue.length, groups: new Map(groups) }; } };
   }
 
   // Catalog JSON and image bodies share the browser's HTTP/1 connection pool.
   // Keep one lane outside this budget for a native video element, and preserve
   // priority adoption when a cache loader has already queued its transport.
   function createTransport({ concurrency = 5, foregroundReserve = 1,
-    backgroundConcurrency = 2, maxQueued = 64, timeout = 90000 } = {}) {
+    backgroundConcurrency = 2, maxQueued = 64, timeout = 90000, groupConcurrency = 2 } = {}) {
     const queue = create({ load: (task, signal, scheduling) => task.load(signal, scheduling),
       key: task => task, keep: () => false, maxEntries: 0, maxBytes: 0,
-      concurrency, foregroundReserve, backgroundConcurrency, timeout, grace: 0 });
+      concurrency, foregroundReserve, backgroundConcurrency, timeout, grace: 0,
+      group: task => task.groups, groupConcurrency });
     return {
       run(load, signal, options = {}) {
         if (signal?.aborted) return Promise.reject(cancelled());
         const stats = queue.stats;
-        const canStart = options.priority === 'foreground' ? stats.active < concurrency :
-          options.priority !== 'background' && stats.active < concurrency - foregroundReserve;
+        const values = Array.isArray(options.group) ? options.group : [options.group];
+        const groups = [...new Set(values.filter(value => typeof value === 'string' && value.length > 0))];
+        const canStart = groups.every(value => (stats.groups.get(value) || 0) <
+          groupConcurrency + (options.priority === 'foreground' ? foregroundReserve : 0)) &&
+          (options.priority === 'foreground' ? stats.active < concurrency :
+          options.priority !== 'background' && stats.active < concurrency - foregroundReserve);
         if (stats.queued >= maxQueued && !canStart)
           return Promise.reject(Object.assign(new Error('Transport queue is full'), { name: 'TransportQueueFullError' }));
-        const task = { load };
+        const task = { load, groups };
         const unsubscribe = options.onPriorityChange?.(priority => queue.promote(task, priority));
         return queue.get(task, signal, options).finally(() => unsubscribe?.());
       },

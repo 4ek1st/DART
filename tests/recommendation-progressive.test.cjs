@@ -120,6 +120,70 @@ test('a later successful query cannot clear another query source outage in the s
   assert(f.streams().filter(stream => stream.sources.length).every(stream => stream.retryAt > Date.now()));
 });
 
+test('an older query success cannot clear a newer outage or server deadline from an overlapping append', async () => {
+  const held = deferred(), deadline = Date.now() + 60000;
+  const f = fixture(call => {
+    const provider = call.sources[0];
+    if (provider === 'danbooru' && call.query !== 'landscape') return held.promise;
+    if (provider === 'danbooru' && call.page === 1) return { items: [],
+      errors: { danbooru: 'HTTP 503' }, retryAt: { danbooru: deadline }, hasMoreSources: [] };
+    return { items: [work(`${provider}:${call.query === 'landscape' ? 100 : 200}${call.page}`, provider)],
+      errors: {}, hasMoreSources: call.sources };
+  });
+  f.tab.selectedSources = ['danbooru', 'gelbooru'];
+  const initial = f.loadRecommendations(f.tab);
+  try {
+    await flush(); await f.loadRecommendations(f.tab, true);
+    assert.match(f.tab.errors.danbooru, /503/);
+    held.resolve({ items: [work('danbooru:late')], errors: {}, hasMoreSources: ['danbooru'] });
+    await initial;
+    assert(f.tab.items.some(item => item.key === 'danbooru:late'), 'retain usable content from the older successful request');
+    assert.match(f.tab.errors.danbooru, /503/, 'an older success must preserve the newer outage');
+    assert(f.streams().filter(stream => stream.sources.includes('danbooru')).every(stream =>
+      stream.retryAt >= deadline && stream.serverRetryAt >= deadline));
+    const before = f.calls.filter(call => call.sources.includes('danbooru')).length;
+    // Even a stale/legacy retry flag must not bypass the actual server deadline.
+    for (const stream of f.streams()) if (stream.sources.includes('danbooru')) stream.retryAt = 0;
+    await f.loadRecommendations(f.tab, true);
+    assert.equal(f.calls.filter(call => call.sources.includes('danbooru')).length, before);
+  } finally { held.resolve({ items: [], errors: {}, hasMoreSources: [] }); await initial; clearTimeout(f.tab.rule34RecoveryTimer); }
+});
+
+test('Danbooru access403 without Retry-After pauses only that query and recovers through Retry without a credentials prompt', async () => {
+  let denied = true;
+  const f = fixture(call => denied && call.query === 'landscape'
+    ? { items: [], errors: { danbooru: 'Danbooru ограничил доступ (HTTP 403).' }, hasMoreSources: [] }
+    : { items: [work(`danbooru:${call.query === 'landscape' ? 810 : 820}`)], errors: {}, hasMoreSources: [] });
+  f.tab.selectedSources = ['danbooru'];
+  await f.loadRecommendations(f.tab);
+  const blocked = f.streams().find(stream => stream.error);
+  assert(blocked, 'retain the rejected query and its page for Retry');
+  assert.equal(blocked.needsSettings, false);
+  assert.equal(blocked.querySpecific, true);
+  assert(Number.isFinite(blocked.retryAt));
+  assert(f.tab.items.some(item => item.key === 'danbooru:820'), 'another permitted query remains usable');
+  assert(f.streams().some(stream => !stream.error && stream.nextPage === 1));
+  denied = false;
+  await f.retryRecommendationSources(f.tab, ['danbooru']);
+  assert(f.tab.items.some(item => item.key === 'danbooru:810'));
+  assert(!f.streams().some(stream => stream.error));
+});
+
+test('explicit Danbooru403 server deadlines remain global and other provider403 authentication rules remain intact', () => {
+  const classify = vm.runInNewContext(source.slice(source.indexOf('function deferRecommendationSource('),
+    source.indexOf('\nfunction settleRecommendationSourceRetries(')) + '\ndeferRecommendationSource', { Date });
+  const deadline = Date.now() + 60000, stream = { sources: ['danbooru'], nextPage: 2 };
+  const failed = classify({ streams: [stream] }, stream, 'danbooru', 'HTTP 403', deadline);
+  assert.equal(failed.querySpecific, false); assert.equal(failed.needsSettings, false);
+  assert.equal(failed.serverRetryAt, deadline); assert(failed.retryAt >= deadline);
+  for (const provider of ['gelbooru', 'rule34']) {
+    const stream = { sources: [provider], nextPage: 2 };
+    const failed = classify({ streams: [stream] }, stream, provider, 'HTTP 403');
+    assert.equal(failed.needsSettings, true); assert.equal(failed.querySpecific, false);
+    assert.equal(failed.retryAt, Infinity);
+  }
+});
+
 test('multiple empty source completions count as one empty round', async () => {
   const f = fixture(call => ({ items: [], errors: {}, hasMoreSources: call.sources }));
   await f.loadRecommendations(f.tab);
@@ -156,4 +220,24 @@ test('failed ranking preserves retryable pages and ends the current load safely'
   assert.equal(f.tab.recommendationController.signal.aborted, true);
   assert(f.streams().every(stream => stream.nextPage === 0));
   assert.equal(f.tab.items.length, 0);
+});
+
+test('a rejected rank aborts before a queued publication can commit its cards or cursor', async () => {
+  const response = deferred(); let rejectRank, ranks = 0;
+  const f = fixture(call => call.sources[0] === 'danbooru'
+    ? { items: [work('danbooru:901')], errors: {}, hasMoreSources: ['danbooru'] } : response.promise);
+  f.tab.selectedSources = ['danbooru', 'gelbooru'];
+  f.context.mergeRecommendationsAsync = (...args) => {
+    ranks++;
+    return ranks === 1 ? new Promise((_, reject) => { rejectRank = reject; }) : logic.mergeRecommendations(...args);
+  };
+  const pending = f.loadRecommendations(f.tab);
+  await flush();
+  response.resolve({ items: [work('gelbooru:902', 'gelbooru')], errors: {}, hasMoreSources: ['gelbooru'] });
+  await flush(); rejectRank(new Error('Neutral ranking failure'));
+  await pending; await flush();
+  assert.equal(ranks, 1, 'a queued rank must be invalidated before it starts');
+  assert.equal(f.tab.loadError, true); assert.equal(f.tab.loading, false);
+  assert.equal(f.tab.items.length, 0);
+  assert(f.streams().every(stream => stream.nextPage === 0), 'only committed page cursors may advance');
 });

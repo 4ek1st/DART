@@ -204,7 +204,11 @@ async function exercise(surface) {
     const selectedIndex = Math.min(8, grid.cards.length - 3), selected = grid.cards[selectedIndex], next = grid.cards[selectedIndex + 1];
     const sourceId = grid.tabId;
     await card(selected.key).scrollIntoViewIfNeeded();
-    await page.waitForFunction(key => !!document.querySelector(`article.card[data-work-key="${key}"] img`)?.naturalWidth, selected.key);
+    // Related and the author strip may represent the same work. Wait for the
+    // actual card selected by this flow, not its offscreen author-strip alias.
+    await page.waitForFunction(({key,surface}) => !!document.querySelector(
+      `${surface === 'related' ? '[data-grid-key="related"] ' : ''}article.card[data-work-key="${key}"] img`)?.naturalWidth,
+      {key:selected.key,surface});
     grid = await note('selected-rendered-card'); const beforeScroll = grid.scroll;
     const expected = grid.cards[selectedIndex];
     await clickCard(card(selected.key), selected.key);

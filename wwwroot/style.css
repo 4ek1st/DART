@@ -126,6 +126,11 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .side-link span:first-child { display: inline-grid; place-items: center; width: 20px; flex: none; }
 .sidebar-footer { margin-top: auto; padding: 19px 25px 24px; border-top: 1px solid #363636; color: #8b8b8b; line-height: 1.5; font-size: 12px; }
 .source-dots { display: flex; gap: 5px; margin-bottom: 7px; }
+.source-dots .dot { cursor: help; outline-offset: 4px; transition: background-color .16s; }
+.source-dots .dot:focus-visible { outline: 2px solid var(--blue); }
+.source-dots .dot.source-unavailable { background: #808080; }
+.source-status-tooltip { position: fixed; z-index: 10000; max-width: min(280px, calc(100vw - 16px)); border: 1px solid var(--theme-border, var(--line, #505050)); border-radius: 7px; padding: 8px 11px; background: var(--theme-panel, var(--raised, #282828)); color: var(--text, #eee); box-shadow: 0 4px 16px #0005; font-size: 12px; line-height: 1.4; pointer-events: none; }
+.card.artwork-return-highlight { outline: 2px solid #329CFF; outline-offset: 3px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.danbooru { background: #4b9ae9; }.dot.gelbooru { background: #d88a8a; }.dot.rule34 { background: #eaa559; }
 .sidebar.collapsed { width: 68px; min-width: 68px; }
@@ -342,10 +347,33 @@ h3 { font-size: 15px; }
 .quick-preview-close { position: absolute; z-index: 1; top: 12px; right: 12px; font-size: 25px; background: #161616df; }
 .quick-preview.fullscreen .quick-preview-close { top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 5px; font-size: 18px; }
 .quick-preview-actions { right: 12px; bottom: 12px; }
+.quick-preview.has-gallery { border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; }
+.quick-preview.has-gallery:focus { outline: none; }
+.quick-preview[open].has-gallery { display: flex; flex-direction: column; align-items: center; }
+.quick-preview.has-gallery .quick-preview-stage { flex: none; border: 1px solid #4a4a4a; border-radius: 10px; background: #101010; box-shadow: 0 10px 34px #0007; }
+.quick-preview[open].fullscreen.has-gallery { justify-content: center; padding: 12px 16px; background: #101010; }
+.quick-preview-gallery { position: relative; display: flex; flex: none; flex-direction: column; align-items: center; gap: 12px; width: 100%; padding-top: 12px; background: transparent; color: #ddd; cursor: auto; }
+.quick-preview-gallery-position { position: relative; display: flex; flex: none; align-items: center; justify-content: center; gap: 8px; width: max-content; min-height: 32px; padding: 2px 7px; border: 1px solid #505050; border-radius: 999px; background: #171717ed; box-shadow: 0 3px 14px #0005; font-size: 12px; }
+.quick-preview-gallery-position > button { display: grid; place-items: center; width: 28px; height: 27px; border: 0; border-radius: 5px; background: transparent; color: inherit; font-size: 19px; }
+.quick-preview-gallery-position > button:hover:not(:disabled) { background: #414141; }
+.quick-preview-gallery-position > button:disabled { opacity: .3; cursor: default; }
+.quick-preview-gallery-count { min-width: 45px; text-align: center; font-variant-numeric: tabular-nums; }
+.quick-preview-gallery-loading { max-width: 105px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #aaa; font-size: 11px; }
+.quick-preview-gallery-error { display: flex; align-items: center; justify-content: center; gap: 8px; max-width: 100%; min-height: 34px; border: 1px solid #594747; border-radius: 8px; background: #272222; padding: 5px 10px; font-size: 12px; }
+.quick-preview-gallery-error button { border: 1px solid #777; border-radius: 5px; background: #333; color: #fff; padding: 2px 8px; }
+.quick-preview-gallery-peek { position: relative; display: block; flex: none; width: 100%; height: clamp(100px, 11vh, 160px); overflow: hidden; border: 1px solid #4a4a4a; border-radius: 10px; padding: 0; background: #252525; color: #fff; box-shadow: 0 8px 26px #0005; cursor: pointer; transition: border-color .16s ease; }
+.quick-preview-gallery-peek > img { display: block; width: 100%; height: auto; min-height: 100%; object-fit: cover; object-position: center top; opacity: 1; }
+.quick-preview-gallery-peek > span { position: absolute; top: 10px; right: 10px; display: flex; align-items: center; justify-content: center; gap: 6px; max-width: calc(100% - 20px); padding: 5px 9px; border-radius: 999px; background: #161616df; text-shadow: 0 1px 4px #000; font-size: 12px; }
+.quick-preview-gallery-peek:hover:not(:disabled) { border-color: #8b8b8b; }
+.quick-preview-gallery-peek.video::before { content: '▶'; position: absolute; inset: 0; display: grid; place-items: center; color: #ddd; font-size: 26px; }
+.quick-preview-gallery-peek:disabled { cursor: progress; }
+.quick-preview-gallery [hidden] { display: none !important; }
+.quick-preview-gallery button:focus-visible { outline: 2px solid #329cff; outline-offset: -3px; }
+@media (max-width: 600px) { .quick-preview-gallery-peek { height: 96px; } .quick-preview-gallery-loading { max-width: 85px; font-size: 10px; } .quick-preview-gallery-peek > span { top: 7px; right: 7px; } }
 @keyframes quick-preview-enter { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
 @keyframes quick-preview-backdrop { from { background: #0000; } to { background: #000b; } }
 @media (max-width: 600px) { .quick-preview-image { max-width: calc(100vw - 48px); max-height: 84vh; } .quick-preview.fullscreen .quick-preview-image { max-width: 100vw; max-height: 100vh; } .quick-preview-tools { top: 8px; left: 8px; } .quick-preview-zoom { top: 62px; left: 8px; } .quick-preview-close { top: 8px; right: 8px; } .quick-preview-actions { right: 8px; bottom: 8px; } }
-@media (prefers-reduced-motion: reduce) { .quick-preview[open], .quick-preview::backdrop { animation: none; } .quick-preview-image, .quick-preview-zoom { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .quick-preview[open], .quick-preview::backdrop { animation: none; } .quick-preview-image, .quick-preview-zoom, .quick-preview-gallery-peek { transition: none; } }
 .primary-button, .secondary-button { border-radius: 6px; padding: 10px 16px; font-weight: 700; border: 0; }
 .secondary-button svg { width: 16px; height: 16px; vertical-align: -3px; margin-left: 4px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .primary-button { background: #167ecc; color: #fff; }

@@ -4,12 +4,14 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const DartViewerPreferences = require('../../wwwroot/viewer-preferences.js');
 const DartArtworkActions = require('../../wwwroot/artwork-actions.js');
+const DartProviderPages = require('../../wwwroot/provider-pages.js');
 const app = fs.readFileSync(require.resolve('../../wwwroot/app.js'), 'utf8');
 const helpers = app.slice(app.indexOf('function selectedRating('), app.indexOf('\nfunction refreshNsfwTabs('));
 const feedHelpers = app.slice(app.indexOf('function knownWorkTokens('), app.indexOf('\nfunction emptyFeedMessage('));
 const feedNames = [...feedHelpers.matchAll(/(?:async )?function (\w+)\(/g)].map(match => match[1]);
 
 function createContext(sandbox = {}, options) {
+  if (!Object.hasOwn(sandbox, 'DartProviderPages')) sandbox.DartProviderPages = DartProviderPages;
   if (!Object.hasOwn(sandbox, 'DartViewerPreferences')) sandbox.DartViewerPreferences = DartViewerPreferences;
   if (!Object.hasOwn(sandbox, 'viewerPreferences')) sandbox.viewerPreferences = DartViewerPreferences.normalize();
   // Fragment tests own an empty hidden collection unless explicitly supplied.

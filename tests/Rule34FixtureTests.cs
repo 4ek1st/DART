@@ -4,6 +4,7 @@ using System.Text.Json;
 using ArtCatalog;
 
 if (args.Contains("--upscale-only")) { await UpscaleFixtureTests.RunAsync(); return; }
+if (args.Contains("--providers-only")) { await DanbooruTransportFixtureTests.RunAsync(); await SourceAvailabilityFixtureTests.RunAsync(); await ArtistEnrichmentBudgetFixtureTests.RunAsync(); return; }
 
 if (args.Length >= 2 && args[0] is "--frontend-extract" or "--frontend-hold-lock")
 {
@@ -33,6 +34,9 @@ FavoriteGroupsFixtureTests.Run();
 ProfileTransferFixtureTests.Run();
 ImageContentFixtureTests.Run();
 await GelbooruAliasFixtureTests.RunAsync();
+await DanbooruTransportFixtureTests.RunAsync();
+await SourceAvailabilityFixtureTests.RunAsync();
+await ArtistEnrichmentBudgetFixtureTests.RunAsync();
 await VideoPreviewFixtureTests.RunAsync();
 await UpscaleFixtureTests.RunAsync();
 

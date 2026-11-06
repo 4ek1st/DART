@@ -31,6 +31,7 @@ function fixture() {
   vm.runInContext(block('function recordDetailVisit(', '\nfunction abortTab(') +
     block('async function recordViewedWorks(', '\nasync function refreshFollows(') +
     block('async function loadDetail(', '\nasync function loadCreatorWorks(') +
+    block('function isAdultRating(', '\nfunction formatDate(') +
     block('function knownWorkTokens(', '\nfunction scheduleRelatedKnownRefresh('), context);
   return { context, tab, persisted, posts };
 }

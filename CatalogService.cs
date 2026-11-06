@@ -135,6 +135,7 @@ internal sealed partial class CatalogService(LocalStore store)
         int? ReceivedCount = null, int UnavailableCount = 0, int RatingFilteredCount = 0,
         string? Notice = null, string? MatchQuery = null);
     private static readonly HttpClient Api = CreateClient(allowRedirect: true);
+    private static readonly DanbooruRequestClient DanbooruApi = new(Api);
     private static readonly Rule34RequestClient Rule34Api = new(Api);
     private static readonly Rule34RequestClient Rule34Web = new(Api);
     private static readonly HttpClient Images = CreateClient(allowRedirect: false);
@@ -142,7 +143,8 @@ internal sealed partial class CatalogService(LocalStore store)
     private static readonly string[] AllSources = CatalogState.Sources;
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"];
     private static readonly string[] VideoExtensions = [".mp4", ".webm", ".m4v", ".ogv"];
-    private readonly SemaphoreSlim apiGate = new(3, 3);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> apiGates = new(StringComparer.OrdinalIgnoreCase);
+    private SemaphoreSlim ApiGate(string source) => apiGates.GetOrAdd(source, _ => new SemaphoreSlim(3, 3));
     private readonly SemaphoreSlim imageGate = new(4, 4);
     private readonly SemaphoreSlim videoGate = new(3, 3);
     private readonly VideoPreviewProxy videoPreviews = new(Images);
@@ -162,6 +164,7 @@ internal sealed partial class CatalogService(LocalStore store)
         tagCache.Clear();
         Rule34Api.ClearCache();
         Rule34Web.ClearCache();
+        DanbooruApi.ClearCache();
     }
 
     private static HttpClient CreateClient(bool allowRedirect)
@@ -171,7 +174,10 @@ internal sealed partial class CatalogService(LocalStore store)
             AllowAutoRedirect = allowRedirect,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         };
-        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
+        // Observe API responses only. A media CDN failure is not evidence that
+        // the catalog website/API is unavailable.
+        var client = new HttpClient(allowRedirect ? new SourceAvailabilityHandler(handler) : handler)
+            { Timeout = TimeSpan.FromSeconds(20) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("ArtCatalog/0.1 (Windows WebView2)");
         return client;
     }
@@ -203,46 +209,48 @@ internal sealed partial class CatalogService(LocalStore store)
         {
             try
             {
-                var sharedGate = source != "rule34";
-                if (sharedGate) await apiGate.WaitAsync(cancellationToken);
+                // A hung website must never occupy another provider's slots.
+                // Danbooru and Rule34 own their shared host queues themselves.
+                var localGate = source is "danbooru" or "rule34" ? null : ApiGate(source);
+                using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                if (localGate is not null) budget.CancelAfter(TimeSpan.FromSeconds(8));
+                var token = budget.Token;
+                if (localGate is not null) await localGate.WaitAsync(token);
                 SourcePage sourcePage;
                 try
                 {
                     sourcePage = source switch
                     {
-                        "danbooru" => await SearchDanbooruAsync(query, requestedPages[source], rating, sort, cancellationToken),
-                        "gelbooru" => await SearchGelbooruAsync(query, requestedPages[source], rating, sort, cancellationToken),
-                        "rule34" => await SearchRule34Async(query, requestedPages[source], rating, sort, cancellationToken),
-                        "sankaku" => await SearchSankakuAsync(query, requestedPages[source], rating, sort, cancellationToken),
+                        "danbooru" => await SearchDanbooruAsync(query, requestedPages[source], rating, sort, token),
+                        "gelbooru" => await SearchGelbooruAsync(query, requestedPages[source], rating, sort, token),
+                        "rule34" => await SearchRule34Async(query, requestedPages[source], rating, sort, token),
+                        "sankaku" => await SearchSankakuAsync(query, requestedPages[source], rating, sort, token),
                         _ => throw new InvalidOperationException("Источник не поддерживается.")
                     };
                 }
-                finally { if (sharedGate) apiGate.Release(); }
-                return (Source: source, Page: sourcePage, Error: (string?)null);
+                finally { localGate?.Release(); }
+                return (Source: source, Page: sourcePage, Error: (string?)null, RetryAt: (DateTimeOffset?)null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException
                                        or JsonException or InvalidOperationException)
             {
                 var message = FormatSourceError(ex, source);
-                return (Source: source, Page: new SourcePage([], false), Error: (string?)message);
+                var retryAt = ex switch
+                {
+                    DanbooruRequestException danbooru => danbooru.RetryAt,
+                    Rule34RequestException rule34 => rule34.RetryAt,
+                    SourceWebsiteUnavailableException website => website.RetryAt,
+                    _ => (DateTimeOffset?)null
+                };
+                return (Source: source, Page: new SourcePage([], false), Error: (string?)message, RetryAt: retryAt);
             }
         });
         var responses = await Task.WhenAll(tasks);
-        try
-        {
-            await EnrichArtistTagsAsync(responses.SelectMany(response => response.Page.Items),
-                cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or
-                                       InvalidOperationException or System.Xml.XmlException)
-        {
-            // Attribution is supplementary. A tag API outage must not hide the artwork.
-        }
+        await TryEnrichArtistTagsAsync(responses.SelectMany(response => response.Page.Items), cancellationToken);
         var buckets = new List<CatalogItem>[responses.Length];
         for (var responseIndex = 0; responseIndex < responses.Length; responseIndex++)
         {
@@ -265,8 +273,14 @@ internal sealed partial class CatalogService(LocalStore store)
                 (received.Count == 0 || buckets[responseIndex].Count > 0))
                 result.HasMoreSources.Add(response.Source);
             if (response.Error is not null) result.Errors[response.Source] = response.Error;
-            if (response.Error is not null && response.Source == "rule34" && Rule34Api.RetryAt is { } retryAt)
-                result.RetryAt[response.Source] = retryAt.ToUnixTimeMilliseconds();
+            var retryAt = response.RetryAt;
+            var clientRetryAt = response.Source == "danbooru" ? DanbooruApi.RetryAt :
+                response.Source == "rule34" ? Rule34Api.RetryAt : null;
+            if (clientRetryAt is not null && (retryAt is null || clientRetryAt > retryAt)) retryAt = clientRetryAt;
+            var websiteRetryAt = SourceAvailability.Default.GetRetryAt(response.Source);
+            if (websiteRetryAt is not null && (retryAt is null || websiteRetryAt > retryAt)) retryAt = websiteRetryAt;
+            if (response.Error is not null && retryAt is not null)
+                result.RetryAt[response.Source] = retryAt.Value.ToUnixTimeMilliseconds();
             if (response.Page.Notice is not null) result.Notices[response.Source] = response.Page.Notice;
         }
         for (var index = 0; buckets.Any(bucket => bucket.Count > index); index++)
@@ -310,7 +324,7 @@ internal sealed partial class CatalogService(LocalStore store)
                 return $"Источник отклонил доступ (HTTP {code}). Проверьте ключ API в настройках.";
             return $"Источник вернул ошибку HTTP {code}. Повторите запрос позже.";
         }
-        if (ex is TaskCanceledException)
+        if (ex is OperationCanceledException)
             return "Источник не ответил вовремя. Повторите запрос.";
         return "Источник сейчас недоступен. Повторите запрос позже.";
     }
@@ -330,10 +344,10 @@ internal sealed partial class CatalogService(LocalStore store)
             budget.CancelAfter(TimeSpan.FromSeconds(3));
             try
             {
-                var sharedGate = source != "rule34";
-                if (sharedGate) await apiGate.WaitAsync(budget.Token);
+                var localGate = source is "danbooru" or "rule34" ? null : ApiGate(source);
+                if (localGate is not null) await localGate.WaitAsync(budget.Token);
                 try { return (source, await fetch(budget.Token), true); }
-                finally { if (sharedGate) apiGate.Release(); }
+                finally { localGate?.Release(); }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or
@@ -404,21 +418,28 @@ internal sealed partial class CatalogService(LocalStore store)
     private async Task TryEnrichArtistTagsAsync(IEnumerable<CatalogItem> items,
         CancellationToken cancellationToken)
     {
-        try { await EnrichArtistTagsAsync(items, cancellationToken); }
+        var targets = items.Where(item => item.Source is "gelbooru" or "rule34" &&
+            item.Participants.Count == 0 && !item.Rule34TagInfoKnown).ToList();
+        if (targets.Count == 0) return;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(2));
+        try { await EnrichArtistTagsAsync(targets, budget.Token); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or
                                        System.Xml.XmlException or InvalidOperationException)
         {
             // The post remains available when tag classification is unavailable.
         }
+        cancellationToken.ThrowIfCancellationRequested();
+        // A supplementary lookup can run out of time after validating earlier
+        // artists. Publish only its confirmed cache evidence before returning
+        // the usable page; a later slow candidate must not erase those credits.
+        ApplyKnownArtistTags(targets);
     }
 
-    private async Task EnrichArtistTagsAsync(IEnumerable<CatalogItem> items,
+    private async Task EnrichArtistTagsAsync(IReadOnlyList<CatalogItem> targets,
         CancellationToken cancellationToken)
     {
-        var targets = items.Where(item => item.Source is "gelbooru" or "rule34" &&
-            item.Participants.Count == 0 && !item.Rule34TagInfoKnown).ToList();
-        if (targets.Count == 0) return;
         var credentials = store.GetGelbooruCredentials();
         if (credentials.UserId.Length == 0 || credentials.ApiKey.Length == 0) return;
 
@@ -509,6 +530,10 @@ internal sealed partial class CatalogService(LocalStore store)
                 });
         }
 
+    }
+
+    private void ApplyKnownArtistTags(IEnumerable<CatalogItem> targets)
+    {
         foreach (var item in targets)
         {
             var artists = item.Tags.Where(tag =>
@@ -1045,15 +1070,22 @@ internal sealed partial class CatalogService(LocalStore store)
     private static async Task<JsonDocument> GetJsonAsync(string uri, CancellationToken cancellationToken,
         bool allowEmptyArray = false)
     {
+        if (uri.StartsWith("https://danbooru.donmai.us/", StringComparison.OrdinalIgnoreCase))
+            return JsonDocument.Parse(await DanbooruApi.GetStringAsync(uri, cancellationToken));
         if (uri.StartsWith("https://api.rule34.xxx/", StringComparison.OrdinalIgnoreCase))
             return JsonDocument.Parse(await Rule34Api.GetStringAsync(uri, "application/json", cancellationToken));
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(8));
+        var token = budget.Token;
         for (var attempt = 0; attempt < 3; attempt++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             using var response = await Api.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
-            if (ShouldRetryJsonError(uri, response.StatusCode, attempt))
+                token);
+            var source = Uri.TryCreate(uri, UriKind.Absolute, out var address) ? SourceAvailability.SourceFromHost(address.Host) : null;
+            var websitePaused = source is not null && SourceAvailability.Default.GetRetryAt(source) is not null;
+            if (!websitePaused && ShouldRetryJsonError(uri, response.StatusCode, attempt))
             {
                 var retryAfter = response.Headers.RetryAfter?.Delta;
                 if (retryAfter is null || retryAfter <= TimeSpan.FromSeconds(8))
@@ -1061,16 +1093,16 @@ internal sealed partial class CatalogService(LocalStore store)
                     var delay = retryAfter ?? TimeSpan.FromMilliseconds(
                         response.StatusCode == HttpStatusCode.TooManyRequests
                             ? 2000 * (attempt + 1) : 500 * (attempt + 1));
-                    await Task.Delay(delay, cancellationToken);
+                    await Task.Delay(delay, token);
                     continue;
                 }
             }
             response.EnsureSuccessStatusCode();
             // Rule34's post API returns HTTP 200 with no body when no posts match.
             if (allowEmptyArray)
-                return ParseRule34PostsJson(await response.Content.ReadAsStringAsync(cancellationToken));
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                return ParseRule34PostsJson(await response.Content.ReadAsStringAsync(token));
+            await using var stream = await response.Content.ReadAsStreamAsync(token);
+            return await JsonDocument.ParseAsync(stream, cancellationToken: token);
         }
         throw new HttpRequestException("The source is temporarily unavailable.");
     }

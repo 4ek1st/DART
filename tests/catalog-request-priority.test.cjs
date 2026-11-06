@@ -30,6 +30,7 @@ function fixture(t) {
     loadCreatorWorks() {}, loadRelated() {}, saveSession() {}, refreshSavedDetail() {},
     localStorage: { setItem() {} } });
   vm.runInContext(block('async function request(', '\nfunction catalogRequestKey(') +
+    block('function catalogRequestSources(', '\nfunction clearCatalogResponses(') +
     block('function warmArtworkRoute(', '\nasync function prepareArtworkMedia(') +
     block('async function loadDetail(', '\nasync function loadCreatorWorks('), context);
   t.after(async () => {
@@ -76,7 +77,7 @@ test('a visible reader promotes a queued neighbor without duplicating its transp
 });
 
 test('a forced foreground metadata refresh keeps scheduling priority out of Fetch options', async () => {
-  const context = vm.createContext({ CatalogLogic, DartResourceCache, structuredClone,
+  const context = vm.createContext({ CatalogLogic, DartResourceCache, structuredClone, URLSearchParams,
     clearCatalogResponses() {}, catalogRequestKey: path => path, addCatalogVisualHashes() {},
     fetch: async (path, options) => {
       if (options.priority && !['high', 'low', 'auto'].includes(options.priority))
@@ -84,6 +85,7 @@ test('a forced foreground metadata refresh keeps scheduling priority out of Fetc
       return { ok: true, json: async () => ({ key: 'danbooru:2' }) };
     } });
   vm.runInContext(block('async function request(', '\nfunction catalogRequestKey(') +
+    block('function catalogRequestSources(', '\nfunction clearCatalogResponses(') +
     block('async function requestJson(', '\nfunction readMediaBlob(') +
     block('function catalogTransport(', '\nconst visualHashJobs'), context);
   const result = await context.request('/api/detail?source=danbooru&id=2',
