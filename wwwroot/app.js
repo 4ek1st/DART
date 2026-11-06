@@ -180,6 +180,7 @@ let recommendationExposureDirty = false;
 const visualHashCache = new Map();
 const fingerprintCache = DartFingerprintCache.create({ cacheKey: CatalogLogic.mediaCacheKey });
 const visualFingerprintValues = fingerprintCache.images;
+const videoFingerprintValues = fingerprintCache.videos;
 const clientStateWriter = DartClientState.createWriter({
   storage: localStorage,
   send: async body => {
@@ -6531,7 +6532,6 @@ const transferredMediaHydration = {
   }
 };
 
-const videoFingerprintValues = fingerprintCache.videos;
 async function rememberVideoFrames(entry, { card, key, url, signal }) {
   if (signal.aborted || entry.blobs?.length !== 5 || !(entry.duration > .2)) return;
   const item = itemIndex.get(card?.dataset?.key || key), mediaKey = CatalogLogic.mediaCacheKey(url);

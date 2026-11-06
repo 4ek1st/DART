@@ -74,7 +74,7 @@ function harness({ expired = true, failDetail = false, source = 'sankaku', count
     querySelectorAll: () => images };
   class FixtureURL extends URL {}
   FixtureURL.createObjectURL = () => 'blob:loaded'; FixtureURL.revokeObjectURL = () => {};
-  const context = vm.createContext({ fingerprintCache: require('../wwwroot/fingerprint-cache.js').create({ cacheKey: require('../wwwroot/catalog-logic.js').mediaCacheKey }), CatalogLogic: logic, likes, bookmarks: [], recent: [], tabs: [tab],
+  const context = vm.createContext({ CatalogLogic: logic, likes, bookmarks: [], recent: [], tabs: [tab],
     itemIndex: new Map([[item.key, item]]), currentTab: () => tab, quickPreviewWork: null,
     main, URL: FixtureURL, URLSearchParams, AbortController, AbortSignal, setTimeout, clearTimeout,
     DartResourceCache: require('../wwwroot/resource-cache.js'),
