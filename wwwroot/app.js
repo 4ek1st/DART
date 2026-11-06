@@ -1177,6 +1177,19 @@ async function refreshSavedWorks(collection, force = false) {
       const response = await request(`/api/${collection}`);
       const items = CatalogLogic.filterCatalogItems(response);
       if (revision === state.revision) {
+        let grouped = null;
+        if (items.length && typeof DartCatalogJobs !== 'undefined') {
+          try { grouped = await DartCatalogJobs.run('groupWorks', [items], () => null,
+            { cacheKey: collection, previousInput: collection === 'likes' ? likes : bookmarks }); }
+          catch { /* Unavailable workers retain the ordinary shared grouping path. */ }
+        }
+        // A local like, bookmark or metadata update can finish while the worker
+        // is busy. Its older snapshot must not seed caches or replace that state.
+        if (revision !== state.revision) return true;
+        if (Array.isArray(grouped) && typeof CatalogLogic.cacheGroupedWorks === 'function') {
+          try { CatalogLogic.cacheGroupedWorks(items, grouped); }
+          catch { /* Saved data remains usable even if an optional warm result is rejected. */ }
+        }
         setSavedWorks(collection, items);
         state.serverRevision = response.savedRevision || '';
         state.syncedRevision = state.revision;
@@ -1385,6 +1398,7 @@ function favoritesController() {
   return favoritesController.instance ||= DartFavorites.create({ request, svg,
     getTags: () => favoriteTags, setTags: value => { favoriteTags = value; },
     getRecent: () => recent, getKnown: favoritesKnownWorks, getLiked: recommendationLikedWorks,
+    analyze: (liked, preferences, options) => analyzeArtworkCollection(liked, preferences, [], options),
     getTagPreferences: () => recommendationTagPreferences, effectiveRating: selectedRating,
     getPreferences: () => contentPreferences, visibilityRevision:()=>artworkActionsController.instance?.revision || 0,
     emptyRating:emptyNsfwRatingsMessage,
@@ -1515,8 +1529,8 @@ async function refreshFollows() {
   }
 }
 
-function createRecommendationPools(liked, sources, preferences, background = []) {
-  const selected = CatalogLogic.recommendationQueryGroups(liked, preferences, background);
+function createRecommendationPools(liked, sources, preferences, background = [], analysis = null) {
+  const selected = analysis?.queryGroups || CatalogLogic.recommendationQueryGroups(liked, preferences, background);
   const selectedSources = sources.filter(source => CatalogLogic.supportedSources.includes(source));
   return Object.fromEntries(['priority', 'names', 'copyright', 'other', 'combinations'].map(kind => [kind,
     selected[kind].map(({ tag, query }) => ({ tag, query: query || tag.replaceAll(' ', '_'), kind, streams: [
@@ -1532,6 +1546,17 @@ function recommendationLikedWorks() {
   const items = CatalogLogic.filterWorks(CatalogLogic.groupWorks(likes), contentPreferences);
   recommendationLikedWorks.snapshot = { likes, length: likes.length, revision, preferences: contentPreferences, items };
   return items;
+}
+
+function analyzeArtworkCollection(liked, preferences, background = [], options = {}) {
+  if (typeof DartWorkAnalysis !== 'undefined') {
+    analyzeArtworkCollection.service ||= DartWorkAnalysis.create({ logic: CatalogLogic,
+      jobs: typeof DartCatalogJobs !== 'undefined' ? DartCatalogJobs : null });
+    return analyzeArtworkCollection.service.analyze(liked, preferences, background, options);
+  }
+  return Promise.resolve({ tags: CatalogLogic.recommendationTags(liked, 6),
+    tagGroups: CatalogLogic.recommendationTagGroups(liked, 2, preferences),
+    queryGroups: CatalogLogic.recommendationQueryGroups(liked, preferences, background, options) });
 }
 
 function recommendationPoolsHaveMore(pools) {
@@ -1603,6 +1628,7 @@ function retryRecommendationSources(tab, sources = null, load = true) {
   tab.emptyRecommendationRounds = 0;
   tab.recommendationPaused = false;
   tab.hasMore = recommendationPoolsHaveMore(tab.recommendationPools);
+  if (load && tab.recommendationAnalysisFailed) return loadRecommendations(tab, false);
   if (load) return loadRecommendations(tab, true);
   if (typeof scheduleRule34Recovery === 'function') scheduleRule34Recovery(tab);
 }
@@ -1704,7 +1730,7 @@ function selectRecommendationGroups(tab) {
   return chosen;
 }
 
-function prepareRecommendationProfile(tab, liked = recommendationLikedWorks(), newVisit = true) {
+function prepareRecommendationProfile(tab, liked = recommendationLikedWorks(), newVisit = true, analysis = null) {
   const previousPools = tab.recommendationPools;
   if (newVisit) {
     recommendationVisitCount = (recommendationVisitCount + 1) % 1000000;
@@ -1717,14 +1743,14 @@ function prepareRecommendationProfile(tab, liked = recommendationLikedWorks(), n
       tab.recommendationSeed = (tab.recommendationSeed + 1) >>> 0 || 1;
     tab.recommendationRecentKeys = recommendationRecentExposureKeys(tab);
   }
-  tab.recommendationTags = CatalogLogic.recommendationTags(liked, 6);
-  tab.recommendationTagGroups = CatalogLogic.recommendationTagGroups(liked, 2, recommendationTagPreferences);
+  tab.recommendationTags = analysis?.tags || CatalogLogic.recommendationTags(liked, 6);
+  tab.recommendationTagGroups = analysis?.tagGroups || CatalogLogic.recommendationTagGroups(liked, 2, recommendationTagPreferences);
   tab.emptyRecommendationRounds = 0;
   tab.recommendationPaused = false;
   tab.recommendationPools = createRecommendationPools(liked,
     tab.selectedSources, recommendationTagPreferences,
     tab.recommendationBackgroundKey === `${selectedRating(tab)}:${[...tab.selectedSources].sort().join(',')}`
-      ? tab.recommendationBackground || [] : []);
+      ? tab.recommendationBackground || [] : [], analysis);
   if (!newVisit) {
     const previous = new Map(Object.values(previousPools || {}).flat()
       .map(group => [`${group.kind}:${group.query}`, group]));
@@ -1827,6 +1853,36 @@ async function loadRecommendations(tab, append = false) {
   const version = tab.recommendationVersion = (tab.recommendationVersion || 0) + 1;
   if (stopEmptyRatingFeed(tab)) return;
   const visibleLikes = recommendationLikedWorks();
+  let analysis = null;
+  if ((!append || tab.recommendationProfileDirty) && typeof DartWorkAnalysis !== 'undefined') {
+    const preferences = recommendationTagPreferences, preferenceKey = JSON.stringify(preferences);
+    const inputVersion = CatalogLogic.recommendationInputVersion(visibleLikes);
+    const selection = `${selectedRating(tab)}:${[...tab.selectedSources].sort().join(',')}`;
+    tab.loading = true;
+    if (activeId === tab.id) render();
+    try {
+      const background = tab.recommendationBackgroundKey === `${selectedRating(tab)}:${[...tab.selectedSources].sort().join(',')}`
+        ? tab.recommendationBackground || [] : [];
+      analysis = await analyzeArtworkCollection(visibleLikes, preferences, background);
+    } catch {
+      if (alive() && version === tab.recommendationVersion && !controller.signal.aborted) {
+        tab.loading = false; tab.loadError = true; tab.recommendationAnalysisFailed = true;
+        if (activeId === tab.id) render();
+      }
+      return;
+    }
+    if (!alive() || version !== tab.recommendationVersion || controller.signal.aborted) {
+      if (alive() && version === tab.recommendationVersion) tab.loading = false;
+      return;
+    }
+    if (visibleLikes !== recommendationLikedWorks() || inputVersion !== CatalogLogic.recommendationInputVersion(visibleLikes) ||
+        preferenceKey !== JSON.stringify(recommendationTagPreferences) ||
+        selection !== `${selectedRating(tab)}:${[...tab.selectedSources].sort().join(',')}`) {
+      tab.loading = false;
+      return loadRecommendations(tab, append);
+    }
+    delete tab.recommendationAnalysisFailed;
+  }
   if (!append) {
     delete tab.resumePrefetchAt;
     tab.items = []; tab.errors = {}; tab.loadError = false;
@@ -1834,10 +1890,10 @@ async function loadRecommendations(tab, append = false) {
     delete tab.retainedFeedHeights;
     delete tab.expiredFeedWorks;
     delete tab.expiredFeedTokens;
-    prepareRecommendationProfile(tab, visibleLikes);
+    prepareRecommendationProfile(tab, visibleLikes, true, analysis);
   }
   if (tab.recommendationProfileDirty) {
-    if (append) prepareRecommendationProfile(tab, visibleLikes, false);
+    if (append) prepareRecommendationProfile(tab, visibleLikes, false, analysis);
     tab.recommendationProfileDirty = false;
   }
   const groups = selectRecommendationGroups(tab);
@@ -3124,10 +3180,20 @@ function artworkSourceItems(route) {
   // A repeated listing may become known only after its detail/hash is learned.
   // Preserve its metadata for buffered slots so grouping can remove the stale
   // duplicate; known works that have never entered this route stay filtered.
-  const updates = CatalogLogic.filterCatalogItems(changed).filter(item =>
+  const supported = CatalogLogic.filterCatalogItems(changed);
+  const updates = supported.filter(item =>
     [item.key, ...(item.memberKeys || [])].some(key => bufferedKeys.has(key)));
   const visible = filterFeedWorks(changed, source, source.kind === 'follows' && !regroup, route.list);
-  const works = CatalogLogic.mergeGroupedWorks(visible, updates)
+  const visibleKeys = new Set(visible.flatMap(item => [item.key, ...(item.memberKeys || [])]));
+  const owners = new Map();
+  for (const item of supported) for (const key of new Set([item.key, ...(item.memberKeys || [])]))
+    owners.set(key, (owners.get(key) || 0) + 1);
+  // These records already supplied the visible grouping's complete metadata.
+  // Keep filtered buffered updates, and conservatively merge overlapping raw
+  // records whose same key could describe a different, hidden response.
+  const missingUpdates = updates.filter(item => [item.key, ...(item.memberKeys || [])]
+    .some(key => !visibleKeys.has(key) || owners.get(key) !== 1));
+  const works = (missingUpdates.length ? CatalogLogic.mergeGroupedWorks(visible, missingUpdates) : visible)
     .filter(item => !isExpiredFeedWork(source, item));
   route.readItems = source.kind === 'profile'
     ? CatalogLogic.stableFeedItems(source.profileGridItems || [], works) : works;
@@ -3892,23 +3958,76 @@ async function toggleSavedWork(item, collection, likeOnly = false) {
     });
     for (const key of pendingKeys) intentions.set(key, response.saved);
     const keys = new Set([item.key, ...(item.memberKeys || [])]);
-    const remaining = (collection === 'likes' ? likes : bookmarks).filter(entry =>
-      ![entry.key, ...(entry.memberKeys || [])].some(key => keys.has(key)));
-    setSavedWorks(collection, response.saved ? [item, ...remaining] : remaining, response.saved ? [item] : []);
-    if (response.saved) {
-      if (clickedVisibleFeedCard) retainFeedWork(sourceTab, item, clickedVisibleFeedHeight);
-      void recordViewedWorks([item]);
+    // Native writes remain concurrent. Serialize only publication of their
+    // confirmed deltas so one collection never queues quadratic full analyses.
+    const publications = toggleSavedWork.publications ||= {};
+    const preceding = publications[collection];
+    let release;
+    const publication = publications[collection] = new Promise(resolve => { release = resolve; });
+    if (preceding) await preceding;
+    const metadataFields = value => Object.entries(value || {}).flatMap(([key, value]) => Array.isArray(value)
+      ? [key, value, value.length] : [key, value]);
+    try {
+      for (let attempt = 0;; attempt++) {
+        const previous = collection === 'likes' ? likes : bookmarks;
+        const revision = refreshSavedWorks.states?.[collection]?.revision;
+        const grouping = CatalogLogic.groupingRevision?.(previous) || 0;
+        const canonical = itemIndex.get(item.key);
+        const canonicalRevision = canonical && CatalogLogic.recommendationInputVersion?.([canonical]);
+        const canonicalFields = metadataFields(canonical);
+        const saved = previous.find(entry => entry.key === item.key && entry.source === item.source);
+        let current = saved ? CatalogLogic.mergeWorkMetadata(item, saved) : item;
+        if (canonical?.key === item.key && canonical.source === item.source)
+          current = CatalogLogic.mergeWorkMetadata(current, canonical);
+        current = { ...current, memberKeys: [...new Set([item.key, ...keys, ...(current.memberKeys || [])])] };
+        const confirmedKeys = response.saved ? new Set(current.memberKeys) : keys;
+        const remaining = previous.filter(entry =>
+          ![entry.key, ...(entry.memberKeys || [])].some(key => confirmedKeys.has(key)));
+        const next = response.saved ? [current, ...remaining] : remaining;
+        let grouped = null;
+        // Continuous enrichment must not starve an acknowledged save. After
+        // three superseded analyses, publish a fresh delta synchronously without
+        // seeding a stale cache; the ordinary shared grouping path remains valid.
+        if (attempt < 3 && next.length && typeof DartCatalogJobs !== 'undefined') {
+          try { grouped = await DartCatalogJobs.run('groupWorks', [next], () => null,
+            { cacheKey: collection, previousInput: previous }); }
+          catch { /* Keep ordinary mutations available on hosts without the optional worker. */ }
+        }
+        // A different saved action or metadata refresh may finish during analysis.
+        // Reapply this confirmed delta to the newest snapshot instead of dropping
+        // that change or publishing grouping made from obsolete metadata.
+        const latestFields = metadataFields(itemIndex.get(item.key));
+        if (previous !== (collection === 'likes' ? likes : bookmarks) ||
+            revision !== refreshSavedWorks.states?.[collection]?.revision ||
+            grouping !== (CatalogLogic.groupingRevision?.(previous) || 0) || canonical !== itemIndex.get(item.key) ||
+            canonicalRevision !== (canonical && CatalogLogic.recommendationInputVersion?.([canonical])) ||
+            canonicalFields.length !== latestFields.length || canonicalFields.some((value, index) => value !== latestFields[index])) continue;
+        if (Array.isArray(grouped) && typeof CatalogLogic.cacheGroupedWorks === 'function') {
+          try { CatalogLogic.cacheGroupedWorks(next, grouped); }
+          catch { /* A rejected optional warm result cannot erase a confirmed save. */ }
+        }
+        setSavedWorks(collection, next, response.saved ? [current] : []);
+        item = current;
+        break;
+      }
+      if (response.saved) {
+        if (clickedVisibleFeedCard) retainFeedWork(sourceTab, item, clickedVisibleFeedHeight);
+        void recordViewedWorks([item]);
+      }
+      syncSavedWorkButtons();
+      // A native acknowledgement is valid only for the snapshot this window
+      // already knows. Other-window changes and older servers still reconcile.
+      const state = refreshSavedWorks.states?.[collection];
+      const matchesSnapshot = response.previousRevision && response.revision && state?.serverRevision === response.previousRevision;
+      if (response.previousRevision && response.revision)
+        for (const known of Object.values(refreshSavedWorks.states || {}))
+          if (known.serverRevision === response.previousRevision) known.serverRevision = response.revision;
+      if (!matchesSnapshot) await refreshSavedWorks(collection, true);
+      syncSavedWorkButtons();
+    } finally {
+      release();
+      if (publications[collection] === publication) delete publications[collection];
     }
-    syncSavedWorkButtons();
-    // A native acknowledgement is valid only for the snapshot this window
-    // already knows. Other-window changes and older servers still reconcile.
-    const state = refreshSavedWorks.states?.[collection];
-    const matchesSnapshot = response.previousRevision && response.revision && state?.serverRevision === response.previousRevision;
-    if (response.previousRevision && response.revision)
-      for (const known of Object.values(refreshSavedWorks.states || {}))
-        if (known.serverRevision === response.previousRevision) known.serverRevision = response.revision;
-    if (!matchesSnapshot) await refreshSavedWorks(collection, true);
-    syncSavedWorkButtons();
     invalidateSavedRecommendations(collection);
     const tab = currentTab();
     if (tab?.kind === collection) render();
@@ -4888,7 +5007,18 @@ function renderRelatedTail(tab) {
 function knownWorkTokens() {
   // Viewed identities remain live: pending writes and same-size replacements
   // change independently of the saved-library metadata.
-  return new Set([...viewedTokens, ...viewedPending, ...knownLibraryWorkTokens()]);
+  const sources = [viewedTokens, viewedPending, knownLibraryWorkTokens()];
+  function* values() {
+    const yielded = new Set();
+    for (const source of sources) for (const token of source) if (!yielded.has(token)) {
+      yielded.add(token); yield token;
+    }
+  }
+  // Feed filters only need membership. Do not copy the entire history on
+  // every render; materialize its union only for an explicit iteration/count.
+  return { has: token => sources.some(source => source.has(token)),
+    get size() { let count = 0; for (const token of values()) count++; return count; },
+    values, keys: values, [Symbol.iterator]: values };
 }
 
 function knownLibraryWorkTokens() {

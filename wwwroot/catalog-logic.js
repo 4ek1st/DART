@@ -626,8 +626,37 @@
   }
 
   const groupedCache = new WeakMap();
+  const groupingBatches = new WeakMap(), groupedOrigins = new WeakMap();
+  let groupingBatchSequence = 0;
   const groupingRevisions = new WeakMap();
   function groupingRevision(items) { return groupingRevisions.get(items) || 0; }
+  function registerGroupedWorks(items, result) {
+    const batch = { valid: true, revision: 0, sequence: ++groupingBatchSequence };
+    if (Array.isArray(items)) { groupedCache.set(items, result); groupingBatches.set(items, batch); }
+    groupingBatches.set(result, batch);
+    for (const item of result) groupedOrigins.set(item, batch);
+    return result;
+  }
+  function cacheGroupedWorks(items, result) {
+    if (!Array.isArray(items) || !Array.isArray(result)) return null;
+    const expected = new Set(items.flatMap(item => [item?.key, ...(item?.memberKeys || []),
+      ...(item?.groupMembers || []).map(member => member?.key)]).filter(Boolean));
+    const received = new Set();
+    for (const item of result) {
+      if (!item || typeof item !== 'object' || !expected.has(item.key) || !Array.isArray(item.memberKeys)) return null;
+      for (const key of [item.key, ...item.memberKeys]) {
+        if (!expected.has(key)) return null;
+        received.add(key);
+      }
+    }
+    if ([...expected].some(key => !received.has(key))) return null;
+    return registerGroupedWorks(items, result);
+  }
+  function recommendationInputVersion(items) {
+    const origins = new Set((items || []).map(item => groupedOrigins.get(item)).filter(Boolean));
+    return [groupingRevision(items), items?.length || 0,
+      ...[...origins].map(batch => `${batch.sequence}:${batch.revision}`)].join('|');
+  }
   const groupingVersion = 2;
   const memberKeysOf = item => [...new Set([item?.key, ...(item?.memberKeys || [])].filter(Boolean))];
   function hasGroupMembers(item) {
@@ -714,9 +743,16 @@
   }
   function invalidateGrouping(items) {
     if (!Array.isArray(items)) return;
+    const invalidated = new Set();
+    const invalidate = batch => {
+      if (!batch || invalidated.has(batch)) return;
+      invalidated.add(batch); batch.valid = false; batch.revision++;
+    };
+    invalidate(groupingBatches.get(items));
     groupingRevisions.set(items, groupingRevision(items) + 1);
     groupedCache.delete(items);
     for (const item of items) if (item && typeof item === 'object') {
+      invalidate(groupedOrigins.get(item));
       groupingEvidenceCache.delete(item);
       identityCache.delete(item);
       attributionCache.delete(item); sampleCache.delete(item); contentCache.delete(item);
@@ -822,20 +858,23 @@
     const candidates = works.map((item, index) => {
       const id = Number(item.id);
       const time = Date.parse(item.published || '');
-      const creator = visualCreator(item);
       const uploader = String(item.uploaderId || '').trim().toLowerCase();
+      const rating = ['e', 'explicit', 'q', 'questionable'].includes(item.rating)
+        ? 'adult' : ordinaryRatings.includes(item.rating) ? 'general' : '';
+      // Most catalog works cannot enter an inferred upload batch. Reject
+      // those before constructing tag sets and other expensive evidence.
+      if (!supportedSources.includes(item.source) || !Number.isSafeInteger(id) || id < 1 ||
+          !Number.isFinite(time) || !knownUploader(uploader) || !rating || item.groupKey || item.pixivGroupKey ||
+          originalPostIdentity(item.originalUrl)) return null;
+      const creator = visualCreator(item);
+      if (!creator) return null;
       const tags = new Set((item.tags || []).map(tag => String(tag).toLowerCase()));
       const memberIds = (item.memberKeys || [item.key]).map(key => {
         const prefix = `${item.source}:`;
         return key.startsWith(prefix) && /^\d+$/.test(key.slice(prefix.length))
           ? Number(key.slice(prefix.length)) : NaN;
       });
-      const rating = ['e', 'explicit', 'q', 'questionable'].includes(item.rating)
-        ? 'adult' : ordinaryRatings.includes(item.rating) ? 'general' : '';
-      if (!supportedSources.includes(item.source) ||
-          !Number.isSafeInteger(id) || id < 1 || !Number.isFinite(time) ||
-          !creator || !knownUploader(uploader) || !rating || tags.size < 12 ||
-          item.groupKey || item.pixivGroupKey || originalPostIdentity(item.originalUrl) ||
+      if (tags.size < 12 ||
           memberIds.some(value => !Number.isSafeInteger(value) || value < 1)) return null;
       return { index, id: Math.max(id, ...memberIds), minId: Math.min(id, ...memberIds), time, tags,
         bucket: JSON.stringify([item.source, creator, uploader, rating, visualTags(item.characterTags)]) };
@@ -957,8 +996,7 @@
           memberKeys: [item.key], identityKeys: [], groupMembers: [], groupingVersion: 0 })) : [],
         rating: explicit ? 'e' : questionable ? 'q' : preferred.rating };
     });
-    if (Array.isArray(items)) groupedCache.set(items, result);
-    return result;
+    return registerGroupedWorks(items, result);
   }
 
   const groupingEvidenceCache = new WeakMap();
@@ -1453,14 +1491,25 @@
   }
 
   const recommendationProfiles = new WeakMap();
+  function canonicalRecommendationView(items) {
+    if (!items?.length) return false;
+    const origin = groupedOrigins.get(items[0]);
+    if (!origin?.valid) return false;
+    const seen = new Set();
+    for (const item of items) {
+      if (groupedOrigins.get(item) !== origin || seen.has(item)) return false;
+      seen.add(item);
+    }
+    return true;
+  }
   function recommendationRawTags(item) {
     return [...(item?.tags || []), ...(item?.allTags || []),
       ...(item?.characterTags || []), ...(item?.copyrightTags || [])];
   }
 
-  function recommendationWorkTags(item) {
+  function recommendationWorkTags(item, raw = recommendationRawTags(item)) {
     const authors = new Set(workParticipants(item).map(person => normalizeTag(person.tag)));
-    return meaningfulTags(recommendationRawTags(item)).filter(tag => !authors.has(tag) &&
+    return meaningfulTags(raw).filter(tag => !authors.has(tag) &&
       !/^(?:.* commentary|commission|translated|translation request|tagme|artist name|signature|watermark)$/.test(tag));
   }
 
@@ -1472,7 +1521,10 @@
   function recommendationProfile(liked) {
     const cached = recommendationProfiles.get(liked);
     const revision = groupingRevision(liked);
-    if (cached && cached.revision === revision && cached.length === liked.length) return cached.profile;
+    const origin = groupedOrigins.get(liked?.[0]), originValid = origin?.valid;
+    if (cached && cached.revision === revision && cached.length === liked.length &&
+        cached.origin === origin && cached.originValid === originValid &&
+        cached.origins.every(([batch, revision]) => batch.revision === revision)) return cached.profile;
     const profile = new Map();
     const names = new Set();
     const typedNames = new Set();
@@ -1482,13 +1534,17 @@
     const canonicalQueries = new Map();
     // Snapshot once before grouping: metadata consumers must share one scan,
     // including saved-work objects whose tag arrays are exposed through getters.
-    const works = groupWorks((liked || []).map(item => ({ ...item })));
+    const snapshot = (liked || []).map(item => ({ ...item }));
+    // Filtered/rated views of one already grouped batch keep its decisions.
+    // Mixed batches, duplicates and explicitly invalidated metadata still use
+    // the full grouping path. Origin records retain no library arrays.
+    const works = canonicalRecommendationView(liked) ? snapshot : groupWorks(snapshot);
     for (const item of works) {
       const subject = normalizeTag(item.relatedQuery);
       const title = normalizeTag(item.title);
-      const raw = recommendationRawTags(item);
+      const raw = [...new Set(recommendationRawTags(item))];
       const spellings = firstTagSpellings(raw);
-      const tags = recommendationWorkTags(item);
+      const tags = recommendationWorkTags(item, raw);
       for (const tag of item.characterTags || []) { names.add(normalizeTag(tag)); typedNames.add(normalizeTag(tag)); }
       for (const tag of item.copyrightTags || []) copyrights.add(normalizeTag(tag));
       // Legacy saved works may lack typed metadata. Keep the existing subject
@@ -1521,7 +1577,9 @@
     for (const tag of copyrights) if (!typedNames.has(tag)) names.delete(tag);
     for (const entry of ordered) entry.support = [...entry.authors.values()]
       .reduce((sum, count) => sum + Math.sqrt(count), 0);
-    if (Array.isArray(liked)) recommendationProfiles.set(liked, { profile: ordered, names, copyrights, records, revision, length: liked.length,
+    const origins = [...new Map((liked || []).map(item => groupedOrigins.get(item)).filter(Boolean)
+      .map(batch => [batch, batch.revision]))];
+    if (Array.isArray(liked)) recommendationProfiles.set(liked, { profile: ordered, names, copyrights, records, revision, origin, originValid, origins, length: liked.length,
       total: works.length, supportTotal: [...authorTotals.values()].reduce((sum, count) => sum + Math.sqrt(count), 0) });
     return ordered;
   }
@@ -1684,12 +1742,18 @@
         ...strongest(usable.filter(entry => state.copyrights.has(entry.tag))).slice(0, 32),
         ...usable.filter(entry => preferences[entry.tag] === 'priority')
       ].map(entry => entry.tag));
+      const compare = (a, b) => Number(preferences[b] === 'priority') - Number(preferences[a] === 'priority') ||
+        Number(identity(b)) - Number(identity(a)) || byTag.get(b).support - byTag.get(a).support || a.localeCompare(b);
+      const ordered = [...focused].sort(compare), ranks = new Map();
+      let rank = 0;
+      for (let index = 0; index < ordered.length; index++) {
+        if (index && compare(ordered[index - 1], ordered[index]) !== 0) rank++;
+        ranks.set(ordered[index], rank);
+      }
       const pairs = new Map();
       for (const record of state.records) {
         const tags = record.tags.filter(tag => focused.has(tag)).sort((a, b) =>
-          Number(preferences[b] === 'priority') - Number(preferences[a] === 'priority') ||
-          Number(identity(b)) - Number(identity(a)) || byTag.get(b).support - byTag.get(a).support ||
-          a.localeCompare(b)).slice(0, 20);
+          ranks.get(a) - ranks.get(b)).slice(0, 20);
         for (let a = 0; a < tags.length; a++) for (let b = a + 1; b < tags.length; b++) {
           // Character + series is usually the same identity described twice.
           if (identity(tags[a]) && identity(tags[b])) continue;
@@ -2251,7 +2315,7 @@
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks, sameWork,
-    removeNavigationEntry, groupWorks, mergeGroupedWorks, groupingRevision, invalidateGrouping, refineGrouping,
+    removeNavigationEntry, groupWorks, cacheGroupedWorks, mergeGroupedWorks, groupingRevision, invalidateGrouping, refineGrouping,
     needsGroupRepair, repairLegacyGroup, replaceRepairedGroups,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind, artworkTagText,
@@ -2261,7 +2325,7 @@
     supportedSources, filterCatalogItems, catalogSort, cleanClientState, navigationSection,
     pickRelatedAnchor, relatedQueries, rankRelated, recommendationTags, recommendationTagGroups,
     isBroadRecommendationTag, orderRecommendationOtherTags,
-    recommendationQueryGroups, recommendationCombinations, rankRecommendations, mergeRecommendations,
+    recommendationQueryGroups, recommendationInputVersion, recommendationCombinations, rankRecommendations, mergeRecommendations,
     normalizeCurationPreferences, curationBoosts, rankCuratedWorks, mergeCuratedWorks,
     matchesRating, followKey, followedWorkMatcher, followFeedRequests, buildFollowFeed, groupFollowFeed, stableFeedItems,
     randomFollowFeedItems };

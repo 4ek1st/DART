@@ -13,14 +13,20 @@ const between = (start, end) => {
 function fixture({ hidden = true, bookmarks = [], likes = [], viewed = [], recent = [], tab = {} } = {}) {
   const current = { id: 1, kind: 'detail', feed: 'illustrations', ...tab };
   const serverBookmarks = [...bookmarks];
+  const itemIndex = new Map([...bookmarks, ...likes, ...recent, ...(current.related || []),
+    ...(current.item ? [current.item] : [])].map(item => [item.key, item]));
+  const messages = [];
   const context = vm.createContext({
     CatalogLogic, Set, Map, contentPreferences: { hideViewedAndSaved: hidden },
     bookmarks: [...bookmarks], likes: [...likes], recent, likedKeys: new Set(), viewedTokens: new Set(viewed), viewedPending: new Set(), savedKeys: new Set(),
-    savedWorkPending: new Set(), tabs: [current], activeId: 1,
+    savedWorkPending: new Set(), tabs: [current], activeId: 1, itemIndex, toastMessages: messages,
     main: { querySelectorAll: () => [] }, currentTab: () => current,
     escapeHtml: value => String(value),
     renderCard: item => `<article data-key="${item.key}"></article>`,
-    syncSavedWorkButtons() {}, rememberItems() {}, toast() {},
+    syncSavedWorkButtons() {},
+    rememberItems(items) { for (const item of items) itemIndex.set(item.key,
+      CatalogLogic.mergeWorkMetadata(itemIndex.get(item.key), item)); },
+    toast(message) { messages.push(message); },
     request: async (path, options) => {
       if (path === '/api/bookmarks' && options?.method === 'POST') {
         serverBookmarks.push(JSON.parse(options.body));
@@ -131,6 +137,9 @@ test('saving retains the current related card and hides its later source copy', 
   let html = context.renderGrid([copy, fresh], 'related');
   context.render = () => { html = context.renderGrid([copy, fresh], 'related'); };
   await context.toggleSavedWork(copy, 'bookmarks');
+  assert(context.bookmarks.some(item => item.key === copy.key), 'the save must publish a real bookmark before checking hiding');
+  assert(context.toastMessages.includes('Добавлено в закладки'), 'the mutation must reach its successful completion');
+  assert(!context.toastMessages.some(message => /Не удалось/.test(message)), 'caught fixture dependency errors must not look like a successful save');
   assert.match(html, /gelbooru:copy/);
   assert.match(html, /rule34:fresh/);
   assert.doesNotMatch(context.renderGrid([saved, fresh], 'related'), /danbooru:saved/);

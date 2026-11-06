@@ -9,15 +9,15 @@
   const canonical = value => String(value || '').normalize('NFKC').trim().toLowerCase().replace(/\s+/g, '_');
   const contentTag = (tag, logic = root.CatalogLogic) => generic.has(tag) ||
     !!logic?.isBroadRecommendationTag?.(tag);
-  function systemSuggestions(liked = [], preferences = {}, logic = root.CatalogLogic) {
-    if (!logic?.recommendationQueryGroups) return [];
+  function systemSuggestions(liked = [], preferences = {}, logic = root.CatalogLogic, selected = null) {
+    if (!selected && !logic?.recommendationQueryGroups) return [];
     // Recommendation names also include legacy title guesses. Favorites needs
     // typed character evidence and must reject stale content-category mistakes.
     const names = new Set(liked.flatMap(work => work?.characterTags || []).map(canonical)
       .filter(tag => tag && !contentTag(tag, logic)));
     // Favorites uses the same entity evidence as recommendations, but never
     // consumes their joint search streams. Avoid building those unused pairs.
-    const selected = logic.recommendationQueryGroups(liked, preferences, [], { includeCombinations: false });
+    selected ||= logic.recommendationQueryGroups(liked, preferences, [], { includeCombinations: false });
     const result = new Map();
     for (const entry of [...selected.priority, ...selected.names, ...selected.copyright, ...selected.other]) {
       const tag = canonical(entry.query || entry.tag);
@@ -150,12 +150,28 @@
     });
     if ((item.groupMembers || []).length > 32) result.filteringComplete = false;
     // Unicode-heavy provider tags must still fit a keepalive request at shutdown.
-    const size = () => new TextEncoder().encode(JSON.stringify(result)).length;
-    for (const field of ['allTags', 'tags', 'copyrightTags', 'characterTags'])
-      while (result[field].length && size() > 30000) { result[field].pop(); result.filteringComplete = false; }
-    while (result.groupMembers.length && size() > 30000) { result.groupMembers.pop(); result.filteringComplete = false; }
-    while(result.imageRecords.length&&size()>30000)result.imageRecords.pop();
-    while(result.images.length>1&&size()>30000)result.images.pop();
+    const encoder = new TextEncoder(), size = value => encoder.encode(JSON.stringify(value)).length;
+    let total = size(result);
+    const trim = (field, minimum = 0, incomplete = false) => {
+      const values = result[field];
+      if (values.length <= minimum || total <= 30000) return;
+      if (incomplete && result.filteringComplete) { result.filteringComplete = false; total++; }
+      const original = size(values), budget = 30000 - (total - original);
+      let low = minimum, high = values.length - 1, keep = minimum;
+      // Prefix sizes are monotonic. Measure only this array while searching,
+      // rather than serializing the whole grouped artwork for every tag pop.
+      while (low <= high) {
+        const middle = Math.floor((low + high) / 2);
+        if (size(values.slice(0, middle)) <= budget) { keep = middle; low = middle + 1; }
+        else high = middle - 1;
+      }
+      result[field] = values.slice(0, keep);
+      total += size(result[field]) - original;
+    };
+    for (const field of ['allTags', 'tags', 'copyrightTags', 'characterTags']) trim(field, 0, true);
+    trim('groupMembers', 0, true);
+    trim('imageRecords');
+    trim('images', 1);
     return result;
   }
   const escape = text => String(text ?? '').replace(/[&<>"']/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[value]));
@@ -164,7 +180,7 @@
       changed = () => {}, toast = () => {}, allowed = () => true, save = () => {}, svg = () => '',
       openSearch = () => {}, openDetail = () => {}, schedule = setTimeout, unschedule = clearTimeout } = deps;
     const pending = new Set(), optimistic = new Map(), observed = new Map(), cache = new Map();
-    const ratedEvidence = new Map();
+    const ratedEvidence = new Map(), previousSuggestions = new Map(), emptyLikes = [];
     let evidenceInputs = null;
     let saving = Promise.resolve(), queue = [], timer = null, sending = null, inFlight = [], revision = 0, manualRevision = 0, disposed = false;
     let outboxSequence = 0;
@@ -174,6 +190,60 @@
     const pendingArtworks = new Set();
     const t = value => deps.t?.(value) || value;
     function mark() { revision++; cache.clear(); }
+    function evidenceContext() {
+      const liked = deps.getLiked?.() || emptyLikes, preferences = deps.getTagPreferences?.() || {};
+      const preferenceKey = JSON.stringify(preferences), grouping = root.CatalogLogic?.groupingRevision?.(liked) || 0;
+      const inputVersion = root.CatalogLogic?.recommendationInputVersion?.(liked) || '';
+      const inputs = [liked, liked.length, grouping, inputVersion, preferenceKey];
+      if (!evidenceInputs || !inputs.every((value, index) => evidenceInputs[index] === value)) {
+        evidenceInputs = inputs; ratedEvidence.clear();
+      }
+      return { liked, preferences, preferenceKey, grouping, inputVersion, inputs: evidenceInputs };
+    }
+    function evidenceCurrent(evidence) {
+      return !disposed && evidenceContext().inputs === evidence.inputs && ratedEvidence.get(evidence.rating) === evidence;
+    }
+    function notifyEvidence(evidence) {
+      const active = deps.getActiveTab?.();
+      if (deps.getActiveTab && (!active || !evidence.tabs.has(active) || active.favoriteType === 'artwork' ||
+          (deps.effectiveRating?.(active) || active.rating || 'all') !== evidence.rating)) return;
+      // The data load awaits this same evidence and paints its final state.
+      // Avoid two full card reconciliations in the completion microtasks.
+      if (active?.favoriteLoading) return;
+      changed();
+    }
+    function evidenceFor(rating, tab, retryFailed = false, context = evidenceContext()) {
+      let evidence = ratedEvidence.get(rating);
+      if (evidence && !(retryFailed && evidence.state === 'failed')) {
+        if (tab && evidence.state === 'pending') evidence.tabs.add(tab);
+        return evidence;
+      }
+      const items = rating === 'all' ? context.liked : context.liked.filter(item => ratingMatches(item, rating));
+      evidence = { rating, items, inputs: context.inputs, preferenceKey: context.preferenceKey,
+        tabs: new Set(), state: 'ready', suggestions: null, promise: null };
+      ratedEvidence.set(rating, evidence);
+      if (!deps.analyze) {
+        evidence.suggestions = systemSuggestions(items, context.preferences);
+        return evidence;
+      }
+      evidence.state = 'pending';
+      if (tab) evidence.tabs.add(tab);
+      const preferences = { ...context.preferences };
+      evidence.promise = Promise.resolve().then(() => deps.analyze(items, preferences, { includeCombinations: false })).then(analysis => {
+        if (!evidenceCurrent(evidence)) { evidence.state = 'stale'; return evidence; }
+        if (!analysis?.queryGroups) throw new Error('Favorite analysis unavailable');
+        evidence.suggestions = systemSuggestions(items, preferences, root.CatalogLogic, analysis.queryGroups);
+        evidence.state = 'ready';
+        previousSuggestions.set(rating, { preferenceKey: evidence.preferenceKey, suggestions: evidence.suggestions });
+        notifyEvidence(evidence);
+        return evidence;
+      }).catch(() => {
+        if (evidenceCurrent(evidence)) { evidence.state = 'failed'; notifyEvidence(evidence); }
+        else evidence.state = 'stale';
+        return evidence;
+      }).finally(() => evidence.tabs.clear());
+      return evidence;
+    }
     const workTokens = item => (deps.workTokens?.(item) || [item?.key, ...(item?.memberKeys || []),
       item?.contentHash && `hash:${item.contentHash}`]).filter(token => token && !/^group:(danbooru|gelbooru|rule34|sankaku):parent:/.test(token));
     function isArtworkFavorite(item) {
@@ -216,25 +286,46 @@
       artworkSaving = result.catch(() => {}); return result;
     }
     async function load(tab, force = false) {
+      if (disposed) return;
       if (tab.favoriteLoading) return;
       if (!force && tab.favoriteRevision === revision && tab.favoriteLoadedAt > Date.now() - 15000) return;
       tab.favoriteLoading = true; tab.favoriteError = ''; changed();
       try {
-        const rating = deps.effectiveRating?.(tab) || tab.rating || 'all', version = revision, choicesVersion = manualRevision;
-        const [summary, tags, worksReady] = await Promise.all([request(`/api/favorites?rating=${rating}`, { priority: 'background' }), request('/api/favorite-tags'), loadArtworks()]);
-        if (!worksReady) throw new Error('Favorite artworks unavailable');
-        if ((deps.effectiveRating?.(tab) || tab.rating || 'all') !== rating) { tab.favoriteLoading = false; return load(tab, true); }
-        tab.favoriteSummary = summary;
-        const merged = new Set(tags);
-        for (const [tag, favorite] of optimistic) favorite ? merged.add(tag) : merged.delete(tag);
-        if (choicesVersion === manualRevision) {
-          setTags([...merged]); lastKinds = summary.kinds || {};
+        while (!disposed) {
+          const rating = deps.effectiveRating?.(tab) || tab.rating || 'all', version = revision, choicesVersion = manualRevision;
+          const evidence = deps.analyze && tab.favoriteType !== 'artwork' && rating !== 'none'
+            ? evidenceFor(rating, tab, force) : null;
+          const [summary, tags, worksReady] = await Promise.all([
+            request(`/api/favorites?rating=${rating}`, { priority: 'background' }), request('/api/favorite-tags'), loadArtworks(), evidence?.promise
+          ]);
+          if (disposed) return;
+          if (!worksReady) throw new Error('Favorite artworks unavailable');
+          if ((deps.effectiveRating?.(tab) || tab.rating || 'all') !== rating) continue;
+          if (evidence && tab.favoriteType !== 'artwork') {
+            let current = evidenceFor(rating, tab);
+            while (current.state === 'pending' || current.state === 'stale') {
+              await current.promise;
+              if (disposed) return;
+              if ((deps.effectiveRating?.(tab) || tab.rating || 'all') !== rating) break;
+              current = evidenceFor(rating, tab);
+            }
+            if ((deps.effectiveRating?.(tab) || tab.rating || 'all') !== rating) continue;
+            if (current.state === 'failed') throw new Error('Favorite analysis unavailable');
+          }
+          tab.favoriteSummary = summary;
+          const merged = new Set(tags);
+          for (const [tag, favorite] of optimistic) favorite ? merged.add(tag) : merged.delete(tag);
+          if (choicesVersion === manualRevision) {
+            setTags([...merged]); lastKinds = summary.kinds || {};
+          }
+          tab.favoriteRevision = version; tab.favoriteLoadedAt = Date.now();
+          break;
         }
-        tab.favoriteRevision = version; tab.favoriteLoadedAt = Date.now();
       } catch { tab.favoriteError = 'Could not load Favorites. Your choices are still saved.'; }
       finally {
-        tab.favoriteLoading = false; changed();
-        if (!tab.favoriteError && tab.favoriteRevision !== revision && deps.getActiveTab?.() === tab) void load(tab, true);
+        tab.favoriteLoading = false;
+        if (!disposed && (!deps.getActiveTab || deps.getActiveTab() === tab)) changed();
+        if (!disposed && !tab.favoriteError && tab.favoriteRevision !== revision && deps.getActiveTab?.() === tab) void load(tab, true);
       }
     }
     function toggle(value, kind = null, requested) {
@@ -337,28 +428,24 @@
     }
     function cards(tab) {
       const summary = { ...(tab.favoriteSummary || {}), kinds: { ...tab.favoriteSummary?.kinds, ...lastKinds } };
-      const liked = deps.getLiked?.() || [], preferences = deps.getTagPreferences?.() || {};
-      const rating = deps.effectiveRating?.(tab) || tab.rating;
+      const context = evidenceContext(), { liked, preferences, preferenceKey, grouping, inputVersion } = context;
+      const rating = deps.effectiveRating?.(tab) || tab.rating || 'all';
       const tags = getTags(), recent = getRecent(), known = getKnown();
-      const preferenceKey = JSON.stringify(preferences), grouping = root.CatalogLogic?.groupingRevision?.(liked) || 0;
-      const key = [tab, summary.entries, tags, recent, known, liked, liked.length, grouping, preferenceKey,
+      const evidence = evidenceFor(rating, tab, false, context);
+      tab.favoriteEvidenceLoading = evidence.state === 'pending';
+      tab.favoriteEvidenceError = evidence.state === 'failed' ? 'Could not load Favorites. Your choices are still saved.' : '';
+      const key = [tab, summary.entries, tags, recent, known, liked, liked.length, grouping, inputVersion, preferenceKey,
+        evidence, evidence.state,
         tab.favoriteType, tab.favoriteOrigin, rating, revision, deps.getPreferences?.(), deps.visibilityRevision?.()];
       const old = cache.get(tab);
       if (old && key.every((value, i) => old.key[i] === value)) return old.cards;
-      // Rating filtering used to allocate a new likes array on every render,
-      // invalidating recommendationProfile's WeakMap and rebuilding the whole
-      // library even when only a view counter or collection switch changed.
-      const inputs = [liked, liked.length, grouping, preferenceKey];
-      if (!evidenceInputs || !inputs.every((value, index) => evidenceInputs[index] === value)) {
-        evidenceInputs = inputs; ratedEvidence.clear();
-      }
-      let evidence = ratedEvidence.get(rating);
-      if (!evidence) {
-        const items = rating === 'all' ? liked : liked.filter(item => ratingMatches(item, rating));
-        evidence = { items, suggestions: systemSuggestions(items, preferences) };
-        ratedEvidence.set(rating, evidence);
-      }
-      const values = collections({ summary, tags, recent, known, liked: evidence.items, suggestions: evidence.suggestions, preferences,
+      const previous = previousSuggestions.get(rating);
+      const suggestions = evidence.state === 'ready' ? evidence.suggestions : previous?.preferenceKey === preferenceKey ? previous.suggestions : null;
+      // Rendering never starts synchronous library analysis in worker mode.
+      // While a refreshed like snapshot is processed, rebuild only the cheap
+      // cards from prior evidence and current choices/filters/cover metadata.
+      if (!suggestions) return [];
+      const values = collections({ summary, tags, recent, known, liked: evidence.items, suggestions, preferences,
         type: tab.favoriteType || 'character', origin: tab.favoriteOrigin || 'mine', rating, allowed });
       cache.set(tab, { key, cards: values }); return values;
     }
@@ -366,7 +453,10 @@
     function render(tab) {
       const type = tab.favoriteType || 'character', origin = tab.favoriteOrigin || 'mine';
       const rating = deps.effectiveRating?.(tab) || tab.rating;
-      const values = type === 'artwork' ? [] : cards(tab);
+      const values = type === 'artwork' || rating === 'none' ? [] : cards(tab);
+      const evidenceLoading = type !== 'artwork' && rating !== 'none' && tab.favoriteEvidenceLoading;
+      const loading = tab.favoriteLoading || evidenceLoading;
+      const error = tab.favoriteError || (type !== 'artwork' ? tab.favoriteEvidenceError : '');
       tab.items = type === 'artwork' ? artworks.filter(item => ratingMatches(item, rating) && allowed(item)) :
         [...new Map(values.filter(card => card.cover).map(card => [card.cover.key, card.cover])).values()];
       const choose = (action, value, label, active) => button(action,t(label),`class="filter-button${action==='rating'&&value==='explicit'?' adult-filter':''}${active ? ' active' : ''}" data-value="${value}" aria-pressed="${active}"`);
@@ -393,13 +483,13 @@
           <button type="submit" class="primary-button">${t('Add Favorite')}</button>${button('cancel',t('Cancel'),'class="secondary-button"')}</div>
           <small>Use one tag with underscores, as on the source website.</small></form>` : ''}
         <div class="section-head favorites-description"><p>${t(type==='artwork' ? 'Saved artworks. Right-click an artwork to manage Favorites.' : origin==='mine' ?
-          'Saved by you. System picks never change this collection.' : 'Based on your likes and recommendation tag preferences.')}</p>${button('refresh',t('Refresh'),`class="link-button"${tab.favoriteLoading?' disabled':''}`)}</div>
+          'Saved by you. System picks never change this collection.' : 'Based on your likes and recommendation tag preferences.')}</p>${button('refresh',t('Refresh'),`class="link-button"${loading?' disabled':''}`)}</div>
         ${type !== 'artwork' ? `<p class="favorites-history-note">${summary ? `${summary.totalWorks} ${t('different works · Last 30 days')}` : t('Last 30 days')}. <span>Viewing statistics are collected from this update onward.</span></p>` : ''}
         ${summary?.incomplete && type!=='artwork' ? '<p class="settings-hint">Some activity could not be counted. Figures are partial.</p>' : ''}
-        ${tab.favoriteError ? `<div class="error" role="alert">${t(tab.favoriteError)} ${button('refresh',t('Try again'),'class="inline-retry"')}</div>` : ''}
-        ${tab.favoriteLoading && !summary ? '<div class="empty" role="status">Loading Favorites…</div>' : ''}
-        ${rating==='none' ? deps.emptyRating?.()||'<div class="empty">No NSFW ratings selected. Right-click NSFW to enable Q or NSFW.</div>' : type==='artwork' ? (tab.items.length ? deps.renderArtworks?.(tab.items)||'' : !tab.favoriteLoading ? artworks.length ? '<div class="empty">No favorite artworks match these filters.</div>' : '<div class="empty">No favorite artworks yet<br>Right-click an artwork or use its more menu to add it.</div>' : '') :
-          values.length ? `<div class="grid favorites-entity-grid">${values.map(entity).join('')}</div>` : !tab.favoriteLoading ?
+        ${error ? `<div class="error" role="alert">${t(error)} ${button('refresh',t('Try again'),'class="inline-retry"')}</div>` : ''}
+        ${loading && (!summary || !values.length && type !== 'artwork') ? '<div class="empty" role="status">Loading Favorites…</div>' : ''}
+        ${rating==='none' ? deps.emptyRating?.()||'<div class="empty">No NSFW ratings selected. Right-click NSFW to enable Q or NSFW.</div>' : type==='artwork' ? (tab.items.length ? deps.renderArtworks?.(tab.items)||'' : !loading ? artworks.length ? '<div class="empty">No favorite artworks match these filters.</div>' : '<div class="empty">No favorite artworks yet<br>Right-click an artwork or use its more menu to add it.</div>' : '') :
+          values.length ? `<div class="grid favorites-entity-grid">${values.map(entity).join('')}</div>` : !loading && !error ?
             `<div class="empty"><h2>${t(origin==='mine'?'Your Favorites start here':'Keep exploring')}</h2><p>${t(origin==='mine'?'Add a character or tag, or save a System pick from its menu.':'Like artworks or prioritize tags in Recommendations to discover your favorites.')}</p></div>` : ''}
       </section>`;
     }

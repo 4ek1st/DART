@@ -72,7 +72,12 @@ internal sealed partial class LocalStore
     private const long FavoriteDailyLimit = 16 * 1024 * 1024;
     private static readonly JsonSerializerOptions FavoriteJson = new(JsonSerializerDefaults.Web)
     { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-    private readonly Dictionary<string, (string Stamp, DateTimeOffset At, FavoriteActivitySummary Summary)> favoriteSummaryCache = [];
+    private readonly object favoriteSummarySync = new();
+    private long favoriteActivityRevision;
+    private readonly Dictionary<string, (string Stamp, DateTimeOffset At, long Revision, FavoriteActivitySummary Summary)> favoriteSummaryCache = [];
+    private sealed record FavoriteRecordsSnapshot(string Stamp, DateTimeOffset At, DateTimeOffset NextFutureAt,
+        List<FavoriteActivityRecord> Records, bool Incomplete);
+    private FavoriteRecordsSnapshot? favoriteRecordsCache;
     private string FavoriteActivityDirectory => Path.Combine(directory, "favorite-activity-v1");
     private string FavoriteActivityLock => Path.Combine(directory, "favorite-activity.lock");
     private string FavoriteKindsFile => Path.Combine(directory, "favorite-kinds-v1.json");
@@ -195,7 +200,8 @@ internal sealed partial class LocalStore
                 // Only this feature's strictly named daily files under its owned directory.
                 try { File.Delete(old); } catch (IOException) { /* Retry retention on a later open. */ }
             }
-            favoriteSummaryCache.Clear();
+            Interlocked.Increment(ref favoriteActivityRevision);
+            Volatile.Write(ref favoriteRecordsCache, null);
         }
     }
 
@@ -236,7 +242,7 @@ internal sealed partial class LocalStore
                 // Write classification first. A later failed/limited tag write can leave
                 // harmless unused metadata, but never a confirmed favorite without its kind.
                 WriteAtomic(FavoriteKindsFile, JsonSerializer.SerializeToUtf8Bytes(document, FavoriteJson));
-                favoriteSummaryCache.Clear();
+                Interlocked.Increment(ref favoriteActivityRevision);
             }
             return SetFavoriteTag(tag, favorite);
         }
@@ -248,55 +254,132 @@ internal sealed partial class LocalStore
         return file.Exists ? $"{file.Name}:{file.Length}:{file.LastWriteTimeUtc.Ticks}:{file.CreationTimeUtc.Ticks}" : "";
     }
 
+    private string[] FavoriteActivityFiles(DateTimeOffset cutoff, DateTimeOffset at) => Directory.Exists(FavoriteActivityDirectory)
+        ? Directory.EnumerateFiles(FavoriteActivityDirectory, "*.jsonl")
+            .Where(path => DateOnly.TryParseExact(Path.GetFileNameWithoutExtension(path), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var day) && day >= DateOnly.FromDateTime(cutoff.UtcDateTime) &&
+                day <= DateOnly.FromDateTime(at.UtcDateTime)).OrderDescending().ToArray() : [];
+
+    private static string FavoriteLogStamp(IEnumerable<string> files) =>
+        string.Join('|', files.SelectMany(path => new[] { FavoriteStamp(path), FavoriteStamp(path + ".limited") }));
+
+    private string FavoriteActivityStamp(IEnumerable<string> files, IEnumerable<string> manual) => FavoriteLogStamp(files) +
+        FavoriteStamp(FavoriteKindsFile) + FavoriteStamp(FavoriteKindsFile + ".bak") + string.Join('|', manual.Order());
+
+    // Capture the stable prefix while holding the activity lease, then release
+    // it before decoding. Writers append only; a later append cannot change the
+    // captured bytes or make this read include a half-written new record.
+    private sealed class FavoriteLogPrefix(Stream source, long length) : Stream
+    {
+        private readonly long capturedLength = length;
+        private long remaining = length;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => capturedLength;
+        public override long Position { get => capturedLength - remaining; set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = source.Read(buffer, offset, (int)Math.Min(count, remaining));
+            remaining -= read; return read;
+        }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { if (disposing) source.Dispose(); base.Dispose(disposing); }
+    }
+
     public FavoriteActivitySummary GetFavoriteActivity(string rating = "all", DateTimeOffset? now = null)
     {
         if (rating is not ("general" or "explicit" or "all" or "questionable" or "explicit-only" or "none")) throw new ArgumentException("Invalid rating.");
         var at = now ?? DateTimeOffset.UtcNow;
         var cutoff = at.AddDays(-30);
-        lock (sync)
+        lock (favoriteSummarySync)
         {
-            var manual = GetFavoriteTags().Select(NormalizeFavoriteTag).ToHashSet(StringComparer.Ordinal);
-            using var fileLock = AcquireFileLock(FavoriteActivityLock);
-            var files = Directory.Exists(FavoriteActivityDirectory) ? Directory.EnumerateFiles(FavoriteActivityDirectory, "*.jsonl")
-                .Where(path => DateOnly.TryParseExact(Path.GetFileNameWithoutExtension(path), "yyyy-MM-dd", CultureInfo.InvariantCulture,
-                    DateTimeStyles.None, out var day) && day >= DateOnly.FromDateTime(cutoff.UtcDateTime) &&
-                    day <= DateOnly.FromDateTime(at.UtcDateTime)).OrderDescending().ToArray() : [];
-            var stamp = string.Join('|', files.SelectMany(path => new[] { FavoriteStamp(path), FavoriteStamp(path + ".limited") })) +
-                FavoriteStamp(FavoriteKindsFile) + FavoriteStamp(FavoriteKindsFile + ".bak") + string.Join('|', manual.Order());
-            if (favoriteSummaryCache.TryGetValue(rating, out var cached) && cached.Stamp == stamp &&
-                cached.At <= at && cached.At >= at.AddSeconds(-15)) return cached.Summary;
-            var kinds = ReadFavoriteKindDocument().Where(pair => ValidFavoriteTag(pair.Key) && pair.Value is JsonValue value &&
-                value.TryGetValue<string>(out var kind) && kind is "character" or "tag")
-                .ToDictionary(pair => pair.Key, pair => pair.Value!.GetValue<string>(), StringComparer.Ordinal);
-            var records = new List<FavoriteActivityRecord>();
-            var incomplete = false;
-            foreach (var path in files)
+            var snapshots = new List<(Stream Stream, bool Limited)>();
+            try
             {
-                incomplete |= File.Exists(path + ".limited");
-                foreach (var line in File.ReadLines(path))
+                HashSet<string> manual;
+                Dictionary<string, string> kinds;
+                string stamp, logStamp;
+                long revision;
+                long snapshotBytes = 0;
+                FavoriteRecordsSnapshot? reusedRecords;
+                lock (sync)
                 {
-                    if (records.Count >= 50_000) { incomplete = true; break; }
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    if (line.Length > 512_000) { incomplete = true; continue; }
-                    try
+                    manual = GetFavoriteTags().Select(NormalizeFavoriteTag).ToHashSet(StringComparer.Ordinal);
+                    using var fileLock = AcquireFileLock(FavoriteActivityLock);
+                    var files = FavoriteActivityFiles(cutoff, at);
+                    logStamp = FavoriteLogStamp(files);
+                    stamp = FavoriteActivityStamp(files, manual);
+                    revision = Volatile.Read(ref favoriteActivityRevision);
+                    if (favoriteSummaryCache.TryGetValue(rating, out var cached) && cached.Stamp == stamp && cached.Revision == revision &&
+                        cached.At <= at && cached.At >= at.AddSeconds(-15)) return cached.Summary;
+                    kinds = ReadFavoriteKindDocument().Where(pair => ValidFavoriteTag(pair.Key) && pair.Value is JsonValue value &&
+                        value.TryGetValue<string>(out var kind) && kind is "character" or "tag")
+                        .ToDictionary(pair => pair.Key, pair => pair.Value!.GetValue<string>(), StringComparer.Ordinal);
+                    reusedRecords = Volatile.Read(ref favoriteRecordsCache);
+                    if (reusedRecords is not null && (reusedRecords.Stamp != logStamp || reusedRecords.At > at ||
+                        reusedRecords.At < at.AddSeconds(-15) || reusedRecords.NextFutureAt <= at)) reusedRecords = null;
+                    if (reusedRecords is null) Volatile.Write(ref favoriteRecordsCache, null);
+                    foreach (var path in reusedRecords is null ? files : [])
                     {
-                        var record = JsonSerializer.Deserialize<FavoriteActivityRecord>(line, FavoriteJson);
-                        if (record is null || record.Work is null || record.Tokens is not { Count: > 0 and <= 160 } ||
-                            record.Tokens.Any(token => token is null || token.Length > 1000) ||
-                            record.Work.Thumbnail is null || record.Work.Tags is null || record.Work.CharacterTags is null ||
-                            record.Work.Tags.Concat(record.Work.CharacterTags).Any(tag => !ValidFavoriteTag(tag)) ||
-                            !CatalogState.IsSupported(record.Work.Source) || record.Work.Key != record.Work.Source + ":" + record.Work.Id)
-                        { incomplete = true; continue; }
-                        if (record.At >= cutoff && record.At <= at) records.Add(record);
+                        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+                            64 * 1024, FileOptions.SequentialScan);
+                        snapshots.Add((new FavoriteLogPrefix(stream, stream.Length), File.Exists(path + ".limited")));
+                        snapshotBytes += stream.Length;
                     }
-                    catch (JsonException) { incomplete = true; }
                 }
-                if (records.Count >= 50_000) break;
+                var records = reusedRecords?.Records.Where(record => record.At >= cutoff && record.At <= at).ToList() ?? [];
+                var incomplete = reusedRecords?.Incomplete ?? false;
+                var nextFutureAt = DateTimeOffset.MaxValue;
+                foreach (var snapshot in snapshots)
+                {
+                    incomplete |= snapshot.Limited;
+                    using var reader = new StreamReader(snapshot.Stream, Encoding.UTF8, true, 64 * 1024, leaveOpen: true);
+                    string? line;
+                    while ((line = reader.ReadLine()) is not null)
+                    {
+                        if (records.Count >= 50_000) { incomplete = true; break; }
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        if (line.Length > 512_000) { incomplete = true; continue; }
+                        try
+                        {
+                            var record = JsonSerializer.Deserialize<FavoriteActivityRecord>(line, FavoriteJson);
+                            if (record is null || record.Work is null || record.Tokens is not { Count: > 0 and <= 160 } ||
+                                record.Tokens.Any(token => token is null || token.Length > 1000) ||
+                                record.Work.Thumbnail is null || record.Work.Tags is null || record.Work.CharacterTags is null ||
+                                record.Work.Tags.Concat(record.Work.CharacterTags).Any(tag => !ValidFavoriteTag(tag)) ||
+                                !CatalogState.IsSupported(record.Work.Source) || record.Work.Key != record.Work.Source + ":" + record.Work.Id)
+                            { incomplete = true; continue; }
+                            if (record.At >= cutoff && record.At <= at) records.Add(record);
+                            else if (record.At > at && record.At < nextFutureAt) nextFutureAt = record.At;
+                        }
+                        catch (JsonException) { incomplete = true; }
+                    }
+                    if (records.Count >= 50_000) break;
+                }
+                var summary = BuildFavoriteSummary(records, rating, manual);
+                summary.Kinds = kinds; summary.Incomplete = incomplete || records.Any(record => !record.Work.FilteringComplete);
+                lock (sync)
+                {
+                    using var fileLock = AcquireFileLock(FavoriteActivityLock);
+                    var latestManual = GetFavoriteTags().Select(NormalizeFavoriteTag).ToHashSet(StringComparer.Ordinal);
+                    if (Volatile.Read(ref favoriteActivityRevision) == revision &&
+                        FavoriteActivityStamp(FavoriteActivityFiles(cutoff, at), latestManual) == stamp)
+                    {
+                        favoriteSummaryCache[rating] = (stamp, at, revision, summary);
+                        // Ratings share one immutable parsed input, not repeated
+                        // decoding of the same logs. Keep memory and time bounded;
+                        // a future event becoming eligible must force a fresh read.
+                        if (reusedRecords is null && snapshotBytes <= 32 * 1024 * 1024 && records.Count < 50_000)
+                            Volatile.Write(ref favoriteRecordsCache, new(logStamp, at, nextFutureAt, records, incomplete));
+                    }
+                }
+                return summary;
             }
-            var summary = BuildFavoriteSummary(records, rating, manual);
-            summary.Kinds = kinds; summary.Incomplete = incomplete || records.Any(record => !record.Work.FilteringComplete);
-            favoriteSummaryCache[rating] = (stamp, at, summary);
-            return summary;
+            finally { foreach (var snapshot in snapshots) snapshot.Stream.Dispose(); }
         }
     }
 

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ArtCatalog;
@@ -28,6 +29,83 @@ internal static class FavoritesFixtureTests
     };
     private static JsonObject Entry(JsonObject state, string tag) => state["entries"]!.AsArray()
         .OfType<JsonObject>().Single(entry => entry["tag"]!.GetValue<string>() == tag);
+
+    private static string ActivityLine(CatalogItem item, DateTimeOffset at) => JsonSerializer.Serialize(new
+        { at, metadataOnly = false, work = item, tokens = new[] { "key:" + item.Key } }, Json);
+
+    private static void ConcurrentSummary(string root)
+    {
+        var directory = Path.Combine(root, "concurrent-summary");
+        var logs = Path.Combine(directory, "favorite-activity-v1");
+        Directory.CreateDirectory(logs);
+        var dense = Work("danbooru", "12000", new string('a', 32));
+        dense.Tags = Enumerable.Range(0, 96).Select(index => "neutral_feature_" + index + "_detail").Prepend("fern").ToList();
+        for (var day = 0; day < 4; day++)
+        {
+            var at = Now.AddDays(-day);
+            var line = ActivityLine(dense, at);
+            File.WriteAllText(Path.Combine(logs, at.ToString("yyyy-MM-dd") + ".jsonl"), string.Concat(Enumerable.Repeat(line + "\n", 2000)));
+        }
+        var store = Open(directory);
+        var gate = Store.GetField("sync", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store)!;
+        using var finished = new ManualResetEventSlim();
+        JsonObject? captured = null; Exception? summaryError = null, writerError = null;
+        double summaryMs = 0, relatedMs = 0;
+        var reader = new Thread(() => {
+            var watch = Stopwatch.StartNew();
+            try { captured = Snapshot(store); } catch (Exception error) { summaryError = error; }
+            finally { summaryMs = watch.Elapsed.TotalMilliseconds; finished.Set(); }
+        }) { IsBackground = true };
+        reader.Start();
+        var sawCapture = SpinWait.SpinUntil(() => {
+            if (finished.IsSet) return true;
+            if (!Monitor.TryEnter(gate)) return true;
+            Monitor.Exit(gate); return false;
+        }, TimeSpan.FromSeconds(10));
+        Expect(sawCapture && !finished.IsSet, "The cold activity fixture must reach its capture phase");
+        var writer = new Thread(() => {
+            var watch = Stopwatch.StartNew();
+            try
+            {
+                _ = Store.GetMethod("GetFavoriteTags")!.Invoke(store, null);
+                relatedMs = watch.Elapsed.TotalMilliseconds;
+                Record(store, Now, (Work("danbooru", "12001", new string('b', 32), "new_character"), false));
+                Store.GetMethod("SetFavoriteEntity")!.Invoke(store, ["new_character", "character", true]);
+            }
+            catch (Exception error) { writerError = error; }
+            finally { if (relatedMs == 0) relatedMs = watch.Elapsed.TotalMilliseconds; }
+        }) { IsBackground = true };
+        writer.Start();
+        Expect(reader.Join(TimeSpan.FromSeconds(30)) && writer.Join(TimeSpan.FromSeconds(30)), "Activity snapshot and concurrent writes must not deadlock");
+        if (summaryError is not null) throw summaryError;
+        if (writerError is not null) throw writerError;
+        Expect(relatedMs < summaryMs * 0.6,
+            $"Unrelated reads waited for summary decoding: related={relatedMs:F1}ms, summary={summaryMs:F1}ms");
+        Expect(captured!["totalWorks"]!.GetValue<int>() == 1, "A captured log prefix must not absorb a later append");
+        var updated = Snapshot(store);
+        Expect(updated["totalWorks"]!.GetValue<int>() == 2 && updated["kinds"]!["new_character"]!.GetValue<string>() == "character",
+            "An older snapshot must not publish over new activity or classification");
+        Console.WriteLine($"Favorites concurrent summary: unrelated reads {relatedMs:F1}ms during {summaryMs:F1}ms decoding; concurrent append, stable prefix and fresh revision PASS");
+    }
+
+    private static void SharedRecordWindow(string root)
+    {
+        var directory = Path.Combine(root, "shared-record-window");
+        var logs = Path.Combine(directory, "favorite-activity-v1");
+        Directory.CreateDirectory(logs);
+        var old = Work("danbooru", "13000", new string('c', 32));
+        var present = Work("danbooru", "13001", new string('d', 32));
+        var future = Work("danbooru", "13002", new string('e', 32));
+        File.WriteAllText(Path.Combine(logs, Now.ToString("yyyy-MM-dd") + ".jsonl"),
+            string.Join('\n', ActivityLine(old, Now.AddDays(-30).AddSeconds(3)), ActivityLine(present, Now), ActivityLine(future, Now.AddSeconds(5))) + "\n");
+        var store = Open(directory);
+        Expect(Snapshot(store)["totalWorks"]!.GetValue<int>() == 2, "Future activity must not count before its actual time");
+        Expect(Snapshot(store, "general", Now.AddSeconds(6))["totalWorks"]!.GetValue<int>() == 2,
+            "Shared parsed records must expire old activity and include newly eligible future activity");
+        Store.GetMethod("SetFavoriteEntity")!.Invoke(store, ["fern", "character", true]);
+        Expect(Snapshot(store, "explicit", Now.AddSeconds(7))["kinds"]!["fern"]!.GetValue<string>() == "character",
+            "Reusing parsed logs must retain fresh manual classifications");
+    }
 
     internal static void Run()
     {
@@ -174,6 +252,8 @@ internal static class FavoritesFixtureTests
             }).ToArray();
             Record(unicode, Now, unicodeWorks);
             Expect(Snapshot(unicode)["totalWorks"]!.GetValue<int>() == 5, "Valid compact Unicode batches must not fail after private filtering metadata expands");
+            ConcurrentSummary(root);
+            SharedRecordWindow(root);
             Console.WriteLine("Favorites: dated views, mirrors, metadata, rating, restart, damaged-tail recovery and manual choices PASS");
         }
         finally
