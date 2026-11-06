@@ -1,5 +1,15 @@
 # DART 0.2.76 verification
 
+Published: https://github.com/4ek1st/DART/releases/tag/v0.2.76
+
+- Binary source commit: `063d3e391619673d999dc307af194081d72b78cb`.
+- Signed sequence: 76, predecessor 75.
+- EXE SHA-256/build ID: `e51a2b78253f3ee6431f26640c8c38d69070ac0c155981ec301f4cea03d14635`.
+- EXE size: 83,984,514 bytes.
+- Guarded publisher: 1311/1311 serialized Node tests, native catalog/saved-state/Favorites/concurrency/media/privacy and updater/signature gates passed. No optional quarantined GUI harness executed.
+- The signed EXE started with `--server-only` on a separate copied profile: 4827 likes, 577 bookmarks and 145 follows; complete member-key sets matched the source snapshot. Embedded new frontend assets and artifact hash verified.
+- An isolated 0.2.75 server using the registered installation's update source returned currentVersion 0.2.75, offered version 0.2.76, available=true, verified=true. No install endpoint or activation command was used. The active installation remained sequence 75.
+
 Scope: shared artwork grouping/evidence, publication boundaries and removing individual recent searches. No personal profile migration, collection deletion, installed-file replacement or Android runtime change.
 
 ## Evidence and boundaries
