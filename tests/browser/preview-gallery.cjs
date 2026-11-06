@@ -110,7 +110,8 @@ async function fixture(surface, { dimensions = { width:800, height:600 }, pageDi
     return route.fulfill({ status: 200, contentType: ({ '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.ico': 'image/x-icon' })[path.extname(file)] || 'application/octet-stream', body: bytes });
   });
   await page.goto('http://neutral-preview-gallery.test/');
-  await page.waitForFunction(() => currentTab()?.loading === false && !currentTab()?.relatedLoading && document.querySelectorAll('article.card[data-work-key]').length > 8);
+  await page.waitForFunction(surface => currentTab()?.loading === false && !currentTab()?.relatedLoading &&
+    (surface==='settings' ? document.querySelector('.settings-layout') : document.querySelectorAll('article.card[data-work-key]').length > 8),surface);
   return { page, context, calls, fail: url => { fail = url; }, hold: url => { hold = url; }, release: () => { hold = ''; release?.(); } };
 }
 async function open(page, item) {
@@ -400,7 +401,8 @@ async function contextResponsive(f) {
   await galleryLayout(page, 'narrow window');
   await page.screenshot({ path: path.join(output, 'gallery-narrow.png') }); await close(page);
 }
-(async () => {
+module.exports = { fixture, records, state, open, close, frames, useBrowser(value) { browser=value; } };
+if (require.main === module) (async () => {
   fs.mkdirSync(output, { recursive: true });
   try {
     browser = await chromium.launch({ headless: true, executablePath: process.env.DART_BROWSER_EXE });

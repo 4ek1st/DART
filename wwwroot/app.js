@@ -8083,6 +8083,16 @@ globalThis.DartUpscale?.configure({ readImage: DartUpscaleMedia.create({
 
 tagPreviewController();
 
+globalThis.DartKeyboardScroll?.attach(document, {
+  owner: () => {
+    if (quickPreview.open || !tabListPanel.hidden || !tabContextMenu.hidden ||
+        !recommendationTagMenu.hidden || !popover.hidden || document.activeElement?.closest?.('.tabs-bar')) return null;
+    const dialogs=document.querySelectorAll('dialog[open]');
+    return dialogs[dialogs.length-1] || main;
+  },
+  scope: currentTab
+});
+
 Promise.allSettled([refreshBookmarks(), refreshLikes(), refreshFollows(), loadSettings(),
   loadContentPreferences(), loadClientState(), loadRecommendationTagPreferences(),
   loadViewedTokens(), loadFavoriteTags(), favoritesController().loadArtworks(), artworkActionsController().load(), favoriteGroupsController().load()]).finally(() => {
