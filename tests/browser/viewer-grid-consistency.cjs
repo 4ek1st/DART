@@ -201,7 +201,13 @@ async function exercise(surface) {
     const actualCatalogs = [...new Set(grid.cards.flatMap(item => item.members.map(key => known.get(key)?.source)).filter(Boolean))];
     entry.catalogs = actualCatalogs;
     check(sources.every(source => actualCatalogs.includes(source)), `${surface}:all-four-catalogs`, { actualCatalogs });
-    const selectedIndex = Math.min(8, grid.cards.length - 3), selected = grid.cards[selectedIndex], next = grid.cards[selectedIndex + 1];
+    // Progressive recommendation arrivals may put the movie at slot eight.
+    // This first path exercises image hover/Enter; the mixed-video path below
+    // separately checks actual movie identity, pixels and Space controls.
+    const preferred = Math.min(8, grid.cards.length - 3);
+    const selectedIndex = grid.cards.findIndex((item,index) => index>=preferred && index<grid.cards.length-1 && !item.video);
+    assert(selectedIndex>=0,'The neutral fixture must contain a static opener and its next card');
+    const selected = grid.cards[selectedIndex], next = grid.cards[selectedIndex + 1];
     const sourceId = grid.tabId;
     await card(selected.key).scrollIntoViewIfNeeded();
     // Related and the author strip may represent the same work. Wait for the

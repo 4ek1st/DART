@@ -8,6 +8,7 @@ Loading preview…|Загружаем превью…|Vorschau wird geladen…
 Artwork pages|Страницы работы|Werkseiten
 Loading…|Загружаем…|Wird geladen…
 Previous image|Предыдущее изображение|Vorheriges Bild
+Previous video|Предыдущее видео|Vorheriges Video
 Next image|Следующее изображение|Nächstes Bild
 Next video|Следующее видео|Nächstes Video
 Could not load this image.|Не удалось загрузить изображение.|Dieses Bild konnte nicht geladen werden.

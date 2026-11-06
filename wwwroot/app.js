@@ -4002,14 +4002,21 @@ function paintQuickPreview(instant = false) {
   const video = image.tagName === 'VIDEO';
   const fullscreen = quickPreview.classList.contains('fullscreen');
   const gallery = quickPreview.querySelector('.quick-preview-gallery');
-  const galleryHeight = gallery?.offsetHeight || 0;
   const size = quickPreviewFitSize(image.videoWidth || image.naturalWidth || Number(image.dataset.previewWidth),
-    image.videoHeight || image.naturalHeight || Number(image.dataset.previewHeight),
-    innerWidth - (fullscreen && gallery ? 32 : 0),
-    Math.max(100, innerHeight - galleryHeight - (fullscreen && gallery ? 24 : 0)), fullscreen);
-  stage.style.width = fullscreen && !gallery ? '100%' : `${size.width}px`;
-  stage.style.height = fullscreen && !gallery ? '100%' : `${size.height}px`;
-  if (gallery) gallery.style.width = `${Math.max(Math.min(240, innerWidth - 40), size.width)}px`;
+    image.videoHeight || image.naturalHeight || Number(image.dataset.previewHeight), innerWidth, innerHeight, fullscreen);
+  stage.style.width = fullscreen ? '100%' : `${size.width}px`;
+  stage.style.height = fullscreen ? '100%' : `${size.height}px`;
+  if (gallery && globalThis.DartPreviewGallery) {
+    const geometry = `${innerWidth}:${innerHeight}:${size.width}:${size.height}`;
+    if (gallery.dataset.geometry !== geometry) {
+      const layout = DartPreviewGallery.layout(size.width, size.height, innerWidth, innerHeight);
+      gallery.style.width = `${size.width}px`; gallery.style.height = `${size.height}px`;
+      gallery.style.setProperty('--preview-peek-height', `${layout.peekHeight}px`);
+      gallery.style.setProperty('--preview-panel-left', `${layout.panelLeft}px`);
+      gallery.classList.toggle('no-peek-space', layout.peekHeight < 8);
+      gallery.dataset.geometry = geometry;
+    }
+  }
   if (video) { quickPreviewView = { scale: 1, x: 0, y: 0 }; return; }
   quickPreviewView = quickPreviewClampPan(quickPreviewView, image.clientWidth, image.clientHeight);
   stage.classList.toggle('zoomed', quickPreviewView.scale > 1.01);
@@ -4069,6 +4076,9 @@ function stopQuickPreviewMedia(preserveGallery = false) {
 
 function quickPreviewGalleryMarkup() {
   return `<div class="quick-preview-gallery" aria-label="Artwork pages">
+    <button type="button" class="quick-preview-gallery-peek quick-preview-gallery-peek-previous" data-preview-action="gallery-previous" title="Previous image" aria-label="Previous image" hidden>
+      <img class="quick-preview-gallery-previous-image" alt="" hidden>
+    </button>
     <div class="quick-preview-gallery-position">
       <button type="button" data-preview-action="gallery-previous" title="Previous image" aria-label="Previous image">↑</button>
       <span class="quick-preview-gallery-count" role="status" aria-live="polite" data-no-i18n></span>
@@ -4076,8 +4086,8 @@ function quickPreviewGalleryMarkup() {
       <span class="quick-preview-gallery-loading" hidden>Loading…</span>
     </div>
     <div class="quick-preview-gallery-error" role="status" hidden><span>Could not load this image.</span> <button type="button" data-preview-action="gallery-retry">Retry</button></div>
-    <button type="button" class="quick-preview-gallery-peek" data-preview-action="gallery-next" title="Next image" aria-label="Next image">
-      <img class="quick-preview-gallery-peek-image" alt="" hidden><span>↓ <span>Next image</span></span>
+    <button type="button" class="quick-preview-gallery-peek quick-preview-gallery-peek-next" data-preview-action="gallery-next" title="Next image" aria-label="Next image">
+      <img class="quick-preview-gallery-peek-image" alt="" hidden>
     </button>
   </div>`;
 }
@@ -4091,17 +4101,18 @@ function renderQuickPreviewGallery() {
   footer.dataset.galleryWanted = String(state.wanted);
   footer.setAttribute('aria-busy', String(state.busy));
   footer.querySelector('.quick-preview-gallery-count').textContent = `${state.index + 1} / ${state.length}`;
-  footer.querySelector('[data-preview-action="gallery-previous"]').disabled = state.wanted <= 0;
+  for (const button of footer.querySelectorAll('[data-preview-action="gallery-previous"]')) button.disabled = state.wanted <= 0;
   for (const button of footer.querySelectorAll('[data-preview-action="gallery-next"]')) button.disabled = state.wanted >= state.length - 1;
   footer.querySelector('.quick-preview-gallery-loading').hidden = !state.busy;
   footer.querySelector('.quick-preview-gallery-error').hidden = !state.error;
-  const peek = footer.querySelector('.quick-preview-gallery-peek');
-  peek.hidden = state.index >= state.length - 1;
-  const nextVideo = !!CatalogLogic.videoMimeType(quickPreviewGallery.pages[state.index + 1]);
-  peek.classList.toggle('video', nextVideo);
-  const label = nextVideo ? 'Next video' : 'Next image';
-  peek.querySelector('span > span').textContent = label;
-  peek.title = label; peek.setAttribute('aria-label', label);
+  for (const [direction, selector] of [[-1, 'previous'], [1, 'next']]) {
+    const index = state.index + direction, peek = footer.querySelector(`.quick-preview-gallery-peek-${selector}`);
+    peek.hidden = index < 0 || index >= state.length;
+    const video = !!CatalogLogic.videoMimeType(quickPreviewGallery.pages[index]);
+    peek.classList.toggle('video', video);
+    const label = direction < 0 ? video ? 'Previous video' : 'Previous image' : video ? 'Next video' : 'Next image';
+    peek.title = label; peek.setAttribute('aria-label', label);
+  }
   globalThis.DartI18n?.translateTree(footer);
   paintQuickPreview(true);
 }
@@ -4155,16 +4166,19 @@ function createQuickPreviewGallery(item, route, selected, mode) {
 function warmQuickPreviewGallery() {
   if (!quickPreviewGallery || !quickPreviewMediaController) return;
   const gallery = quickPreviewGallery, signal = quickPreviewMediaController.signal;
-  const next = gallery.pages[gallery.state.index + 1];
-  // Only the next page's pixels are warmed. Movies stay unloaded until active.
-  if (!next || CatalogLogic.videoMimeType(next)) return;
-  const release = imageLoader.pin(next);
-  signal.addEventListener('abort', release, { once: true });
-  void prepareQuickPreviewGalleryPage(next, signal, 'background').then(ready => {
-    if (signal.aborted || gallery !== quickPreviewGallery) return;
-    const image = quickPreview.querySelector('.quick-preview-gallery-peek-image');
-    if (image) { image.src = ready.entry.blobUrl; image.hidden = false; }
-  }).catch(() => { /* The selected page retains its explicit retry path. */ });
+  // At most two adjacent images share the existing cache and background lanes.
+  // The previous image is normally already decoded; inactive movies stay unloaded.
+  for (const [direction, selector] of [[-1, 'previous-image'], [1, 'peek-image']]) {
+    const url = gallery.pages[gallery.state.index + direction];
+    if (!url || CatalogLogic.videoMimeType(url)) continue;
+    const release = imageLoader.pin(url);
+    signal.addEventListener('abort', release, { once: true });
+    void prepareQuickPreviewGalleryPage(url, signal, 'background').then(ready => {
+      if (signal.aborted || gallery !== quickPreviewGallery) return;
+      const image = quickPreview.querySelector(`.quick-preview-gallery-${selector}`);
+      if (image) { image.src = ready.entry.blobUrl; image.hidden = false; }
+    }).catch(() => { /* Selecting this page retains its explicit retry path. */ });
+  }
 }
 
 function moveQuickPreviewGallery(direction) {
@@ -4243,8 +4257,7 @@ function openQuickPreview({ item, image, url, route, galleryPage = null }, mode 
   }
   if (typeof quickPreviewGallery !== 'undefined' && quickPreviewGallery) warmQuickPreviewGallery();
   if (galleryPage && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
-    media.animate?.([{ opacity: .85, transform: `translateY(${galleryPage.index > galleryPage.previous ? 14 : -14}px)` },
-      { opacity: 1, transform: 'translateY(0)' }], { duration: 160, easing: 'ease-out' });
+    media.animate?.([{ opacity: .85 }, { opacity: 1 }], { duration: 120, easing: 'ease-out' });
   const generation = ++quickPreviewGeneration;
   if (video) {
     let attemptedRecovery = false;

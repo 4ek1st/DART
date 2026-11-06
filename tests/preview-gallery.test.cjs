@@ -50,6 +50,19 @@ test('gallery key policy guards text entry, modifiers and composition without ch
   assert.equal(Gallery.shortcut({ key: 's' }, { isContentEditable: true }), 0);
   assert.equal(Gallery.shortcut({ key: 's' }, { closest: () => ({}) }), 0);
 });
+
+test('gallery W/S use physical keys across Russian, German and Caps Lock layouts', () => {
+  for (const [code, key, direction] of [['KeyW', 'ц', -1], ['KeyS', 'ы', 1],
+    ['KeyW', 'Ц', -1], ['KeyS', 'Ы', 1], ['KeyW', 'w', -1], ['KeyS', 'S', 1]]) {
+    assert.equal(Gallery.shortcut({ code, key }, null), direction, `${code} with ${key}`);
+    assert.equal(Gallery.shortcut({ code, key, ctrlKey: true }, null), 0);
+    assert.equal(Gallery.shortcut({ code, key, metaKey: true }, null), 0);
+    assert.equal(Gallery.shortcut({ code, key, altKey: true }, null), 0);
+    assert.equal(Gallery.shortcut({ code, key, isComposing: true }, null), 0);
+    assert.equal(Gallery.shortcut({ code, key, defaultPrevented: true }, null), 0);
+    assert.equal(Gallery.shortcut({ code, key }, { closest: () => ({}) }), 0);
+  }
+});
 test('wheel paging is bounded per gesture; zoomed wheels pan and ctrl-wheel keeps zoom', () => {
   assert.equal(Gallery.wheelMode({ length: 3, scale: 1, ctrlKey: false, video: false }), 'page');
   assert.equal(Gallery.wheelMode({ length: 3, scale: 2, ctrlKey: false, video: false }), 'pan');

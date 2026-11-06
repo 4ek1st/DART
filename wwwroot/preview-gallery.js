@@ -41,9 +41,20 @@
     return gallery;
   }
   function shortcut(event, focused) {
-    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || focused?.isContentEditable ||
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || focused?.isContentEditable ||
         focused?.closest?.('input, textarea, select, [contenteditable], [role="slider"]')) return 0;
-    return ['ArrowDown', 's', 'S'].includes(event.key) ? 1 : ['ArrowUp', 'w', 'W'].includes(event.key) ? -1 : 0;
+    if (event.code === 'KeyS' || ['ArrowDown', 's', 'S'].includes(event.key)) return 1;
+    if (event.code === 'KeyW' || ['ArrowUp', 'w', 'W'].includes(event.key)) return -1;
+    return 0;
+  }
+  function layout(width, height, viewportWidth, viewportHeight) {
+    // Neighbors live outside the existing fitted image. They never contribute
+    // to its size or centering, even when only one neighbor exists.
+    const gap = Math.max(12, Math.min(40, viewportHeight * .026));
+    return {
+      peekHeight: Math.max(0, Math.min(48, viewportHeight * .033, (viewportHeight - height) / 2 - gap - 2)),
+      panelLeft: (viewportWidth - width) / 2 >= 80 ? -72 : 8
+    };
   }
   function wheelMode({ length, scale, ctrlKey, video }) {
     if (ctrlKey) return video ? 'native' : 'zoom';
@@ -64,7 +75,7 @@
       amount = Infinity; return next;
     };
   }
-  const api = { create, shortcut, wheelMode, wheelGesture };
+  const api = { create, shortcut, layout, wheelMode, wheelGesture };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.DartPreviewGallery = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
