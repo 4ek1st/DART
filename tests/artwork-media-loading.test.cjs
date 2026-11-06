@@ -240,9 +240,20 @@ test('replacing or closing a cold Space preview cancels old consumers and never 
   await tick();
   f.reads[0].ready.resolve(); await tick();
   assert.equal(f.media.src, 'blob:next-poster');
+  const signal = f.reads[1].signal;
+  const released = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Abandoned preview transport did not abort')), 1000);
+    t.after(() => clearTimeout(timer));
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
   f.context.closeQuickPreview();
-  await new Promise(resolve => setTimeout(resolve, 280));
-  assert.equal(f.reads[1].signal.aborted, true, 'An abandoned preview must release its transport after shared grace');
+  assert.equal(signal.aborted, false, 'The shared reader retains its cancellation grace');
+  // Simulate resuming a busy/suspended event loop. The cache's 250ms grace
+  // aborts a transport owner on a later turn; an independent 280ms sleep can
+  // win that turn and assert too early. Wait for the actual bounded abort.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 320);
+  await released;
+  assert.equal(signal.aborted, true, 'An abandoned preview must release its transport after shared grace');
   assert.equal(f.loader.pinned.size, 0);
 });
 
