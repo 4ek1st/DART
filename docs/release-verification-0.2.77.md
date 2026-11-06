@@ -1,5 +1,14 @@
 # DART 0.2.77 verification
 
+Published: https://github.com/4ek1st/DART/releases/tag/v0.2.77
+
+- Binary source commit: `6e9dd362be8e96d81b08002e994ce7d576537518`.
+- Signed sequence: 77, predecessor 76.
+- EXE SHA-256/build ID: `5df18d041da904193528ae5b7534812e22cc86eb5492f585774d1462f55db289`.
+- EXE size: 83,986,813 bytes; GitHub publishes the matching binary and signed manifest as a normal public release.
+- Guarded publisher passed 1321/1321 serialized Node tests, required non-GUI native catalog/saved-state/Favorites/concurrency/media/privacy fixtures and signature/updater gates before sealing.
+- The standard release-check tool against the registered installation returned currentVersion=0.2.76, version=0.2.77, available=true, verified=true and no error. The installed signed receipt reports sequence 76. No install endpoint, activation command or installed-file replacement was used.
+
 Scope: shared vertical keyboard scrolling on ordinary desktop pages. No grouping, filtering, recommendation, profile migration or Android runtime changes. The installed application is left for user-controlled updating.
 
 ## Behavior and regression evidence
@@ -19,4 +28,4 @@ Neutral large fixture: 2,440 liked records, more than 100,000 viewed identities 
 
 Sequential equivalent before/after gallery fixture, using 0.2.76 source as the baseline: cold viewer entry 665/550 ms, warm return 527/496 ms, bookmark completion 140/129 ms, like completion 518/521 ms and unlike 444/405 ms. Steady gallery-page keys were about 2.4-5.1/2.5-3.2 ms; the first measured gallery key was 14.5/41.5 ms. Existing cold/render and saved-action long tasks remain (139/164 ms maximum in this pair). These measurements do not establish a general speed improvement or a lag-free program; this release adds bounded scrolling without new library/history processing on the key path. Raw traces and neutral captures remain outside Git and release assets.
 
-The guarded publisher must run all top-level Node tests, non-GUI native fixtures and signature/updater checks before sealing the complete EXE. Final artifact and update-offer evidence is recorded after publication.
+Coverage limit: fresh server-only startup of the sealed EXE was not verified. Automatic approval review rejected the composite hidden-launch/stop command with `blocked by policy`. Browser proof uses the real frontend with neutral API fixtures; it is separate from native window interaction and real provider-network behavior.
