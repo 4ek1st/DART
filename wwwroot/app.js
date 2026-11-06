@@ -178,7 +178,8 @@ let recommendationExposureGroups = [];
 let recommendationExposureSaveTimer;
 let recommendationExposureDirty = false;
 const visualHashCache = new Map();
-const visualFingerprintValues = new Map();
+const fingerprintCache = DartFingerprintCache.create({ cacheKey: CatalogLogic.mediaCacheKey });
+const visualFingerprintValues = fingerprintCache.images;
 const clientStateWriter = DartClientState.createWriter({
   storage: localStorage,
   send: async body => {
@@ -397,8 +398,9 @@ function catalogBitmapFingerprint(bitmap) {
     }
   canvas.width = canvas.height = 32;
   context.drawImage(bitmap, 0, 0, 32, 32);
-  return { hash, perceptualHash: CatalogLogic.perceptualImageHash(
-    context.getImageData(0, 0, 32, 32).data),
+  const rgba = context.getImageData(0, 0, 32, 32).data;
+  return { hash, perceptualHash: CatalogLogic.perceptualImageHash(rgba),
+    layout: globalThis.DartVisualLayout?.fingerprint(rgba) || '',
     aspectRatio: (bitmap.naturalWidth || bitmap.width) / (bitmap.naturalHeight || bitmap.height) };
 }
 
@@ -434,7 +436,8 @@ async function rememberCardFingerprint(img) {
   const card = img.closest?.('.card[data-work-key]');
   const item = card && itemIndex.get(card.dataset.workKey);
   if (!item || !img.naturalWidth || !CatalogLogic.needsVisualFingerprint(item) ||
-      item.visualPHash || img.dataset.fingerprintPending) return;
+      item.visualPHash && (item.visualLayout || !globalThis.DartVisualLayout ||
+        visualFingerprintValues.get(CatalogLogic.mediaCacheKey(item.thumbnail))?.layout === '') || img.dataset.fingerprintPending) return;
   img.dataset.fingerprintPending = 'true';
   // Always decode through the same ImageBitmap path: DOM image downscaling
   // can produce different hashes even from identical cached bytes.
@@ -442,7 +445,12 @@ async function rememberCardFingerprint(img) {
   delete img.dataset.fingerprintPending;
   if (!fingerprint) return;
   const update = { visualHash: fingerprint.hash, visualPHash: fingerprint.perceptualHash,
-    visualAspectRatio: fingerprint.aspectRatio };
+    visualAspectRatio: fingerprint.aspectRatio,
+    ...(fingerprint.layout ? { visualLayout: fingerprint.layout } : {}) };
+  publishCardEvidence(item, update, img);
+}
+
+function publishCardEvidence(item, update, img) {
   Object.assign(item, update);
   // Old saved works gain evidence from thumbnails that are already visible;
   // opening Liked must not download the whole saved collection up front.
@@ -484,9 +492,9 @@ function addCatalogVisualHashes(items, signal) {
       const key = CatalogLogic.mediaCacheKey(item.thumbnail);
       if (key && /^[a-f0-9]{16}$/i.test(item.visualHash || '') &&
           /^[a-f0-9]{16}$/i.test(item.visualPHash || '') && item.visualAspectRatio > 0 &&
-          Number.isFinite(item.visualAspectRatio) && !visualFingerprintValues.has(key)) {
+          Number.isFinite(item.visualAspectRatio) && (item.visualLayout || !globalThis.DartVisualLayout) && !visualFingerprintValues.has(key)) {
         visualFingerprintValues.set(key, { hash: item.visualHash, perceptualHash: item.visualPHash,
-          aspectRatio: item.visualAspectRatio });
+          aspectRatio: item.visualAspectRatio, layout: item.visualLayout || '' });
         while (visualFingerprintValues.size > 2000) visualFingerprintValues.delete(visualFingerprintValues.keys().next().value);
       }
       const fingerprint = visualFingerprintValues.get(key);
@@ -494,6 +502,13 @@ function addCatalogVisualHashes(items, signal) {
         item.visualHash = fingerprint.hash;
         item.visualPHash = fingerprint.perceptualHash;
         item.visualAspectRatio = fingerprint.aspectRatio;
+        if (fingerprint.layout) item.visualLayout = fingerprint.layout;
+      }
+      if (typeof videoFingerprintValues !== 'undefined') {
+        const videos = (item.images || []).filter(CatalogLogic.videoMimeType)
+          .map(url => videoFingerprintValues.get(CatalogLogic.mediaCacheKey(url))).filter(Boolean);
+        if (videos.length) item.videoSamples = [...new Map([...(item.videoSamples || []), ...videos]
+          .map(sample => [CatalogLogic.mediaCacheKey(sample.url), sample])).values()].slice(-20);
       }
   }
 }
@@ -591,7 +606,8 @@ function captureClientState() {
       favoriteActivityOutbox: typeof favoritesController === 'function' ? favoritesController.instance?.outboxSnapshot() || [] : [],
       recent, searchHistory: getSearchHistory(), recommendationExposure, recommendationExposureGroups,
       mediaDuplicatePairs: detailImageDeduper.duplicates.entries(),
-      mediaVerifiedImages: [...detailImageDeduper.verified] };
+      mediaVerifiedImages: [...detailImageDeduper.verified],
+      fingerprintEvidence: typeof fingerprintCache !== 'undefined' ? fingerprintCache.snapshot() : undefined };
 }
 
 function saveSession() {
@@ -645,6 +661,7 @@ async function loadClientState() {
         [...recommendationExposureGroups, ...recommendationExposure]);
     localStorage.setItem('dart-recommendation-exposure-groups', JSON.stringify(recommendationExposureGroups));
     detailImageDeduper.duplicates.restore(state.mediaDuplicatePairs);
+    fingerprintCache.restore(state.fingerprintEvidence);
     for (const key of (Array.isArray(state.mediaVerifiedImages) ? state.mediaVerifiedImages : []).slice(-256))
       if (typeof key === 'string' && key.length <= 1000 && /^https?:\/\//i.test(key)) detailImageDeduper.verified.add(key);
     if (['system', 'light', 'dark', 'list'].includes(state.themePreference))
@@ -1029,6 +1046,16 @@ function openSearch(query, options = {}) {
 function getSearchHistory() {
   try { return JSON.parse(localStorage.getItem('artcatalog-search-history') || '[]'); }
   catch { return []; }
+}
+
+function removeSearchHistory(query) {
+  const history = getSearchHistory();
+  const next = history.filter(entry => entry !== query);
+  if (next.length === history.length) return false;
+  try { localStorage.setItem('artcatalog-search-history', JSON.stringify(next)); }
+  catch { toast('Could not remove this search. Try again.'); return false; }
+  saveSession();
+  return true;
 }
 
 function scheduleRule34Recovery(tab) {
@@ -2286,6 +2313,7 @@ async function updateFollowFeed(tab) {
   }
   tab.followComputed = { version, rating, selection, revision, feed, records, remembered };
   const filtered = CatalogLogic.filterWorks(feed.items, contentPreferences);
+  if (contentPreferences.hideViewedAndSaved) learnKnownWorkAliases(filtered);
   let knownTokens;
   const visible = contentPreferences.hideViewedAndSaved ? filtered.filter(item =>
     isRetainedFeedWork(tab, item) || !CatalogLogic.workHistoryTokens(item)
@@ -3661,8 +3689,7 @@ function createArtworkRoute(from, item, origin = null) {
     (!contentPreferences.hideViewedAndSaved || !isHideableFeed(route.source, route.list) ||
      isRetainedFeedWork(route.source, entry) ||
      [entry.key, ...(entry.memberKeys || [])].some(key => route.visitedKeys.has(key)) ||
-     !CatalogLogic.workHistoryTokens(entry).some(token => viewedTokens.has(token) ||
-       viewedPending.has(token) || knownLibraryWorkTokens().has(token)));
+     !CatalogLogic.workHistoryTokens(entry).some(knownWorkTokens().has));
   route.engine = DartArtworkNavigation.create({ items: initial, current: item,
     read: () => artworkSourceItems(route), more: () => !route.disposed && artworkSourceHasMore(route),
     load: () => loadArtworkSource(route),
@@ -5538,15 +5565,19 @@ function knownWorkTokens() {
   // Viewed identities remain live: pending writes and same-size replacements
   // change independently of the saved-library metadata.
   const sources = [viewedTokens, viewedPending, knownLibraryWorkTokens()];
+  if (knownWorkTokens.aliases?.library !== sources[2]) delete knownWorkTokens.aliases;
   function* values() {
     const yielded = new Set();
     for (const source of sources) for (const token of source) if (!yielded.has(token)) {
       yielded.add(token); yield token;
     }
+    for (const token of knownWorkTokens.aliases?.tokens.keys() || [])
+      if (!yielded.has(token) && knownAliasToken(token, sources)) { yielded.add(token); yield token; }
   }
   // Feed filters only need membership. Do not copy the entire history on
   // every render; materialize its union only for an explicit iteration/count.
-  return { has: token => sources.some(source => source.has(token)),
+  return { has: token => sources.some(source => source.has(token)) ||
+      !!(knownWorkTokens.aliases?.tokens.size && knownAliasToken(token, sources)),
     get size() { let count = 0; for (const token of values()) count++; return count; },
     values, keys: values, [Symbol.iterator]: values };
 }
@@ -5569,6 +5600,79 @@ function knownLibraryWorkTokens() {
   const tokens = new Set(collections.flatMap(libraryTokens));
   knownLibraryWorkTokens.snapshot = { signature, tokens };
   return tokens;
+}
+
+function removeKnownAlias(state, id) {
+  const entry = state.records.get(id);
+  if (!entry) return;
+  state.records.delete(id);
+  state.count -= entry.tokens.length + entry.anchors.length;
+  for (const token of entry.tokens) {
+    const entries = state.tokens.get(token);
+    entries?.delete(id);
+    if (!entries?.size) state.tokens.delete(token);
+  }
+}
+
+function knownAliasToken(token, sources) {
+  const state = knownWorkTokens.aliases;
+  if (!state || state.library !== sources[2]) return false;
+  for (const id of state.tokens.get(token) || []) {
+    const entry = state.records.get(id), item = entry?.work.deref();
+    if (!item || CatalogLogic.groupingEvidenceVersion?.(item) !== entry.version) {
+      removeKnownAlias(state, id); continue;
+    }
+    // Every alias still needs a live, exact anchor. Clearing history, replacing
+    // a same-size Set, or removing saved works must never leave sticky knowledge.
+    if (entry.anchors.some(anchor => sources.some(source => source.has(anchor)))) return true;
+  }
+  return false;
+}
+
+function learnKnownWorkAliases(items) {
+  if (typeof CatalogLogic.groupingEvidenceVersion !== 'function') return;
+  const sources = [viewedTokens, viewedPending, knownLibraryWorkTokens()];
+  let state = knownWorkTokens.aliases;
+  if (!state || state.library !== sources[2]) knownWorkTokens.aliases = state = {
+    library: sources[2], records: new Map(), tokens: new Map(), observed: new WeakMap(), count: 0
+  };
+  const exact = token => sources.some(source => source.has(token));
+  for (const item of items || []) {
+    const version = CatalogLogic.groupingEvidenceVersion(item);
+    if (!version || item.groupingVersion !== 2 || !(item.memberKeys?.length > 1) ||
+        item.memberKeys.length > 100) continue;
+    let proof = state.observed.get(item);
+    if (!proof || proof.version !== version) {
+      const keys = new Set([item.key, ...item.memberKeys]);
+      const members = item.groupMembers || [];
+      const complete = members.length === keys.size && members.every(member =>
+        keys.has(member.key) && !(member.groupMembers?.length) &&
+        new Set([member.key, ...(member.memberKeys || [])]).size === 1) &&
+        new Set(members.map(member => member.key)).size === keys.size;
+      proof = { version, tokens: complete ? CatalogLogic.workHistoryTokens(item)
+        .filter(token => !/^group:(danbooru|gelbooru|rule34|sankaku):parent:/.test(token)) : [],
+        id: [...keys].sort().join('|') };
+      state.observed.set(item, proof);
+    }
+    if (!proof.tokens.length || proof.tokens.length > 1024) continue;
+    const old = state.records.get(proof.id);
+    if (old?.version === version && old.work.deref() === item) continue;
+    const anchors = proof.tokens.filter(exact), tokens = proof.tokens.filter(token => !exact(token));
+    if (!anchors.length || !tokens.length) continue;
+    removeKnownAlias(state, proof.id);
+    const entry = { version, anchors, tokens,
+      work: typeof WeakRef === 'function' ? new WeakRef(item) : { deref: () => item } };
+    state.records.set(proof.id, entry);
+    state.count += anchors.length + tokens.length;
+    for (const token of tokens) {
+      if (!state.tokens.has(token)) state.tokens.set(token, new Set());
+      state.tokens.get(token).add(proof.id);
+    }
+    // Knowledge is bounded and comes only from the shared grouping owner's
+    // confirmed component. Approximate hashes never become history tokens.
+    while (state.records.size > 128 || state.count > 4096)
+      removeKnownAlias(state, state.records.keys().next().value);
+  }
 }
 
 function scheduleRelatedKnownRefresh() {
@@ -5715,6 +5819,7 @@ function filterFeedWorks(items, tab, alreadyGrouped = false, gridKey = '', keepO
   if (contentPreferences.hideFollowedArtists) works = filterFollowedFeedWorks(works, tab, gridKey);
   const hideKnown = contentPreferences.hideViewedAndSaved && isHideableFeed(tab, gridKey);
   if (!hideKnown) return keepOrder ? works : curateFeedWorks(works, tab, gridKey);
+  learnKnownWorkAliases(works);
   let knownTokens;
   const visible = works.filter(item => isRetainedFeedWork(tab, item) ||
     !CatalogLogic.workHistoryTokens(item).some(token => (knownTokens ||= knownWorkTokens()).has(token)));
@@ -6426,9 +6531,37 @@ const transferredMediaHydration = {
   }
 };
 
+const videoFingerprintValues = fingerprintCache.videos;
+async function rememberVideoFrames(entry, { card, key, url, signal }) {
+  if (signal.aborted || entry.blobs?.length !== 5 || !(entry.duration > .2)) return;
+  const item = itemIndex.get(card?.dataset?.key || key), mediaKey = CatalogLogic.mediaCacheKey(url);
+  if (!item || !(item.images || []).some(value => CatalogLogic.mediaCacheKey(value) === mediaKey)) return;
+  let sample = videoFingerprintValues.get(mediaKey);
+  if (!sample) {
+    sample = await runVisualHashJob(async () => {
+      const frames = [];
+      for (const blob of entry.blobs) {
+        if (signal.aborted) return null;
+        const bitmap = await createImageBitmap(blob);
+        try {
+          const evidence = catalogBitmapFingerprint(bitmap);
+          frames.push({ hash: evidence.hash, perceptualHash: evidence.perceptualHash });
+        } finally { bitmap.close(); }
+      }
+      return { url: mediaKey, duration: entry.duration, aspectRatio: entry.width / entry.height, frames };
+    }, signal);
+    if (!sample || signal.aborted) return;
+    videoFingerprintValues.set(mediaKey, sample);
+    while (videoFingerprintValues.size > 64) videoFingerprintValues.delete(videoFingerprintValues.keys().next().value);
+  }
+  if (signal.aborted || item.videoSamples?.some(saved => saved.url === mediaKey)) return;
+  publishCardEvidence(item, { videoSamples: [...(item.videoSamples || []).filter(saved => saved.url !== mediaKey), sample].slice(-20) }, card);
+}
+
 globalThis.DartVideoPreview?.attach(main, {
   cacheKey: CatalogLogic.mediaCacheKey,
   isExpired: CatalogLogic.signedMediaExpired,
+  onFrames: rememberVideoFrames,
   recoverUrl: (card, url, signal) => sankakuMediaRecovery.recover([card], url, signal)
 });
 
@@ -7317,7 +7450,7 @@ function activeTagTerm() {
 function renderPopover() {
   const typed = CatalogLogic.normalizeSearch(searchInput.value);
   const history = getSearchHistory().filter(entry => !typed || entry.toLowerCase().includes(typed)).slice(0, 6);
-  popover.innerHTML = `${history.length ? '<div class="popover-title">Недавние запросы</div>' + history.map(entry => `<button type="button" class="popover-row" data-query="${escapeHtml(entry)}" data-no-i18n>${escapeHtml(entry)}</button>`).join('') : ''}
+  popover.innerHTML = `${history.length ? '<div class="popover-title">Недавние запросы</div>' + history.map(entry => `<div class="popover-history-row"><button type="button" class="popover-row popover-history-query" data-query="${escapeHtml(entry)}" data-no-i18n>${escapeHtml(entry)}</button><button type="button" class="popover-history-remove" data-history-remove="${escapeHtml(entry)}" title="Remove from recent searches" aria-label="Remove from recent searches"><span aria-hidden="true">×</span></button></div>`).join('') : ''}
     ${tagSuggestions.length ? `<div class="popover-title">Теги</div>${tagSuggestions.map(tag => `<button type="button" class="popover-row tag-suggestion" data-tag="${escapeHtml(tag.name)}"><span data-no-i18n>#${escapeHtml(tag.name.replaceAll('_', ' '))}</span><span class="popover-muted" title="Число записей в каталогах до объединения, проверки доступности и применения фильтров.">${tag.sources.map(source => escapeHtml(names[source] || source)).join(' · ')} · ${Number(tag.count).toLocaleString(globalThis.DartI18n?.locale || 'en-US')}</span></button>`).join('')}` : ''}
     ${favoriteTags.length ? `<div class="popover-title" style="margin-top:12px">Избранные теги</div>${favoriteTags.filter(tag => !typed || tag.includes(typed)).slice(0, 5).map(tag => `<button type="button" class="popover-row" data-context-tag="${escapeHtml(tag)}" data-query="${escapeHtml(tag)}"><span data-no-i18n>#${escapeHtml(tag)}</span> <span class="popover-muted">избранное</span></button>`).join('')}` : ''}`;
   popover.hidden = !popover.children.length;
@@ -7355,6 +7488,18 @@ function hidePopover() {
   tagSuggestions = [];
 }
 popover.addEventListener('click', event => {
+  const remove = event.target.closest('[data-history-remove]');
+  if (remove) {
+    event.preventDefault(); event.stopPropagation();
+    const query = remove.dataset.historyRemove;
+    const controls = [...popover.querySelectorAll('[data-history-remove]')];
+    const position = controls.findIndex(control => control.dataset.historyRemove === query);
+    if (!removeSearchHistory(query)) return;
+    renderPopover();
+    const remaining = [...popover.querySelectorAll('[data-history-remove]')];
+    (remaining[Math.max(0, Math.min(position, remaining.length - 1))] || searchInput).focus({ preventScroll: true });
+    return;
+  }
   const tag = event.target.closest('[data-tag]')?.dataset.tag;
   if (tag) { openSearch(CatalogLogic.completeTag(searchInput.value, tag), currentSearchOptions()); return; }
   const query = event.target.closest('[data-query]')?.dataset.query;

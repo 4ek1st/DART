@@ -409,6 +409,8 @@ Selected:|Выбрано:|Ausgewählt:
 Reset|Сбросить|Zurücksetzen
 Collapse tags|Свернуть теги|Tags einklappen
 Recent searches|Недавние запросы|Letzte Suchanfragen
+Remove from recent searches|Удалить из недавних запросов|Aus letzten Suchanfragen entfernen
+Could not remove this search. Try again.|Не удалось удалить запрос. Попробуйте ещё раз.|Diese Suchanfrage konnte nicht entfernt werden. Versuche es erneut.
 No matching tags|Таких тегов нет|Keine passenden Tags
 Settings saved|Настройки сохранены|Einstellungen gespeichert
 Tab settings saved|Настройки вкладок сохранены|Tab-Einstellungen gespeichert

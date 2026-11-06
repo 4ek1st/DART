@@ -544,9 +544,19 @@ try
     var groupedBookmark = JsonSerializer.Deserialize<CatalogItem>("""
         {"key":"rule34:18529241","source":"rule34","id":"18529241",
          "memberKeys":["rule34:18529241","sankaku:AbC123","gelbooru:123"],
-         "visualHash":"f7ba6fc954f4d66e","visualPHash":"b0f596e434b2aced","visualAspectRatio":0.644,"allTags":["ai-created"],
+         "visualHash":"f7ba6fc954f4d66e","visualPHash":"b0f596e434b2aced","visualAspectRatio":0.644,
+         "visualLayout":"00112233445566778899aabbccddeeff","allTags":["ai-created"],
+         "images":["https://wimg.rule34.xxx/images/11/11/11111111111111111111111111111111.mp4"],
+         "videoSamples":[{"url":"https://wimg.rule34.xxx/images/11/11/11111111111111111111111111111111.mp4",
+           "duration":10.25,"aspectRatio":1.5,"frames":[
+             {"hash":"0011223344556677","perceptualHash":"1122334455667788"},
+             {"hash":"1122334455667788","perceptualHash":"2233445566778899"},
+             {"hash":"2233445566778899","perceptualHash":"33445566778899aa"},
+             {"hash":"33445566778899aa","perceptualHash":"445566778899aabb"},
+             {"hash":"445566778899aabb","perceptualHash":"5566778899aabbcc"}]}],
          "visualSamples":[{"hash":"f7ba6fc954f4d66e","owner":"sankaku:creator:anteiru",
            "creator":"anteiru","perceptualHash":"b0f596e434b2aced","aspectRatio":0.644,
+           "layout":"ffeeddccbbaa99887766554433221100",
            "source":"sankaku","tags":["original","anteiru","fujisaki honami"],
            "characters":["fujisaki honami"],"uploader":"ragnarok",
            "published":"2026-08-31T19:02:01+02:00"}]}
@@ -566,6 +576,27 @@ try
         savedGroup.VisualSamples[0].Characters.SequenceEqual(["fujisaki honami"]) &&
         savedGroup.AllTags.SequenceEqual(["ai-created"]),
         "Restart must retain Sankaku visual evidence and an AI marker from any grouped variant");
+    var reopenedEvidenceStore = Activator.CreateInstance(storeType, [metadataDirectory])!;
+    CatalogItem ReopenEvidence() => ((List<CatalogItem>)storeType.GetMethod("GetBookmarks")!
+        .Invoke(reopenedEvidenceStore, null)!).First(item => item.Key == groupedBookmark.Key);
+    void ExpectSavedEvidence(CatalogItem item, string phase)
+    {
+        var evidence = JsonSerializer.SerializeToElement(item, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Expect(evidence.TryGetProperty("visualLayout", out var layout) &&
+            layout.GetString() == "00112233445566778899aabbccddeeff" &&
+            evidence.GetProperty("visualSamples")[0].TryGetProperty("layout", out var sampleLayout) &&
+            sampleLayout.GetString() == "ffeeddccbbaa99887766554433221100",
+            phase + ": saved image and sample layouts must survive typed JSON serialization");
+        Expect(evidence.TryGetProperty("videoSamples", out var clips) && clips.GetArrayLength() == 1 &&
+            clips[0].GetProperty("url").GetString() == item.Images[0] &&
+            clips[0].GetProperty("duration").GetDouble() == 10.25 &&
+            clips[0].GetProperty("aspectRatio").GetDouble() == 1.5 &&
+            clips[0].GetProperty("frames").GetArrayLength() == 5 &&
+            clips[0].GetProperty("frames")[0].GetProperty("hash").GetString() == "0011223344556677" &&
+            clips[0].GetProperty("frames")[4].GetProperty("perceptualHash").GetString() == "5566778899aabbcc",
+            phase + ": all five ordered video fingerprints, duration and owned media URL must survive restart");
+    }
+    ExpectSavedEvidence(ReopenEvidence(), "Reopened store");
     refresh.Invoke(metadataStore, [new CatalogItem { Key = groupedBookmark.Key, Source = groupedBookmark.Source,
         Id = groupedBookmark.Id, CreatorTag = "lmsk", CreatorName = "lmsk" }]);
     reopened = (List<CatalogItem>)storeType.GetMethod("GetBookmarks")!.Invoke(metadataStore, null)!;
@@ -574,6 +605,7 @@ try
     Expect(reopened.First(item => item.Key == groupedBookmark.Key).VisualSamples.Count == 1 &&
         reopened.First(item => item.Key == groupedBookmark.Key).AllTags.SequenceEqual(["ai-created"]),
         "A partial detail refresh must not erase visual grouping or grouped AI tags");
+    ExpectSavedEvidence(ReopenEvidence(), "Sparse provider metadata refresh");
     var getPreferences = storeType.GetMethod("GetContentPreferences")!;
     var updatePreferences = storeType.GetMethod("UpdateContentPreferences")!;
     var legacyPreferences = (ContentPreferences)getPreferences.Invoke(metadataStore, null)!;

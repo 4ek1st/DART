@@ -1,4 +1,4 @@
-importScripts('/catalog-logic.js');
+importScripts('/visual-layout.js', '/catalog-logic.js');
 try {
   importScripts('/visual-search.js', '/visual-search-loader.js');
 } catch { /* Optional Rust assets must not disable catalog processing. */ }

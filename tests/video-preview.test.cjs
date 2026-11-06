@@ -9,7 +9,7 @@ async function until(check) {
   for (let n = 0; n < 100; n++) { if (check()) return; await pause(2); }
   assert.ok(check(), 'Preview did not reach the expected state');
 }
-const frames = () => ({ blobs: Array.from({ length: 5 }, () => ({ size: 10 })), times: [1, 3, 5, 7, 9] });
+const frames = () => ({ blobs: Array.from({ length: 5 }, () => ({ size: 10 })), times: [1, 3, 5, 7, 9], duration: 10 });
 function cache(options = {}) {
   let next = 0;
   return createFrameCache({ createUrl: () => `blob:frame-${next++}`, revokeUrl: () => {}, ...options });
@@ -118,6 +118,86 @@ test('warm hover cycles five cached frames without another video load and restor
     ui.doc.hidden = true; ui.doc.emit('visibilitychange');
     assert.equal(card.overlay.hidden, true);
   } finally { ui.controller.dispose(); }
+});
+
+test('decoded video evidence publishes once per activation and reuses cached frames on warm hover', async () => {
+  const learned = [];
+  let extractions = 0;
+  const ui = setup({ extract: async () => { extractions++; return frames(); },
+    onFrames: (entry, context) => learned.push({ entry, context }) });
+  try {
+    const card = ui.card('movie.mp4'); ui.hover(card);
+    await until(() => !card.overlay.hidden && learned.length === 1);
+    assert.equal(learned[0].entry.duration, 10);
+    assert.equal(learned[0].entry.blobs.length, 5);
+    assert.equal(learned[0].context.card, card);
+    assert.equal(learned[0].context.key, 'movie.mp4');
+    assert.equal(learned[0].context.url, 'movie.mp4');
+    assert.equal(learned[0].context.signal.aborted, false);
+    await pause(35); assert.equal(learned.length, 1, 'cycling frames must not publish repeatedly');
+    ui.leave(card); assert.equal(learned[0].context.signal.aborted, true);
+    ui.hover(card); await until(() => learned.length === 2 && !card.overlay.hidden);
+    assert.equal(extractions, 1);
+    assert.equal(learned[1].entry, learned[0].entry);
+    assert.notEqual(learned[1].context.signal, learned[0].context.signal);
+    assert.equal(learned[1].context.signal.aborted, false);
+  } finally { ui.controller.dispose(); }
+  assert.equal(learned.at(-1).context.signal.aborted, true);
+});
+
+test('cancelled or stale video decoding cannot publish evidence for another card', async () => {
+  const learned = [];
+  let started = 0;
+  const ui = setup({ extract: async () => { started++; await pause(25); return frames(); },
+    onFrames: (_, context) => learned.push(context) });
+  try {
+    const first = ui.card('first'), second = ui.card('second');
+    ui.hover(first); await until(() => started === 1);
+    ui.leave(first); ui.hover(second);
+    await until(() => !second.overlay.hidden);
+    assert.equal(learned.length, 1); assert.equal(learned[0].card, second);
+    ui.root.emit('scroll'); assert.equal(learned[0].signal.aborted, true);
+  } finally { ui.controller.dispose(); }
+});
+
+test('a failed optional evidence callback cannot break the hover player or cause another extraction', async () => {
+  let extractions = 0, calls = 0;
+  const ui = setup({ extract: async () => { extractions++; return frames(); }, onFrames: async () => {
+    calls++; throw new Error('Evidence unavailable');
+  } });
+  try {
+    const card = ui.card('video'); ui.hover(card);
+    await until(() => !card.overlay.hidden);
+    await pause(10); assert.equal(calls, 1);
+    ui.leave(card); ui.hover(card); await until(() => !card.overlay.hidden && calls === 2);
+    assert.equal(extractions, 1);
+  } finally { ui.controller.dispose(); }
+});
+
+test('five decoded preview frames retain the full video duration without another media request', async () => {
+  const source = fs.readFileSync(require.resolve('../wwwroot/video-preview.js'), 'utf8');
+  const video = new Events(); let position = 0, metadataLoads = 0;
+  Object.assign(video, { duration: 12.5, videoWidth: 1920, videoHeight: 1080, readyState: 2,
+    pause() {}, load() { if (this.src) { metadataLoads++; queueMicrotask(() => this.emit('loadedmetadata')); } },
+    removeAttribute(name) { delete this[name]; } });
+  Object.defineProperty(video, 'currentTime', { get: () => position, set(value) {
+    position = value; queueMicrotask(() => video.emit('seeked'));
+  } });
+  let frameDecodes = 0, frameEncodes = 0, infoRequests = 0;
+  const canvas = { width: 0, height: 0,
+    getContext: () => ({ drawImage() { frameDecodes++; } }),
+    toBlob(callback) { frameEncodes++; callback({ size: 12 }); } };
+  const context = { module: { exports: {} }, DOMException, URL, setTimeout, clearTimeout,
+    crypto: { randomUUID: () => '00000000-0000-4000-8000-000000000000' },
+    document: { createElement: name => name === 'video' ? video : canvas },
+    fetch: async () => { infoRequests++; return { ok: true, json: async () => ({ sampleTimes: [] }) }; } };
+  vm.runInNewContext(source, context);
+  const result = await context.module.exports.extractFrames('https://cdn.donmai.us/movie.mp4', new AbortController().signal);
+  assert.equal(result.duration, 12.5);
+  assert.equal(result.blobs.length, 5); assert.equal(result.times.length, 5);
+  assert.equal(metadataLoads, 1); assert.equal(infoRequests, 1);
+  assert.equal(frameDecodes, 5); assert.equal(frameEncodes, 5);
+  assert.equal(result.width, 320); assert.equal(result.height, 180);
 });
 
 test('rapid card switches wait for cancelled decoding to finish and cannot paint stale frames', async () => {

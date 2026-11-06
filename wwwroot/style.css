@@ -111,6 +111,12 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .popover-title { font-weight: 700; color: #ddd; margin: 0 0 8px; }
 .popover-row { display: block; width: 100%; border: 0; background: transparent; color: #e5e5e5; padding: 9px 7px; text-align: left; border-radius: 5px; }
 .popover-row:hover { background: #363636; }
+.popover-history-row { display: flex; align-items: center; gap: 4px; border-radius: 5px; }
+.popover-history-row:hover { background: var(--theme-hover, #363636); }
+.popover-history-query { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.popover-history-remove { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
+.popover-history-remove:hover { background: var(--theme-hover, #4a4a4a); color: var(--text, #fff); }
+.popover-history-remove:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; color: var(--text, #fff); }
 .tag-suggestion { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
 .tag-suggestion .popover-muted { flex: none; font-size: 11px; text-align: right; }
 .popover-muted { color: var(--muted); font-size: 12px; }

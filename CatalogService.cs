@@ -35,8 +35,10 @@ public sealed class CatalogItem
     public string ContentHash { get; set; } = "";
     public string VisualHash { get; set; } = "";
     public string VisualPHash { get; set; } = "";
+    public string VisualLayout { get; set; } = "";
     public double VisualAspectRatio { get; set; }
     public List<CatalogVisualSample> VisualSamples { get; set; } = [];
+    public List<CatalogVideoSample> VideoSamples { get; set; } = [];
     [JsonIgnore] public string OriginalImageFileUrl { get; set; } = "";
     [JsonIgnore] public bool Rule34TagInfoKnown { get; set; }
     public string Thumbnail { get; set; } = "";
@@ -114,8 +116,10 @@ public sealed class ProfileResponse
 
 public sealed class CatalogVisualSample
 {
+    public string Id { get; set; } = "";
     public string Hash { get; set; } = "";
     public string PerceptualHash { get; set; } = "";
+    public string Layout { get; set; } = "";
     public double AspectRatio { get; set; }
     public string Creator { get; set; } = "";
     public string Owner { get; set; } = "";
@@ -125,6 +129,20 @@ public sealed class CatalogVisualSample
     public string Uploader { get; set; } = "";
     public string Published { get; set; } = "";
     public string Publication { get; set; } = "";
+}
+
+public sealed class CatalogVideoSample
+{
+    public string Url { get; set; } = "";
+    public double Duration { get; set; }
+    public double AspectRatio { get; set; }
+    public List<CatalogVideoFrame> Frames { get; set; } = [];
+}
+
+public sealed class CatalogVideoFrame
+{
+    public string Hash { get; set; } = "";
+    public string PerceptualHash { get; set; } = "";
 }
 
 internal sealed partial class CatalogService(LocalStore store)

@@ -1,4 +1,6 @@
 (function (root) {
+  const visualLayout = root.DartVisualLayout ||
+    (typeof require === 'function' ? require('./visual-layout.js') : null);
   const supportedSources = Object.freeze(['danbooru', 'gelbooru', 'rule34', 'sankaku']);
   const ordinaryRatings = Object.freeze(['g', 'general', 's', 'sensitive', 'safe', 'sfw']);
 
@@ -8,7 +10,7 @@
   const attributionFields = ['source', 'creatorTag', 'creatorName', 'artistId', 'artist',
     'participants', 'uploaderId', 'uploaderName', 'originalUrl'];
   const sampleFields = [...attributionFields, 'visualSamples', 'visualHash', 'visualPHash',
-    'visualAspectRatio', 'tags', 'characterTags', 'published'];
+    'visualAspectRatio', 'visualLayout', 'tags', 'characterTags', 'published'];
   const contentFields = [...attributionFields, 'tags', 'allTags', 'followedArtistTag'];
   function derived(cache, item, fields, compute) {
     if (!item || typeof item !== 'object') return compute();
@@ -197,6 +199,10 @@
     try { url = new URL(rawUrl); } catch { return ''; }
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
     const host = url.hostname.toLowerCase().replace(/^(?:www|mobile)\./, '');
+    if (host === 'deviantart.com' || /^[a-z0-9-]+\.deviantart\.com$/.test(host)) {
+      const match = /^\/(?:[^/]+\/art\/[^/]+-|art\/[^/]+-|deviation\/)(\d{5,15})\/?$/i.exec(url.pathname);
+      return match ? `original:deviantart-art:${match[1]}` : '';
+    }
     if (host === 'x.com' || host === 'twitter.com') {
       const match = /^\/(?:[^/]+\/status|i\/web\/status)\/(\d{5,25})(?:\/|$)/i.exec(url.pathname);
       return match ? `original:x-status:${match[1]}` : '';
@@ -492,6 +498,9 @@
     return derived(sampleCache, item, sampleFields, () => buildVisualSamples(item));
   }
   function buildVisualSamples(item) {
+    // Old saved video posters are not temporal evidence. Only the sequence
+    // verifier can establish a visual relationship between different clips.
+    if ((item.images || []).some(videoMimeType)) return [];
     const creator = visualCreator(item);
     const samples = (item.visualSamples || []).filter(sample =>
       validVisualHash(sample?.hash) && sample.owner && Array.isArray(sample.tags)).map(sample => {
@@ -516,10 +525,12 @@
           owner: creator ? `creator:${creator}` : `${item.source}:uploader:${uploader}`,
           source: item.source, tags, characters: visualTags(item.characterTags), uploader,
           published: item.published || '', publication: visualPublication(item.originalUrl),
-          perceptualHash: item.visualPHash || '', aspectRatio: item.visualAspectRatio || 0 };
+          perceptualHash: item.visualPHash || '', aspectRatio: item.visualAspectRatio || 0,
+          layout: item.visualLayout || '', id: item.id || '' };
         const existing = samples.findIndex(saved => saved.hash === sample.hash && saved.source === sample.source);
         if (existing >= 0) samples[existing] = { ...samples[existing], ...sample,
           perceptualHash: sample.perceptualHash || samples[existing].perceptualHash,
+          layout: sample.layout || samples[existing].layout,
           aspectRatio: sample.aspectRatio || samples[existing].aspectRatio };
         else samples.push(sample);
       }
@@ -573,6 +584,7 @@
   }
 
   function compatibleVisualSamples(first, second, distance) {
+    if (layoutVersionMatch(first, second, distance)) return true;
     if (!similarVisualTags(first.tags, second.tags)) return false;
     const characters = first.characters || [];
     const otherCharacters = second.characters || [];
@@ -596,6 +608,60 @@
       Math.abs(time - otherTime) <= 20 * 60 * 1000;
   }
 
+  function layoutVersionMatch(first, second, distance) {
+    if (!visualLayout || !first.layout || !second.layout || !first.creator || first.creator !== second.creator ||
+        !validVisualHash(first.perceptualHash) || !validVisualHash(second.perceptualHash) ||
+        !(first.aspectRatio > 0 && second.aspectRatio > 0) ||
+        Math.abs(Math.log(first.aspectRatio / second.aspectRatio)) > .05) return false;
+    const characters = (first.characters || []).filter(tag => !['original character', 'character request'].includes(tag));
+    const other = (second.characters || []).filter(tag => !['original character', 'character request'].includes(tag));
+    if (!characters.length || characters.length !== other.length || !characters.every(tag => other.includes(tag))) return false;
+    const tags = new Set(first.tags), common = second.tags.filter(tag => tags.has(tag)).length;
+    if (common < 12 || common / (tags.size + second.tags.length - common) < .45) return false;
+    const perceptual = visualDistance(first.perceptualHash, second.perceptualHash);
+    // Reposts across independent publications need almost unchanged pixels,
+    // including distributed detailed regions; a shared face/background is insufficient.
+    if (distance <= 2 && perceptual <= 6 &&
+        visualLayout.matches(first.layout, second.layout, { strict: true })) return true;
+    if (distance > 16 || perceptual > 16 || first.source !== second.source ||
+        !knownUploader(first.uploader) || first.uploader !== second.uploader) return false;
+    const a = Number(first.id), b = Number(second.id);
+    const time = Date.parse(first.published), otherTime = Date.parse(second.published);
+    const nearIds = Number.isSafeInteger(a) && a > 0 && Number.isSafeInteger(b) && b > 0 && Math.abs(a - b) <= 32;
+    const nearTime = Number.isFinite(time) && Number.isFinite(otherTime) && Math.abs(time - otherTime) <= 600000;
+    if (!nearTime && !(nearIds && first.source === 'rule34' && !Number.isFinite(time) && !Number.isFinite(otherTime))) return false;
+    if (!nearIds && first.source !== 'sankaku') return false;
+    return visualLayout.matches(first.layout, second.layout);
+  }
+  function visualPublicationProof(first, second, distance) {
+    return layoutVersionMatch(first, second, distance) ? 'layout' :
+      crossPlatformVisualRepost(first, second, distance);
+  }
+
+  function mergeLayoutBatches(samples, join) {
+    // The ordinary JS/Rust search radius stays unchanged. Only a compact,
+    // verified regional batch can consider the extra 13..16 edge bits.
+    const buckets = new Map();
+    samples.forEach((entries, index) => {
+      for (const sample of entries) {
+        const id = Number(sample.id);
+        if (!sample.layout || !Number.isSafeInteger(id) || id < 1 || !sample.creator || !knownUploader(sample.uploader)) continue;
+        const key = `${sample.source}:${sample.creator}:${sample.uploader}`;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push({ sample, index, id });
+      }
+    });
+    for (const entries of buckets.values()) {
+      entries.sort((a,b) => a.id - b.id);
+      for (let current=0;current<entries.length;current++)
+        for (let previous=current-1;previous>=0 && entries[current].id-entries[previous].id<=32;previous--) {
+          const a=entries[current],b=entries[previous];
+          if (a.index !== b.index && layoutVersionMatch(a.sample,b.sample,visualDistance(a.sample.hash,b.sample.hash)))
+            join(a.index,b.index,true,'layout');
+        }
+    }
+  }
+
   function dualVisualMatch(first, second, distance, edgeLimit = 12, perceptualLimit = 12) {
     return first.creator && first.creator === second.creator &&
       first.tags.length >= 12 && second.tags.length >= 12 &&
@@ -605,7 +671,8 @@
       visualDistance(first.perceptualHash, second.perceptualHash) <= perceptualLimit;
   }
   const publicationFamily = token => /^group:pixiv:/.test(token || '') ? 'pixiv' :
-    /^original:x-status:/.test(token || '') ? 'x' : '';
+    /^original:x-status:/.test(token || '') ? 'x' :
+    /^original:deviantart-art:/.test(token || '') ? 'deviantart' : '';
   function crossPlatformVisualRepost(first, second, distance) {
     const family = publicationFamily(first.publication), other = publicationFamily(second.publication);
     const confirmed = tags => (tags || []).filter(tag => !['original character', 'character request'].includes(tag));
@@ -618,7 +685,7 @@
       dualVisualMatch(first, second, distance, 2, 6);
   }
   function conflictingPublicationFamilies(first, second) {
-    return ['pixiv', 'x'].some(family => {
+    return ['pixiv', 'x', 'deviantart'].some(family => {
       const keys = [...first].filter(key => publicationFamily(key) === family);
       return keys.length && [...second].some(key => publicationFamily(key) === family) &&
         !keys.some(key => second.has(key));
@@ -630,6 +697,10 @@
   let groupingBatchSequence = 0;
   const groupingRevisions = new WeakMap();
   function groupingRevision(items) { return groupingRevisions.get(items) || 0; }
+  function groupingEvidenceVersion(item) {
+    const batch = groupedOrigins.get(item);
+    return batch?.valid ? `${batch.sequence}:${batch.revision}` : '';
+  }
   function registerGroupedWorks(items, result) {
     const batch = { valid: true, revision: 0, sequence: ++groupingBatchSequence };
     if (Array.isArray(items)) { groupedCache.set(items, result); groupingBatches.set(items, batch); }
@@ -671,7 +742,7 @@
     if (hasGroupMembers(item)) return !!item.groupMembers?.length && groupWorks([item]).length > 1;
     return !hasGroupMembers(item) && memberKeysOf(item).length > 1 && memberKeysOf(item).length <= 100 &&
       (/:parent:/.test(item?.groupKey || '') ||
-       (item?.identityKeys || []).filter(key => /^group:pixiv:|^original:x-status:/.test(key)).length > 1);
+       (item?.identityKeys || []).filter(key => publicationFamily(key)).length > 1);
   }
   function repairLegacyGroup(item, fresh) {
     const keys = memberKeysOf(item), records = new Map((fresh || []).map(member => [member?.key, member]));
@@ -694,7 +765,7 @@
   function publicationIdentities(item) {
     return new Set([item.pixivGroupKey && `group:${item.pixivGroupKey}`,
       /^pixiv:/.test(item.groupKey || '') && `group:${item.groupKey}`,
-      originalPostIdentity(item.originalUrl)].filter(key => /^group:pixiv:|^original:x-status:/.test(key || '')));
+      originalPostIdentity(item.originalUrl)].filter(key => publicationFamily(key)));
   }
   function groupInputs(items) {
     const works = [], positions = new Map();
@@ -729,6 +800,8 @@
     if (!unchanged || incoming.contentHash && previous.contentHash &&
         incoming.contentHash.toLowerCase() !== previous.contentHash.toLowerCase()) return;
     if (!incoming.contentHash && previous.contentHash) merged.contentHash = previous.contentHash;
+    if (!incoming.visualLayout && previous.visualLayout) merged.visualLayout = previous.visualLayout;
+    if (!incoming.videoSamples?.length && previous.videoSamples?.length) merged.videoSamples = previous.videoSamples;
     if (!urls.length && previous.images?.length) merged.images = previous.images;
     // An omitted listing field cannot erase a previously verified hash for that file.
     merged.imageRecords = uniqueImageRecords([...itemImageRecords(incoming), ...itemImageRecords(previous)]);
@@ -767,7 +840,7 @@
         const distance = pairs[position + 2];
         if (compatibleVisualSamples(current.sample, previous.sample, distance))
           join(current.index, previous.index, true,
-            crossPlatformVisualRepost(current.sample, previous.sample, distance));
+            visualPublicationProof(current.sample, previous.sample, distance));
       }
     } else {
       const visualTrees = new Map();
@@ -777,7 +850,7 @@
         if (distance <= 12)
           for (const previous of node.entries)
             if (compatibleVisualSamples(sample, previous.sample, distance))
-              join(index, previous.index, true, crossPlatformVisualRepost(sample, previous.sample, distance));
+              join(index, previous.index, true, visualPublicationProof(sample, previous.sample, distance));
         for (const [edge, child] of node.children)
           if (edge >= distance - 12 && edge <= distance + 12)
             findVisualMatches(child, sample, index);
@@ -813,6 +886,77 @@
     }
   }
 
+  function validVideoSamples(item) {
+    const urls = new Set((item.images || []).filter(videoMimeType).map(mediaCacheKey));
+    return (item.videoSamples || []).slice(0, 20).filter(sample =>
+      urls.has(mediaCacheKey(sample?.url || '')) && Number.isFinite(sample.duration) &&
+      sample.duration > .2 && sample.duration < 43200 && sample.aspectRatio > 0 &&
+      Array.isArray(sample.frames) && sample.frames.length === 5 && sample.frames.every(frame =>
+        validVisualHash(frame?.hash) && validVisualHash(frame?.perceptualHash) &&
+        visualDistance(frame.hash, '0000000000000000') >= 8 &&
+        visualDistance(frame.hash, 'ffffffffffffffff') >= 8));
+  }
+  function mergeVideoCandidates(works, join) {
+    const buckets = new Map();
+    // Four matching frames include at least two of positions 0, 2 and 4.
+    // A <=6-bit difference in a 64-bit hash leaves at least two of its eight
+    // bytes unchanged. Index those necessary conditions before comparing tags
+    // or full frame sequences; one creator's archive must not form all pairs.
+    const bucketKey = (slot, position, band, value) => ((slot * 3 + position) * 8 + band) * 256 + value;
+    works.forEach((item, index) => {
+      if (!item.videoSamples?.length) return;
+      const creator = visualCreator(item);
+      if (!creator) return;
+      const tags = visualTags(item.tags);
+      if (tags.length < 12) return;
+      const characters = visualTags(item.characterTags);
+      for (const sample of validVideoSamples(item)) {
+        const slot = Math.floor(sample.duration * 2);
+        if (!buckets.has(creator)) buckets.set(creator, new Map());
+        const owner = buckets.get(creator), candidates = new Map();
+        const bytes = [0, 2, 4].map(position => {
+          const hash = sample.frames[position].hash;
+          return Array.from({ length: 8 }, (_, band) => parseInt(hash.slice(band * 2, band * 2 + 2), 16));
+        });
+        for (let position = 0; position < 3; position++) {
+          const counts = new Map();
+          for (let bin = slot - 1; bin <= slot + 1; bin++)
+            for (let band = 0; band < 8; band++)
+              for (const other of owner.get(bucketKey(bin, position, band, bytes[position][band])) || []) {
+                if (other.index === index) continue;
+                const count = (counts.get(other) || 0) + 1;
+                counts.set(other, count);
+                if (count === 2) candidates.set(other, (candidates.get(other) || 0) | (1 << position));
+              }
+        }
+        for (const [other, positions] of candidates) {
+          if (!(positions & (positions - 1)) || Math.abs(sample.duration - other.sample.duration) > .3 ||
+              Math.abs(Math.log(sample.aspectRatio / other.sample.aspectRatio)) > .02) continue;
+          let matches = 0;
+          const distinct = [];
+          for (let frame = 0; frame < 5; frame++)
+            if (visualDistance(sample.frames[frame].hash, other.sample.frames[frame].hash) <= 6 &&
+                visualDistance(sample.frames[frame].perceptualHash, other.sample.frames[frame].perceptualHash) <= 6) {
+              matches++;
+              const current = sample.frames[frame];
+              if (!distinct.some(previous => visualDistance(previous.hash,current.hash)<=6 &&
+                  visualDistance(previous.perceptualHash,current.perceptualHash)<=6)) distinct.push(current);
+            }
+          if ((matches === 5 || matches >= 4 && distinct.length >= 3) &&
+              similarVisualTags(tags, other.tags) && (!characters.length || !other.characters.length ||
+                characters.some(tag => other.characters.includes(tag)))) join(index, other.index, true, 'video');
+        }
+        const entry = { sample, index, tags, characters };
+        for (let position = 0; position < 3; position++)
+          for (let band = 0; band < 8; band++) {
+            const key = bucketKey(slot, position, band, bytes[position][band]);
+            if (!owner.has(key)) owner.set(key, []);
+            owner.get(key).push(entry);
+          }
+      }
+    });
+  }
+
   function groupWorks(items) {
     if (Array.isArray(items) && groupedCache.has(items)) return groupedCache.get(items);
     const works = groupInputs(items);
@@ -827,12 +971,14 @@
     };
     const join = (first, second, weak = false, visualRepost = false) => {
       const a = find(first), b = find(second);
-      if (a === b) return;
+      if (a === b) return true;
       if (weak && publications[a].size && publications[b].size &&
           ![...publications[a]].some(key => publications[b].has(key)) &&
-          (!visualRepost || conflictingPublicationFamilies(publications[a], publications[b]))) return;
+          (!visualRepost || !['layout', 'video'].includes(visualRepost) &&
+            conflictingPublicationFamilies(publications[a], publications[b]))) return false;
       roots[a] = b;
       for (const identity of publications[a]) publications[b].add(identity);
+      return true;
     };
     const linked = new Map(), parents = new Map();
     works.forEach((item, index) => {
@@ -934,12 +1080,15 @@
         if (match) {
           const root = find(match.index), other = find(entry.index);
           const a = ranges.get(root), b = ranges.get(other);
-          roots[other] = root;
-          ranges.set(root, [Math.min(a[0], b[0]), Math.max(a[1], b[1])]);
+          if (join(other, root, true))
+            ranges.set(find(root), [Math.min(a[0], b[0]), Math.max(a[1], b[1])]);
+          else anchors.push(entry);
         } else anchors.push(entry);
       }
     }
     mergeVisualCandidates(samples, join);
+    mergeLayoutBatches(samples, join);
+    mergeVideoCandidates(works, join);
     const components = new Map();
     works.forEach((item, index) => {
       const root = find(index);
@@ -953,8 +1102,12 @@
       const identities = new Set();
       const allTags = new Set();
       const visualSamples = [];
+      const videoSamples = [];
       const seenVisualSamples = new Set();
       for (const item of [preferred, ...members.filter(entry => entry !== preferred)]) {
+        for (const sample of validVideoSamples(item))
+          if (!videoSamples.some(saved => saved.url === sample.url) && videoSamples.length < 20)
+            videoSamples.push(sample);
         for (const tag of [...(item.tags || []), ...(item.allTags || [])])
           if (tag) allTags.add(tag);
         for (const key of [item.key, ...(item.memberKeys || [])])
@@ -990,7 +1143,7 @@
         participants, creatorTag: creator?.follow.artistId || '',
         creatorName: creator?.name || (participants.length ? '' : preferred.creatorName || ''),
         originalUrl: preferred.originalUrl || original,
-        memberKeys: [...keys], identityKeys: [...identities], visualSamples,
+        memberKeys: [...keys], identityKeys: [...identities], visualSamples, videoSamples,
         groupingVersion: complete ? groupingVersion : 0,
         groupMembers: complete && members.length > 1 ? members.map(item => ({ ...item,
           memberKeys: [item.key], identityKeys: [], groupMembers: [], groupingVersion: 0 })) : [],
@@ -1047,7 +1200,7 @@
     const previous = groupedCache.get(items);
     for (const item of enriched) {
       const member = item.groupMembers?.find(member => member.key === item.key);
-      if (member) for (const field of ['visualHash', 'visualPHash', 'visualAspectRatio'])
+      if (member) for (const field of ['visualHash', 'visualPHash', 'visualAspectRatio', 'visualLayout', 'videoSamples'])
         if (item[field]) member[field] = item[field];
     }
     invalidateGrouping(enriched);
@@ -1102,6 +1255,9 @@
       merged.height = previous.height;
     }
     merged.visualPHash = incoming.visualPHash || (!replacedMedia && previous.visualPHash) || '';
+    merged.visualLayout = incoming.visualLayout || (!replacedMedia && previous.visualLayout) || '';
+    merged.videoSamples = [...validVideoSamples(incoming), ...(!replacedMedia ? validVideoSamples(previous) : [])]
+      .filter((sample,index,all) => all.findIndex(other => other.url === sample.url) === index).slice(0,20);
     merged.visualAspectRatio = incoming.visualAspectRatio || (!replacedMedia && previous.visualAspectRatio) || 0;
     merged.visualSamples = [...new Map([...(replacedMedia ? [] : itemVisualSamples(previous)), ...itemVisualSamples(incoming)]
       .map(sample => [JSON.stringify(sample), sample])).values()].slice(0, 100);
@@ -2315,7 +2471,7 @@
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks, sameWork,
-    removeNavigationEntry, groupWorks, cacheGroupedWorks, mergeGroupedWorks, groupingRevision, invalidateGrouping, refineGrouping,
+    removeNavigationEntry, groupWorks, cacheGroupedWorks, mergeGroupedWorks, groupingRevision, groupingEvidenceVersion, invalidateGrouping, refineGrouping,
     needsGroupRepair, repairLegacyGroup, replaceRepairedGroups,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind, artworkTagText,

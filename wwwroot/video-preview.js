@@ -102,8 +102,9 @@
       // lets Chromium discover the end; live streams remain ordinary thumbnails.
       if (video.duration === Infinity)
         await mediaEvent(video, 'seeked', signal, () => { video.currentTime = 1e10; });
+      const duration = video.duration;
       const times = keyframes.length === 5 && keyframes.every(time => Number.isFinite(time) &&
-        time >= 0 && time < video.duration) ? keyframes : sampleTimes(video.duration);
+        time >= 0 && time < duration) ? keyframes : sampleTimes(duration);
       // Decode one still at a time and keep the output at 320px. A bounded
       // 16MP input also covers common portrait/illustration videos above 4K.
       if (!times.length || !video.videoWidth || !video.videoHeight ||
@@ -122,7 +123,7 @@
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         blobs.push(await encodeFrame(canvas, signal));
       }
-      return { blobs, times, width: canvas.width, height: canvas.height };
+      return { blobs, times, duration, width: canvas.width, height: canvas.height };
     } finally {
       video.pause();
       video.removeAttribute('src');
@@ -145,6 +146,7 @@
     const listeners = [];
     let target = null, targetKey = '', hover = null, focus = null;
     let generation = 0, dwellTimer, frameTimer, job = null, pending = null, disposed = false;
+    let evidenceController = null;
 
     function listen(node, name, handler, settings) {
       node.addEventListener(name, handler, settings);
@@ -168,9 +170,18 @@
     function stop() {
       generation++;
       clearTimeout(dwellTimer); clearTimeout(frameTimer);
+      evidenceController?.abort(); evidenceController = null;
       pending = null;
       if (job) job.controller.abort();
       restore(target); target = null; targetKey = '';
+    }
+    function publishFrames(card, entry, revision, url) {
+      if (typeof options.onFrames !== 'function' || !current(card, revision) || !evidenceController) return;
+      // Reuse the five decoded hover frames. Learning must never fetch another
+      // movie, delay the overlay or publish after this activation was cancelled.
+      const context = { card, key: targetKey, url, signal: evidenceController.signal };
+      try { Promise.resolve(options.onFrames(entry, context)).catch(() => {}); }
+      catch { /* Optional evidence does not own playback or its failure backoff. */ }
     }
     async function show(card, entry, revision, index = 0) {
       if (!current(card, revision)) return;
@@ -207,8 +218,10 @@
         }
         if (controller.signal.aborted || disposed) return;
         const entry = cache.put(request.key, result);
-        if (entry && current(request.card, request.revision))
+        if (entry && current(request.card, request.revision)) {
+          publishFrames(request.card, entry, request.revision, url);
           void show(request.card, entry, request.revision);
+        }
       } catch (error) {
         if (!controller.signal.aborted || timedOut) {
           failures.set(request.key, { url: request.url, until: Date.now() + 120000 });
@@ -224,9 +237,10 @@
     function enter(card) {
       if (disposed || !eligible(card) || card === target) return;
       stop(); target = card; targetKey = keyOf(card.dataset.videoPreview);
+      evidenceController = new AbortController();
       const revision = generation, key = targetKey, url = card.dataset.videoPreview;
       const entry = cache.get(key);
-      if (entry) { void show(card, entry, revision); return; }
+      if (entry) { publishFrames(card, entry, revision, url); void show(card, entry, revision); return; }
       const failure = failures.get(key);
       if (failure?.url === url && failure.until > Date.now()) return;
       dwellTimer = setTimeout(() => {
