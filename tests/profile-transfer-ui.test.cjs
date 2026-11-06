@@ -131,7 +131,7 @@ function hydrationFixture(posts) {
   const start = source.indexOf('const transferredMediaHydration = {');
   const end = source.indexOf('\nglobalThis.DartVideoPreview?.attach(', start);
   const requests = [], releases = new Map(); let tab = { id: 1, kind: 'likes' }, renders = 0;
-  const context = vm.createContext({ AbortController, Date, recent: [], currentTab: () => tab,
+  const context = vm.createContext({ fingerprintCache: require('../wwwroot/fingerprint-cache.js').create({ cacheKey: require('../wwwroot/catalog-logic.js').mediaCacheKey }), AbortController, Date, recent: [], currentTab: () => tab,
     setTimeout: () => 1, clearTimeout() {}, imageLoader: { cached: () => false },
     itemIndex: new Map(posts.map(post => [post.key, post])),
     main: { getBoundingClientRect: () => ({ top: 0, bottom: 1000 }), querySelectorAll: () => posts.map(post => ({

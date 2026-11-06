@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const DartViewerPreferences = require('../../wwwroot/viewer-preferences.js');
 const DartArtworkActions = require('../../wwwroot/artwork-actions.js');
 const DartProviderPages = require('../../wwwroot/provider-pages.js');
+const DartFingerprintCache = require('../../wwwroot/fingerprint-cache.js');
 const app = fs.readFileSync(require.resolve('../../wwwroot/app.js'), 'utf8');
 const helpers = app.slice(app.indexOf('function selectedRating('), app.indexOf('\nfunction refreshNsfwTabs('));
 const feedHelpers = app.slice(app.indexOf('function knownWorkTokens('), app.indexOf('\nfunction emptyFeedMessage('));
@@ -14,6 +15,9 @@ function createContext(sandbox = {}, options) {
   if (!Object.hasOwn(sandbox, 'DartProviderPages')) sandbox.DartProviderPages = DartProviderPages;
   if (!Object.hasOwn(sandbox, 'DartViewerPreferences')) sandbox.DartViewerPreferences = DartViewerPreferences;
   if (!Object.hasOwn(sandbox, 'viewerPreferences')) sandbox.viewerPreferences = DartViewerPreferences.normalize();
+  // App fragments share the production evidence owner, isolated per window.
+  if (!Object.hasOwn(sandbox, 'fingerprintCache')) sandbox.fingerprintCache =
+    DartFingerprintCache.create({ cacheKey: sandbox.CatalogLogic?.mediaCacheKey });
   // Fragment tests own an empty hidden collection unless explicitly supplied.
   // The production controller is used, so its identity semantics stay shared.
   const actions=DartArtworkActions.create({request:async()=>[]});

@@ -1,4 +1,14 @@
 'use strict';
+// Each fragment/window receives the real evidence owner, never a shared cache.
+require('node:test')('app fragment fingerprint state is isolated between windows', () => {
+  const vm = require('./helpers/viewer-vm.cjs'), assert = require('node:assert/strict');
+  const a = vm.createContext(), b = vm.createContext();
+  a.fingerprintCache.images.set('https://example.test/one.jpg', {
+    hash:'0123456789abcdef',perceptualHash:'fedcba9876543210',aspectRatio:1,layout:''
+  });
+  assert.equal(a.fingerprintCache.images.size,1);
+  assert.equal(b.fingerprintCache.images.size,0);
+});
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 const { create } = require('../wwwroot/fingerprint-cache.js');

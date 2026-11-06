@@ -15,7 +15,7 @@ function fixture(posts) {
   let now = 100000, tab = { id: 1, kind: 'likes' }, renders = 0, nextTimer = 0;
   const calls = [], pending = [], timers = new Map();
   class Clock extends Date { static now() { return now; } }
-  const context = vm.createContext({ Date: Clock, AbortController, CatalogLogic: logic,
+  const context = vm.createContext({ fingerprintCache: require('../wwwroot/fingerprint-cache.js').create({ cacheKey: require('../wwwroot/catalog-logic.js').mediaCacheKey }), Date: Clock, AbortController, CatalogLogic: logic,
     currentTab: () => tab, recent: [], itemIndex: new Map(posts.map(p => [p.key, p])),
     main: { getBoundingClientRect: () => ({ top: 0, bottom: 1000 }), querySelectorAll: () => posts.map(p => ({ dataset: { workKey: p.key }, getBoundingClientRect: () => ({ top: p.far ? 3000 : 0, bottom: p.far ? 3100 : 100 }) })) },
     sankakuMediaRecovery: { post(id, signal) { calls.push(id); return new Promise(resolve => pending.push({ id, signal, resolve })); } },
@@ -55,7 +55,7 @@ test('a large mixed group tries at most two Sankaku members in each bounded atte
 test('shared recovery requests only lightweight media and does not cache a signature beyond its usable expiry', async () => {
   let now = Math.floor(Date.now() / 1000) * 1000, calls = 0;class Clock extends Date { static now() { return now; } }
   const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8'), start = source.indexOf('const sankakuMediaRecovery = {'), end = source.indexOf('\n// Portable profiles omit', start);
-  const context = vm.createContext({ CatalogLogic: logic, Date: Clock, URL, AbortSignal,
+  const context = vm.createContext({ fingerprintCache: require('../wwwroot/fingerprint-cache.js').create({ cacheKey: require('../wwwroot/catalog-logic.js').mediaCacheKey }), CatalogLogic: logic, Date: Clock, URL, AbortSignal,
     request: async url => { calls++;assert.equal(new URL(url, 'http://127.0.0.1').searchParams.get('mediaOnly'), 'true');return { ...detail('Neutral123'), thumbnail: preview.replace('4102444800', String((now + 20000) / 1000)), images: [] }; } });
   vm.runInContext(source.slice(start, end) + '\nthis.recovery=sankakuMediaRecovery;', context);
   const signal = new AbortController().signal;await context.recovery.post('Neutral123', signal);await context.recovery.post('Neutral123', signal);assert.equal(calls, 1);
