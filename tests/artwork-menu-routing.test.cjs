@@ -21,6 +21,7 @@ test('an author inside an artwork region retains its author menu',()=>{
 test('Favorites supplies the shared renderer for entity and artwork cards',()=>{
  let deps;const cards=[];const ctx=vm.createContext({DartFavorites:{create:value=>(deps=value)},
   request(){},svg(){},currentTab(){},favoriteTags:[],recent:[],favoritesKnownWorks:()=>[],recommendationLikedWorks:()=>[],
+  favoriteViewedExamples:async()=>new Map(),
   contentPreferences:{},recommendationTagPreferences:{},saveSession(){},openSearch(){},openDetail(){},toast(){},selectedRating:()=> 'all',emptyNsfwRatingsMessage:()=>'',
   DartFavoriteGroups:require('../wwwroot/favorite-groups.js'),CatalogLogic:require('../wwwroot/catalog-logic.js'),renderCard:(item,newItem,presentation)=>{cards.push({item,presentation});return 'shared-card';},
   renderGrid:()=> 'shared-grid',document:{querySelectorAll:()=>[]}});

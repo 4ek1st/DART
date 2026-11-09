@@ -87,6 +87,7 @@ try { viewerPreferences = DartViewerPreferences.normalize(JSON.parse(localStorag
 catch { /* Keep both adult ratings and silent video for an existing profile. */ }
 
 function selectedRating(tab) {
+  if (tab?.kind === 'favorites' && tab.favoriteType !== 'artwork') return 'all';
   return DartViewerPreferences.rating(tab?.rating || 'general', viewerPreferences);
 }
 
@@ -120,7 +121,6 @@ function refreshNsfwTabs() {
   }
   for (const tab of feeds) {
     if (!tab) continue;
-    if (tab.kind === 'favorites' && tab.rating === 'explicit') { favoritesController.instance?.invalidate(); continue; }
     if (tab.rating !== 'explicit' || !['home', 'search', 'recommendations', 'follows', 'profile'].includes(tab.kind)) continue;
     abortTab(tab);
     tab.requestVersion = (tab.requestVersion || 0) + 1;
@@ -1485,6 +1485,7 @@ function favoritesController() {
     getActiveTab: currentTab, outboxChanged: () => { void saveSession(); },
     workTokens: item => CatalogLogic.workHistoryTokens(item),
     renderArtworks: items => renderFavoriteArtworkGrid(items),
+    viewedExamples: favoriteViewedExamples,
     renderEntityCard: card => card.cover ? renderCard(card.cover,false,{label:card.tag.replaceAll('_',' '),query:card.tag}) : '',
     allowed: item => !CatalogLogic.isWorkHidden(item, contentPreferences) && !artworkActionsController().isHidden(item),
     changed: () => { reconcileFavoriteGroupRoutes(); if (['favorites','detail','search','home'].includes(currentTab()?.kind)) render(); },
@@ -5113,37 +5114,51 @@ async function tagPreviewHistory(signal) {
 }
 
 async function tagPreviewViewed(tag, scope, signal) {
-  if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
   const pool = DartTagPreview.createExamplePool({ tag, scope, logic: CatalogLogic, allowed: tagPreviewAllowed });
-  const collections = [[recent, false], ...tabs.map(tab => [tab.favoriteSummary?.works || [], false]),
-    [likes, true], [bookmarks, true], [itemIndex.values(), true]];
-  let deadline = performance.now() + 6;
-  for (const [collection, needsProof] of collections) for (const item of collection) {
-    if (DartTagPreview.matchesTag(item, tag) && tagPreviewAllowed(item, scope) &&
-        (!needsProof || DartTagPreview.exclusionTokens(item, CatalogLogic).some(token => viewedTokens.has(token) || viewedPending.has(token)))) {
-      for (const example of DartTagPreview.representativeCandidates(item, tag)) {
-        if (pool.add(example)) return pool.items;
-      }
-    }
-    if (performance.now() >= deadline) {
-      await new Promise(resolve => setTimeout(resolve, 0));
-      if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
-      deadline = performance.now() + 6;
-    }
-  }
-  if (pool.items.length) return pool.items;
-  const history = await tagPreviewHistory(signal);
-  for (const item of history) {
-    if (DartTagPreview.matchesTag(item, tag) && tagPreviewAllowed(item, scope))
-      for (const example of DartTagPreview.representativeCandidates(item, tag))
-        if (pool.add(example)) return pool.items;
-    if (performance.now() >= deadline) {
-      await new Promise(resolve => setTimeout(resolve, 0));
-      if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
-      deadline = performance.now() + 6;
-    }
+  const add = (item, needsProof) => {
+    if (!DartTagPreview.matchesTag(item, tag) || !tagPreviewAllowed(item, scope) ||
+        (needsProof && !tagPreviewWasViewed(item))) return false;
+    return DartTagPreview.representativeCandidates(item, tag).some(example => pool.add(example));
+  };
+  await scanTagPreviewViews(tagPreviewCollections(), add, signal);
+  if (!pool.items.length) {
+    const history = await tagPreviewHistory(signal);
+    await scanTagPreviewViews([[history, false]], add, signal);
   }
   return pool.items;
+}
+
+function tagPreviewCollections() {
+  return [[recent, false], ...tabs.map(tab => [tab.favoriteSummary?.works || [], false]),
+    [likes, true], [bookmarks, true], [itemIndex.values(), true]];
+}
+
+function tagPreviewWasViewed(item) {
+  return DartTagPreview.exclusionTokens(item, CatalogLogic)
+    .some(token => viewedTokens.has(token) || viewedPending.has(token));
+}
+
+async function scanTagPreviewViews(collections, visit, signal) {
+  if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+  let deadline = performance.now() + 6;
+  for (const [collection, needsProof] of collections) for (const item of collection) {
+    if (visit(item, needsProof)) return;
+    if (performance.now() >= deadline) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (signal.aborted) throw new DOMException('Preview cancelled', 'AbortError');
+      deadline = performance.now() + 6;
+    }
+  }
+}
+
+async function favoriteViewedExamples(entries, tab, signal) {
+  const scope = { tab, rating: 'all', preferences: contentPreferences,
+    sources: defaultSources.filter(source => (tab.selectedSources || defaultSources).includes(source)) };
+  const picker = DartTagPreview.createViewedExamplePicker(entries, {
+    scope, allowed: tagPreviewAllowed, wasViewed: tagPreviewWasViewed
+  });
+  await scanTagPreviewViews(tagPreviewCollections(), picker.visit, signal);
+  return picker.items;
 }
 
 async function loadTagPreviewImage(item, signal) {
@@ -7389,6 +7404,7 @@ document.addEventListener('click', event => {
 
 function currentSearchOptions() {
   const tab = currentTab();
+  if (tab?.kind === 'favorites' && tab.favoriteType !== 'artwork') return { rating: 'all' };
   return tab?.kind === 'search'
     ? { rating: tab.rating, selectedSources: [...tab.selectedSources],
         sort: tab.sort, feed: tab.feed }

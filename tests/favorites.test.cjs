@@ -238,7 +238,7 @@ test('an artwork refresh started during a save cannot erase the confirmed Favori
  const loading=env.c.loadArtworks();finishSave([work(1)]);await saving;finishLoad([]);await loading;
  assert.equal(env.c.isArtworkFavorite(work(1)),true);
 });
-test('Favorites reuses rated recommendation evidence across renders, tabs and collection switches',()=>{
+test('Favorites reuses entity evidence across renders, tabs, collections and artwork ratings',()=>{
  const previous=global.CatalogLogic, likes=[work(1),{...work(2),rating:'e'}], tags=['fern'];
  let analysis=0, grouping=0, visibility=0; const seen=[];
  global.CatalogLogic={...Logic,groupingRevision:()=>grouping,
@@ -250,15 +250,15 @@ test('Favorites reuses rated recommendation evidence across renders, tabs and co
   const env=controller(async()=>[],{getTags:()=>tags,getLiked:()=>likes,getKnown:()=>likes,getRecent:()=>likes,
    visibilityRevision:()=>visibility});
   const tab={rating:'explicit',favoriteType:'character',favoriteOrigin:'mine'};
-  assert.equal(env.c.cards(tab)[0].likedCount,1);
+  assert.equal(env.c.cards(tab)[0].likedCount,2);
   visibility++;env.c.cards(tab);tab.favoriteOrigin='system';env.c.cards(tab);
   env.c.cards({...tab});env.c.invalidate();env.c.cards(tab);
   assert.equal(analysis,1,'view statistics and display changes must not rebuild like evidence');
   assert.equal(seen[0].options.includeCombinations,false,'Favorites never consumes recommendation combinations');
-  tab.rating='all';env.c.cards(tab);assert.equal(analysis,2);
-  tab.rating='explicit';env.c.cards(tab);assert.equal(analysis,2,'returning to a rating must reuse its snapshot');
-  likes.push({...work(3),rating:'e'});assert.equal(env.c.cards(tab)[0].likedCount,2);assert.equal(analysis,3);
-  grouping++;env.c.cards(tab);assert.equal(analysis,4,'learned metadata invalidates same-array evidence');
+  tab.rating='all';env.c.cards(tab);assert.equal(analysis,1);
+  tab.rating='explicit';env.c.cards(tab);assert.equal(analysis,1,'artwork rating must not rebuild entity evidence');
+  likes.push({...work(3),rating:'e'});assert.equal(env.c.cards(tab)[0].likedCount,3);assert.equal(analysis,2);
+  grouping++;env.c.cards(tab);assert.equal(analysis,3,'learned metadata invalidates same-array evidence');
  } finally {global.CatalogLogic=previous;}
 });
 test('Favorites invalidates recommendation evidence when a tag preference changes in place',()=>{

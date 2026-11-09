@@ -5,6 +5,8 @@
 })(globalThis, function () {
   'use strict';
   const normalizedTags = new Map();
+  const tagFields = ['tags', 'allTags', 'characterTags', 'copyrightTags'];
+  const thumbnailOwners = item => item?.groupMembers?.length ? item.groupMembers : [item];
   function normalizeTag(value) {
     const original = String(value || ''), cached = normalizedTags.get(original);
     if (cached !== undefined) return cached;
@@ -22,10 +24,10 @@
   }
   function matchesTag(item, value) {
     const tag = normalizeTag(value);
-    return !!tag && [item, ...(item?.groupMembers || [])].some(work =>
-      ['tags', 'allTags', 'characterTags', 'copyrightTags'].some(field =>
-        (work?.[field] || []).some(candidate => normalizeTag(candidate) === tag)));
+    return !!tag && [item, ...(item?.groupMembers || [])].some(work => hasTag(work, tag));
   }
+  const hasTag = (work, tag) => tagFields.some(field =>
+    (work?.[field] || []).some(candidate => normalizeTag(candidate) === tag));
   function exclusionTokens(item, logic) {
     const tokens = new Set();
     for (const work of [item, ...(item?.groupMembers || [])]) {
@@ -45,12 +47,10 @@
   function representativeCandidates(item, value) {
     const tag = normalizeTag(value);
     if (!tag) return [];
-    const members = item?.groupMembers?.length ? item.groupMembers : [item];
     // The group's union of tags can describe another version than its cover.
     // Use metadata belonging to the actual thumbnail owner, without mutating
     // the saved group or borrowing tags from its other members.
-    return members.filter(work => work && ['tags', 'allTags', 'characterTags', 'copyrightTags']
-      .some(field => (work[field] || []).some(candidate => normalizeTag(candidate) === tag)));
+    return thumbnailOwners(item).filter(work => hasTag(work, tag));
   }
   function exampleScore(item, value, scope = {}) {
     const tag = normalizeTag(value);
@@ -101,6 +101,36 @@
       for (const token of tokens) identities.set(token, index);
       return items.length >= limit;
     } };
+  }
+  function createViewedExamplePicker(entries, { scope, allowed, wasViewed }) {
+    const requested = new Map(entries.map(({tag, kind}) => [tag, { tagKind: kind }]));
+    const items = new Map(), scores = new Map(), seen = new WeakSet();
+    return {
+      items,
+      visit(item, needsProof) {
+        if (!item || seen.has(item)) return;
+        seen.add(item);
+        let eligible;
+        for (const work of thumbnailOwners(item)) {
+          if (!work?.thumbnail) continue;
+          let matching;
+          for (const field of tagFields) for (const value of work[field] || []) {
+            const tag = normalizeTag(value);
+            if (requested.has(tag)) (matching ||= new Set()).add(tag);
+          }
+          if (!matching) continue;
+          eligible ??= allowed(item, scope) && (!needsProof || wasViewed(item));
+          if (!eligible) return;
+          if (work !== item && !allowed(work, scope)) continue;
+          for (const tag of matching) {
+            const score = exampleScore(work, tag, requested.get(tag));
+            if (score <= (scores.get(tag) ?? -Infinity)) continue;
+            scores.set(tag, score);
+            items.set(tag, work);
+          }
+        }
+      }
+    };
   }
   const aborted = signal => { if (signal?.aborted) throw new DOMException('Preview cancelled', 'AbortError'); };
   function createResolver({ getViewed = () => [], search, allowed = () => true,
@@ -274,5 +304,6 @@
     return { hide, reconcile, clear() { hide(); resolver.clear(); },
       dispose() { disposed = true; hide(); mutations?.disconnect(); listeners.forEach(remove => remove()); tip.remove(); } };
   }
-  return { normalizeTag, matchesTag, exclusionTokens, excludes, representativeCandidates, exampleScore, createExamplePool, createResolver, create };
+  return { normalizeTag, matchesTag, exclusionTokens, excludes, representativeCandidates, exampleScore,
+    createExamplePool, createViewedExamplePicker, createResolver, create };
 });

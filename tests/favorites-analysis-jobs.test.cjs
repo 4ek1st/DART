@@ -27,6 +27,7 @@ function fixture(more = {}) {
     getTags: () => state.tags, setTags: tags => { state.tags = tags; },
     getLiked: () => state.liked, getKnown: () => state.known || state.liked, getRecent: () => state.recent,
     getTagPreferences: () => state.preferences, getActiveTab: () => state.active,
+    viewedExamples: more.viewedExamples,
     allowed: item => !state.blocked.has(item.key),
     analyze: (items, preferences, options) => {
       const job = { ...deferred(), items, preferences, options }; state.jobs.push(job); return job.promise;
@@ -52,7 +53,7 @@ function scenario(name, run) {
   test(name, async () => { const f = fixture(); try { await run(f); } finally { f.restore(); } });
 }
 
-scenario('cold Mine/System rendering stays responsive and coalesces the same rated analysis across tabs and modes', async f => {
+scenario('cold Mine/System rendering stays responsive and shares analysis across tabs and modes', async f => {
   const first = f.controller.render(f.tab);
   assert.match(first, /Loading Favorites/); assert.doesNotMatch(first, /Your Favorites start here|Keep exploring/);
   f.tab.favoriteOrigin = 'system'; f.controller.render(f.tab);
@@ -90,16 +91,15 @@ scenario('load runs analysis alongside data reads and its loading render never s
   assert.equal(f.state.requests.filter(request => request.url.startsWith('/api/favorites?')).length, 1);
 });
 
-scenario('rating changes use a distinct compatible analysis and returning to a rating reuses its completed evidence', async f => {
+scenario('the saved artwork rating does not filter or restart character and tag evidence', async f => {
   f.controller.cards(f.tab); await tick(); f.finish(0); await tick();
+  const characters = f.controller.cards(f.tab);
   f.tab.rating = 'general';
-  assert.deepEqual(f.controller.cards(f.tab), []);
-  assert.match(f.controller.render(f.tab), /Loading Favorites/);
-  await tick(); assert.equal(f.state.jobs.length, 2);
-  assert(f.state.jobs[1].items.every(item => item.rating === 'g'));
-  f.finish(1); await tick(); assert.equal(f.controller.cards(f.tab)[0].likedCount, 12);
-  f.tab.rating = 'all'; assert.equal(f.controller.cards(f.tab)[0].likedCount, 24);
-  assert.equal(f.state.jobs.length, 2);
+  assert.equal(f.controller.cards(f.tab), characters);
+  assert.equal(characters[0].likedCount, 24);
+  f.tab.favoriteType = 'tag';
+  assert.equal(f.controller.cards(f.tab).find(card => card.tag === 'rain').likedCount, 24);
+  await tick(); assert.equal(f.state.jobs.length, 1);
 });
 
 scenario('a late old liked-library result cannot publish over a new library, and load awaits only current evidence', async f => {
@@ -160,13 +160,13 @@ scenario('analysis failure exposes retry, remains bounded under repeated renders
   assert.doesNotMatch(f.controller.render(f.tab), /role="alert"/);
 });
 
-scenario('changing rating during a load cannot publish the old rating or erase newer loading state', async f => {
+scenario('changing the artwork rating during an entity load keeps its one unfiltered request', async f => {
   const loading = f.controller.load(f.tab); await tick();
-  f.tab.rating = 'general'; f.finish(0); await tick();
-  assert.equal(f.tab.favoriteLoading, true); assert.equal(f.state.jobs.length, 2);
-  f.finish(1); await loading;
-  assert.equal(f.tab.favoriteLoading, false); assert.equal(f.controller.cards(f.tab)[0].likedCount, 12);
-  assert.equal(f.state.requests.filter(request => request.url.startsWith('/api/favorites?')).length, 2);
+  f.tab.rating = 'general'; f.finish(0); await loading;
+  assert.equal(f.tab.favoriteLoading, false); assert.equal(f.controller.cards(f.tab)[0].likedCount, 24);
+  assert.equal(f.state.jobs.length, 1);
+  assert.deepEqual(f.state.requests.filter(request => request.url.startsWith('/api/favorites?')),
+    [{ url: '/api/favorites?rating=all', method: 'GET' }]);
 });
 
 test('an older summary and analysis cannot erase a manual favorite or its explicit kind', async () => {
@@ -199,11 +199,40 @@ scenario('completed offscreen or disposed analysis cannot repaint another screen
   assert.equal(f.state.changes, before); assert.equal(f.state.jobs.length, jobs);
 });
 
-scenario('artwork and empty-rating views do not schedule tag analysis', async f => {
-  f.tab.favoriteType = 'artwork'; await f.controller.load(f.tab);
-  f.controller.render(f.tab); assert.equal(f.state.jobs.length, 0);
-  f.tab.favoriteType = 'character'; f.tab.rating = 'none'; await f.controller.load(f.tab, true);
+scenario('empty NSFW selection belongs only to Artworks', async f => {
+  f.tab.favoriteType = 'artwork'; f.tab.rating = 'none'; await f.controller.load(f.tab);
   assert.match(f.controller.render(f.tab), /No NSFW ratings selected/); assert.equal(f.state.jobs.length, 0);
+  f.tab.favoriteType = 'character';
+  assert.doesNotMatch(f.controller.render(f.tab), /No NSFW ratings selected|favorites-rating/);
+  await tick(); f.finish(0); await tick();
+  assert.equal(f.controller.cards(f.tab)[0].likedCount, 24);
+  assert.equal(f.tab.rating, 'none');
+});
+
+test('one viewed-cover lookup survives repeated renders and discards a cancelled category result', async () => {
+  const lookups = [];
+  const f = fixture({ tags: ['rain', 'cloud'], liked: [], viewedExamples(entries, tab, signal) {
+    const job = { ...deferred(), entries, signal }; lookups.push(job); return job.promise;
+  } });
+  try {
+    f.tab.favoriteType = 'tag';
+    f.controller.render(f.tab); await tick(); f.finish(0); await tick();
+    f.controller.render(f.tab); f.controller.render(f.tab); await tick();
+    assert.equal(lookups.length, 1);
+    assert.deepEqual(lookups[0].entries.map(card => card.tag).sort(), ['cloud', 'rain']);
+    f.controller.handle({ dataset: { action: 'favorites-type', value: 'artwork' } }, f.tab);
+    assert.equal(lookups[0].signal.aborted, true);
+    const before = f.state.changes;
+    lookups[0].resolve(new Map([['rain', work(10)]])); await tick();
+    assert.equal(f.state.changes, before);
+    f.controller.handle({ dataset: { action: 'favorites-type', value: 'tag' } }, f.tab);
+    f.controller.render(f.tab); await tick();
+    assert.equal(lookups.length, 2);
+    const viewed = work(11);
+    lookups[1].resolve(new Map([['rain', viewed]])); await tick();
+    assert.equal(f.controller.cards(f.tab).find(card => card.tag === 'rain').cover, viewed);
+    assert.equal(lookups.length, 2);
+  } finally { f.restore(); }
 });
 
 test('precomputed selections preserve synchronous Favorites classifications, counts and priorities', () => {

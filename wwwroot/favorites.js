@@ -180,8 +180,9 @@
       changed = () => {}, toast = () => {}, allowed = () => true, save = () => {}, svg = () => '',
       openSearch = () => {}, openDetail = () => {}, schedule = setTimeout, unschedule = clearTimeout } = deps;
     const pending = new Set(), optimistic = new Map(), observed = new Map(), cache = new Map();
-    const ratedEvidence = new Map(), previousSuggestions = new Map(), emptyLikes = [];
-    let evidenceInputs = null;
+    const emptyLikes = [];
+    let evidenceInputs = null, currentEvidence = null, previousSuggestions = null;
+    let previewJob = null;
     let saving = Promise.resolve(), queue = [], timer = null, sending = null, inFlight = [], revision = 0, manualRevision = 0, disposed = false;
     let outboxSequence = 0;
     let lastKinds = {};
@@ -189,39 +190,42 @@
     let membershipItems = null, membership = new Set();
     const pendingArtworks = new Set();
     const t = value => deps.t?.(value) || value;
-    function mark() { revision++; cache.clear(); }
+    function cancelPreviewJob() {
+      previewJob?.controller.abort();
+      previewJob = null;
+    }
+    function mark() { revision++; cancelPreviewJob(); cache.clear(); }
     function evidenceContext() {
       const liked = deps.getLiked?.() || emptyLikes, preferences = deps.getTagPreferences?.() || {};
       const preferenceKey = JSON.stringify(preferences), grouping = root.CatalogLogic?.groupingRevision?.(liked) || 0;
       const inputVersion = root.CatalogLogic?.recommendationInputVersion?.(liked) || '';
       const inputs = [liked, liked.length, grouping, inputVersion, preferenceKey];
       if (!evidenceInputs || !inputs.every((value, index) => evidenceInputs[index] === value)) {
-        evidenceInputs = inputs; ratedEvidence.clear();
+        evidenceInputs = inputs; currentEvidence = null;
       }
       return { liked, preferences, preferenceKey, grouping, inputVersion, inputs: evidenceInputs };
     }
     function evidenceCurrent(evidence) {
-      return !disposed && evidenceContext().inputs === evidence.inputs && ratedEvidence.get(evidence.rating) === evidence;
+      return !disposed && evidenceContext().inputs === evidence.inputs && currentEvidence === evidence;
     }
     function notifyEvidence(evidence) {
       const active = deps.getActiveTab?.();
-      if (deps.getActiveTab && (!active || !evidence.tabs.has(active) || active.favoriteType === 'artwork' ||
-          (deps.effectiveRating?.(active) || active.rating || 'all') !== evidence.rating)) return;
+      if (deps.getActiveTab && (!active || !evidence.tabs.has(active) || active.favoriteType === 'artwork')) return;
       // The data load awaits this same evidence and paints its final state.
       // Avoid two full card reconciliations in the completion microtasks.
       if (active?.favoriteLoading) return;
       changed();
     }
-    function evidenceFor(rating, tab, retryFailed = false, context = evidenceContext()) {
-      let evidence = ratedEvidence.get(rating);
+    function evidenceFor(tab, retryFailed = false, context = evidenceContext()) {
+      let evidence = currentEvidence;
       if (evidence && !(retryFailed && evidence.state === 'failed')) {
         if (tab && evidence.state === 'pending') evidence.tabs.add(tab);
         return evidence;
       }
-      const items = rating === 'all' ? context.liked : context.liked.filter(item => ratingMatches(item, rating));
-      evidence = { rating, items, inputs: context.inputs, preferenceKey: context.preferenceKey,
+      const items = context.liked;
+      evidence = { items, inputs: context.inputs, preferenceKey: context.preferenceKey,
         tabs: new Set(), state: 'ready', suggestions: null, promise: null };
-      ratedEvidence.set(rating, evidence);
+      currentEvidence = evidence;
       if (!deps.analyze) {
         evidence.suggestions = systemSuggestions(items, context.preferences);
         return evidence;
@@ -234,7 +238,7 @@
         if (!analysis?.queryGroups) throw new Error('Favorite analysis unavailable');
         evidence.suggestions = systemSuggestions(items, preferences, root.CatalogLogic, analysis.queryGroups);
         evidence.state = 'ready';
-        previousSuggestions.set(rating, { preferenceKey: evidence.preferenceKey, suggestions: evidence.suggestions });
+        previousSuggestions = { preferenceKey: evidence.preferenceKey, suggestions: evidence.suggestions };
         notifyEvidence(evidence);
         return evidence;
       }).catch(() => {
@@ -291,36 +295,29 @@
       if (!force && tab.favoriteRevision === revision && tab.favoriteLoadedAt > Date.now() - 15000) return;
       tab.favoriteLoading = true; tab.favoriteError = ''; changed();
       try {
-        while (!disposed) {
-          const rating = deps.effectiveRating?.(tab) || tab.rating || 'all', version = revision, choicesVersion = manualRevision;
-          const evidence = deps.analyze && tab.favoriteType !== 'artwork' && rating !== 'none'
-            ? evidenceFor(rating, tab, force) : null;
-          const [summary, tags, worksReady] = await Promise.all([
-            request(`/api/favorites?rating=${rating}`, { priority: 'background' }), request('/api/favorite-tags'), loadArtworks(), evidence?.promise
-          ]);
-          if (disposed) return;
-          if (!worksReady) throw new Error('Favorite artworks unavailable');
-          if ((deps.effectiveRating?.(tab) || tab.rating || 'all') !== rating) continue;
-          if (evidence && tab.favoriteType !== 'artwork') {
-            let current = evidenceFor(rating, tab);
-            while (current.state === 'pending' || current.state === 'stale') {
-              await current.promise;
-              if (disposed) return;
-              if ((deps.effectiveRating?.(tab) || tab.rating || 'all') !== rating) break;
-              current = evidenceFor(rating, tab);
-            }
-            if ((deps.effectiveRating?.(tab) || tab.rating || 'all') !== rating) continue;
-            if (current.state === 'failed') throw new Error('Favorite analysis unavailable');
+        const version = revision, choicesVersion = manualRevision;
+        const evidence = deps.analyze && tab.favoriteType !== 'artwork' ? evidenceFor(tab, force) : null;
+        const [summary, tags, worksReady] = await Promise.all([
+          request('/api/favorites?rating=all', { priority: 'background' }), request('/api/favorite-tags'), loadArtworks(), evidence?.promise
+        ]);
+        if (disposed) return;
+        if (!worksReady) throw new Error('Favorite artworks unavailable');
+        if (evidence && tab.favoriteType !== 'artwork') {
+          let current = evidenceFor(tab);
+          while (current.state === 'pending' || current.state === 'stale') {
+            await current.promise;
+            if (disposed) return;
+            current = evidenceFor(tab);
           }
-          tab.favoriteSummary = summary;
-          const merged = new Set(tags);
-          for (const [tag, favorite] of optimistic) favorite ? merged.add(tag) : merged.delete(tag);
-          if (choicesVersion === manualRevision) {
-            setTags([...merged]); lastKinds = summary.kinds || {};
-          }
-          tab.favoriteRevision = version; tab.favoriteLoadedAt = Date.now();
-          break;
+          if (current.state === 'failed') throw new Error('Favorite analysis unavailable');
         }
+        tab.favoriteSummary = summary;
+        const merged = new Set(tags);
+        for (const [tag, favorite] of optimistic) favorite ? merged.add(tag) : merged.delete(tag);
+        if (choicesVersion === manualRevision) {
+          setTags([...merged]); lastKinds = summary.kinds || {};
+        }
+        tab.favoriteRevision = version; tab.favoriteLoadedAt = Date.now();
       } catch { tab.favoriteError = 'Could not load Favorites. Your choices are still saved.'; }
       finally {
         tab.favoriteLoading = false;
@@ -426,49 +423,86 @@
       if (queue.length && !keepalive && !disposed && timer === null)
         timer = schedule(() => { timer = null; void flush(); }, failed ? 5000 : 0);
     }
+    function fillViewedPreviews(tab, entry) {
+      if (!deps.viewedExamples || entry.previewChecked || previewJob?.entry === entry ||
+          tab.favoriteLoading || tab.favoriteEvidenceLoading || tab.favoriteType === 'artwork') return;
+      const missing = entry.cards.filter(card => !card.cover);
+      if (!missing.length) { entry.previewChecked = true; return; }
+      cancelPreviewJob();
+      const controller = new AbortController();
+      const job = { tab, entry, controller };
+      previewJob = job;
+      void Promise.resolve().then(() => deps.viewedExamples(missing, tab, controller.signal)).then(examples => {
+        if (disposed || controller.signal.aborted || cache.get(tab) !== entry) return;
+        entry.previewChecked = true;
+        if (!examples.size) return;
+        let updated = false;
+        entry.cards = entry.cards.map(card => {
+          const cover = !card.cover && examples.get(card.tag);
+          if (!cover || !allowed(cover)) return card;
+          updated = true;
+          return { ...card, cover, coverOrigin: 'viewed-example' };
+        });
+        if (updated && (!deps.getActiveTab || deps.getActiveTab() === tab)) changed();
+      }).catch(() => { if (!controller.signal.aborted) entry.previewChecked = true; }).finally(() => {
+        if (previewJob === job) previewJob = null;
+      });
+    }
     function cards(tab) {
       const summary = { ...(tab.favoriteSummary || {}), kinds: { ...tab.favoriteSummary?.kinds, ...lastKinds } };
       const context = evidenceContext(), { liked, preferences, preferenceKey, grouping, inputVersion } = context;
-      const rating = deps.effectiveRating?.(tab) || tab.rating || 'all';
       const tags = getTags(), recent = getRecent(), known = getKnown();
-      const evidence = evidenceFor(rating, tab, false, context);
+      const evidence = evidenceFor(tab, false, context);
       tab.favoriteEvidenceLoading = evidence.state === 'pending';
       tab.favoriteEvidenceError = evidence.state === 'failed' ? 'Could not load Favorites. Your choices are still saved.' : '';
-      const key = [tab, summary.entries, tags, recent, known, liked, liked.length, grouping, inputVersion, preferenceKey,
+      const key = [tab, summary.entries, summary.works, tags, recent, known, liked, liked.length, grouping, inputVersion, preferenceKey,
         evidence, evidence.state,
-        tab.favoriteType, tab.favoriteOrigin, rating, revision, deps.getPreferences?.(), deps.visibilityRevision?.()];
+        tab.favoriteType, tab.favoriteOrigin, revision, deps.getPreferences?.(), deps.visibilityRevision?.()];
       const old = cache.get(tab);
-      if (old && key.every((value, i) => old.key[i] === value)) return old.cards;
-      const previous = previousSuggestions.get(rating);
-      const suggestions = evidence.state === 'ready' ? evidence.suggestions : previous?.preferenceKey === preferenceKey ? previous.suggestions : null;
+      if (old && key.every((value, i) => old.key[i] === value)) {
+        fillViewedPreviews(tab, old);
+        return old.cards;
+      }
+      if (previewJob?.tab === tab) cancelPreviewJob();
+      const suggestions = evidence.state === 'ready' ? evidence.suggestions :
+        previousSuggestions?.preferenceKey === preferenceKey ? previousSuggestions.suggestions : null;
       // Rendering never starts synchronous library analysis in worker mode.
       // While a refreshed like snapshot is processed, rebuild only the cheap
       // cards from prior evidence and current choices/filters/cover metadata.
       if (!suggestions) return [];
       const values = collections({ summary, tags, recent, known, liked: evidence.items, suggestions, preferences,
-        type: tab.favoriteType || 'character', origin: tab.favoriteOrigin || 'mine', rating, allowed });
-      cache.set(tab, { key, cards: values }); return values;
+        type: tab.favoriteType || 'character', origin: tab.favoriteOrigin || 'mine', allowed });
+      const entry = { key, cards: values };
+      cache.set(tab, entry);
+      fillViewedPreviews(tab, entry);
+      return values;
     }
     const button = (action, label, attrs = '') => `<button type="button" data-action="favorites-${action}" ${attrs}>${label}</button>`;
     function render(tab) {
       const type = tab.favoriteType || 'character', origin = tab.favoriteOrigin || 'mine';
-      const rating = deps.effectiveRating?.(tab) || tab.rating;
-      const values = type === 'artwork' || rating === 'none' ? [] : cards(tab);
-      const evidenceLoading = type !== 'artwork' && rating !== 'none' && tab.favoriteEvidenceLoading;
+      const rating = type === 'artwork' ? deps.effectiveRating?.(tab) || tab.rating || 'all' : 'all';
+      const values = type === 'artwork' ? [] : cards(tab);
+      const evidenceLoading = type !== 'artwork' && tab.favoriteEvidenceLoading;
       const loading = tab.favoriteLoading || evidenceLoading;
       const error = tab.favoriteError || (type !== 'artwork' ? tab.favoriteEvidenceError : '');
       tab.items = type === 'artwork' ? artworks.filter(item => ratingMatches(item, rating) && allowed(item)) :
         [...new Map(values.filter(card => card.cover).map(card => [card.cover.key, card.cover])).values()];
       const choose = (action, value, label, active) => button(action,t(label),`class="filter-button${action==='rating'&&value==='explicit'?' adult-filter':''}${active ? ' active' : ''}" data-value="${value}" aria-pressed="${active}"`);
+      const coverLabels = {
+        liked: 'From liked artworks',
+        recent: 'Earlier browsing history',
+        'viewed-example': 'Previously viewed'
+      };
       const entity = card => {
         const title = card.tag.replaceAll('_',' ');
         const preview = deps.renderEntityCard?.(card) || '';
-        const fallback = `<article class="card"><div class="card-art favorite-empty-preview"><span>${t('No viewed preview yet')}</span></div><button type="button" class="card-title" data-action="query" data-query="${escape(card.tag)}" data-context-tag="${escape(card.tag)}" data-no-i18n>${escape(title)}</button></article>`;
+        const fallback = `<article class="card"><div class="card-art favorite-empty-preview"><span>${t(card.count > 0 ? 'Preview unavailable' : 'No viewed preview yet')}</span></div><button type="button" class="card-title" data-action="query" data-query="${escape(card.tag)}" data-context-tag="${escape(card.tag)}" data-no-i18n>${escape(title)}</button></article>`;
+        const coverLabel = coverLabels[card.coverOrigin] || (type === 'character' ? 'Last matching viewed artwork' : 'Last viewed artwork');
         return `<div class="favorite-entity" data-render-key="favorite:${escape(card.tag)}">${preview || fallback}
           <div class="favorite-entity-stats">${card.likedCount !== null ? `<span>${card.likedCount} ${t('liked artworks')}</span>` : ''}
           <span>${card.count === null ? t('No dated views yet') : `${card.count} ${t('viewed artworks')}`}</span>
           ${card.priority ? '<span class="favorite-priority">Priority</span>' : ''}</div>
-          ${card.cover ? `<small class="favorite-preview-origin">${t(card.coverOrigin === 'liked' ? 'From liked artworks' : card.coverOrigin === 'recent' ? 'Earlier browsing history' : type === 'character' ? 'Last matching viewed artwork' : 'Last viewed artwork')}</small>` : ''}</div>`;
+          ${card.cover ? `<small class="favorite-preview-origin">${t(coverLabel)}</small>` : ''}</div>`;
       };
       const summary = tab.favoriteSummary;
       return `<section class="content favorites-page"><div class="section-head"><h1>Favorites</h1>
@@ -477,7 +511,7 @@
         <div class="search-tools favorites-filters"><div class="source-filters control-group favorites-category" aria-label="${t('Favorite category')}">
           ${['character','tag','artwork'].map((value,i)=>choose('type',value,['Characters','Tags','Artworks'][i],type===value)).join('')}</div>
           ${type !== 'artwork' ? `<div class="source-filters control-group favorites-origin" aria-label="${t('Collection')}">${choose('origin','mine','Mine',origin==='mine')}${choose('origin','system','System picks',origin==='system')}</div>` : ''}
-          <div class="source-filters control-group favorites-rating" aria-label="${t('Rating')}">${['general','explicit','all'].map((value,i)=>choose('rating',value,['SFW','NSFW','All images'][i],tab.rating===value)).join('')}</div></div>
+          ${type === 'artwork' ? `<div class="source-filters control-group favorites-rating" aria-label="${t('Rating')}">${['general','explicit','all'].map((value,i)=>choose('rating',value,['SFW','NSFW','All images'][i],tab.rating===value)).join('')}</div>` : ''}</div>
         ${tab.favoriteAdding && type !== 'artwork' ? `<form class="favorites-add-form"><label for="favorite-new-tag">${t(type==='character'?'Character tag':'Content tag')}</label>
           <div><input id="favorite-new-tag" name="tag" required maxlength="100" autocomplete="off" placeholder="${type==='character'?'fern_(sousou_no_frieren)':'rain'}" value="${escape(tab.favoriteDraft||'')}" data-no-i18n>
           <button type="submit" class="primary-button">${t('Add Favorite')}</button>${button('cancel',t('Cancel'),'class="secondary-button"')}</div>
@@ -496,14 +530,17 @@
     function handle(control, tab) {
       if (!control?.dataset?.action?.startsWith('favorites-') || !tab) return false;
       const action = control.dataset.action.slice(10), tag = control.dataset.tag;
-      if (action === 'type') tab.favoriteType = ['tag', 'artwork'].includes(control.dataset.value) ? control.dataset.value : 'character';
+      if (action === 'type') {
+        tab.favoriteType = ['tag', 'artwork'].includes(control.dataset.value) ? control.dataset.value : 'character';
+        if (tab.favoriteType === 'artwork' && previewJob?.tab === tab) cancelPreviewJob();
+      }
       else if (action === 'origin') tab.favoriteOrigin = control.dataset.value === 'system' ? 'system' : 'mine';
-      else if (action === 'rating') { tab.rating = control.dataset.value; void load(tab, true); }
+      else if (action === 'rating' && tab.favoriteType === 'artwork') tab.rating = control.dataset.value;
       else if (action === 'add') tab.favoriteAdding = !tab.favoriteAdding;
       else if (action === 'cancel') { tab.favoriteAdding = false; tab.favoriteDraft = ''; }
       else if (action === 'refresh') { void load(tab, true); return true; }
       else if (action === 'star') { void toggle(tag, tab.favoriteType || 'character'); return true; }
-      else if (action === 'search') { openSearch(tag, { rating: tab.rating }); return true; }
+      else if (action === 'search') { openSearch(tag, { rating: 'all' }); return true; }
       else if (action === 'cover') { const work = cards(tab).find(card => card.tag === tag)?.cover; if (work) openDetail(work); return true; }
       else return false;
       save(); changed(); return true;
@@ -519,7 +556,7 @@
     return { load, render, handle, add, toggle, cards, invalidate: mark, loadArtworks, toggleArtwork, isArtworkFavorite, outboxSnapshot, restoreOutbox,
       artworks:()=>artworks, isArtworkPending: item => pendingArtworks.has(item?.key),
       record: item => enqueue(item, false), metadata: item => enqueue(item, true), flush,
-      dispose() { disposed = true; if (timer !== null) unschedule(timer); timer = null; } };
+      dispose() { disposed = true; cancelPreviewJob(); if (timer !== null) unschedule(timer); timer = null; } };
   }
   const api = { normalize, collections, slim, create, systemSuggestions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

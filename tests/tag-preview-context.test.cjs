@@ -55,6 +55,25 @@ test('loaded but unviewed artworks cannot masquerade as viewed; matching dated m
   const items = await f.context.tagPreviewViewed('forest', f.scope(), new AbortController().signal);
   assert.deepEqual(Array.from(items, item => item.key), [seen.key]);
 });
+test('Favorites batches viewed examples and uses the matching member rather than the group cover', async () => {
+  const f = fixture();
+  f.tab.kind = 'favorites'; f.tab.rating = 'explicit';
+  const cover = work(20, { tags: ['rain'] });
+  const member = work(21, { tags: ['forest'], characterTags: ['forest', 'spruce'], rating: 'e' });
+  const taggedBookmark = work(22, { tags: ['shore'] });
+  const unseen = work(23, { tags: ['shore', 'shore_focus'], width: 1600, height: 1600 });
+  const hidden = work(24, { tags: ['shore', 'shore_focus'], hidden: true });
+  f.tab.favoriteSummary = { works: [{ ...cover, tags: ['forest', 'rain'], groupMembers: [cover, member] }, hidden] };
+  f.context.bookmarks = [taggedBookmark, unseen];
+  f.context.viewedTokens.add('key:' + taggedBookmark.key);
+  f.context.tagPreviewHistory = async () => { throw new Error('Unexpected second history read'); };
+  const examples = await f.context.favoriteViewedExamples([
+    { tag: 'forest', kind: 'character' }, { tag: 'shore', kind: 'tag' }, { tag: 'absent', kind: 'tag' }
+  ], f.tab, new AbortController().signal);
+  assert.equal(examples.get('forest'), member);
+  assert.equal(examples.get('shore'), taggedBookmark);
+  assert.equal(examples.has('absent'), false);
+});
 test('a shared parent cannot promote a loaded different scene into the viewed tier', async () => {
   const f = fixture(), unseen = work(8, { groupKey: 'danbooru:parent:7', contentHash: 'b'.repeat(32) });
   f.context.itemIndex.set(unseen.key, unseen);

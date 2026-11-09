@@ -176,7 +176,8 @@ test('the application forwards Favorites options through its dependency and shar
     DartWorkAnalysis: { create: () => ({ analyze: (...args) => { calls.push(args); return result('partial'); } }) },
     DartFavorites: { create: deps => deps } });
   for (const name of ['request', 'svg', 'favoritesKnownWorks', 'recommendationLikedWorks', 'selectedRating',
-    'emptyNsfwRatingsMessage', 'toast', 'saveSession', 'openSearch', 'openDetail', 'currentTab']) context[name] = () => {};
+    'emptyNsfwRatingsMessage', 'toast', 'saveSession', 'openSearch', 'openDetail', 'currentTab',
+    'favoriteViewedExamples']) context[name] = () => {};
   vm.runInContext(block('function favoritesController(', '\nfunction favoriteGroupsController(') +
     block('function analyzeArtworkCollection(', '\nfunction recommendationPoolsHaveMore('), context);
   const controller = context.favoritesController(); await controller.analyze(liked, preferences, options);
