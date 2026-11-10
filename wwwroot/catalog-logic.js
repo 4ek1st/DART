@@ -1607,21 +1607,55 @@
   function rankRelated(item, candidates, limit = 24, context = {}) {
     const authorTags = new Set(workParticipants(item).flatMap(person => [person.tag, person.name]).map(normalizeTag));
     const reference = meaningfulTags(artworkTags(item)).filter(tag => !authorTags.has(tag));
+    const typed = new Map();
+    for (const tag of item.characterTags || []) typed.set(normalizeTag(tag), 4);
+    for (const tag of item.copyrightTags || []) if (!typed.has(normalizeTag(tag))) typed.set(normalizeTag(tag), 2);
     const seen = new Set([item.key]);
-    const scored = [];
-    const referenceArtist = item.artistId || '';
+    const pool = [];
     for (const candidate of groupWorks([item, ...(candidates || [])])) {
       if (!candidate?.key || seen.has(candidate.key) ||
           candidate.memberKeys.includes(item.key)) continue;
       seen.add(candidate.key);
-      const score = tagOverlap(reference, meaningfulTags(candidate.tags));
-      if (!score) continue;
+      pool.push({ candidate, tags: meaningfulTags(artworkTags(candidate)) });
+    }
+    // Rare shared tags (a character, an outfit) identify a similar work far better
+    // than attributes found on most works. Document frequency comes from the same
+    // loaded set, so it needs no extra requests.
+    const frequency = new Map();
+    for (const { tags } of pool) for (const tag of tags) frequency.set(tag, (frequency.get(tag) || 0) + 1);
+    const total = pool.length + 1;
+    const weights = new Map();
+    const weightOf = tag => {
+      let weight = weights.get(tag);
+      if (weight === undefined) {
+        weight = Math.max(0.2, Math.min(3, Math.log((total + 1) / ((frequency.get(tag) || 0) + 1))));
+        if (isBroadRecommendationTag(tag)) weight *= 0.35;
+        weight *= typed.get(tag) || 1;
+        weights.set(tag, weight);
+      }
+      return weight;
+    };
+    const referenceNorm = Math.sqrt(reference.reduce((sum, tag) => sum + weightOf(tag) ** 2, 0)) || 1;
+    const scored = [];
+    const referenceArtist = item.artistId || '';
+    for (const { candidate, tags } of pool) {
+      const overlap = tagOverlap(reference, tags);
+      if (!overlap) continue;
+      let dot = 0;
+      for (const tag of reference) {
+        if (tags.includes(tag)) dot += weightOf(tag) ** 2;
+        else if (tag.length >= 4 && tags.some(other => other.startsWith(tag + ' '))) dot += weightOf(tag) ** 2 * 0.25;
+      }
+      const candidateNorm = Math.sqrt(tags.reduce((sum, tag) => sum + weightOf(tag) ** 2, 0)) || 1;
+      // Weighted cosine similarity; the square root keeps a rich tag list from
+      // being punished as heavily as a plain cosine would.
+      const similarity = 10 * dot / (referenceNorm * Math.sqrt(candidateNorm * referenceNorm));
       const candidateArtist = candidate.artistId || '';
       const sameArtist = !!referenceArtist && item.source === candidate.source &&
         referenceArtist === candidateArtist;
       scored.push({ candidate, sameArtist, authorKey: candidate.source + ':' +
         (candidateArtist || candidate.key),
-      score: score + (candidate.source !== item.source ? 0.25 : 0) -
+      score: similarity + (candidate.source !== item.source ? 0.25 : 0) -
         (sameArtist ? 5 : 0), index: scored.length });
     }
     const boosts = curationBoosts(scored.map(entry => entry.candidate), context.curation, context);
