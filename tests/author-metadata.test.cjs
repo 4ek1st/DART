@@ -8,7 +8,7 @@ const source = fs.readFileSync(require.resolve('../wwwroot/app.js'), 'utf8');
 function cacheFixture() {
   const calls = [], messages = [];
   const context = vm.createContext({ CatalogLogic, itemIndex: new Map(), rememberedInputs: new WeakMap(),
-    ratingFilterFor: () => 'explicit', createTab: (...args) => calls.push(args),
+    ratingFilterFor: () => 'explicit', createTab: (...args) => calls.push(args), openTemporaryTab: (...args) => calls.push(args.slice(0, 3)),
     toast: message => messages.push(message) });
   const start = source.indexOf('function rememberItem');
   const end = source.indexOf('\nfunction saveSession(', start);

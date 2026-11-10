@@ -51,7 +51,7 @@ tabListPanel.className = 'tab-list-panel';
 tabListPanel.setAttribute('role', 'dialog');
 tabListPanel.setAttribute('aria-label', 'Открытые вкладки');
 tabListPanel.hidden = true;
-tabListPanel.innerHTML = '<div class="tab-list-head"><strong>Открытые вкладки</strong><button class="tab-close" type="button" data-tab-list-dismiss aria-label="Закрыть список вкладок">×</button></div><input id="tab-list-search" type="search" autocomplete="off" placeholder="Найти вкладку…" aria-label="Найти вкладку"><div class="tab-list-items"></div><div class="tab-list-footer"><button type="button" data-tab-list-clear title="Закрыть все вкладки, включая закреплённые">Очистить всё</button></div>';
+tabListPanel.innerHTML = '<div class="tab-list-head"><strong>Открытые вкладки</strong><button class="tab-close" type="button" data-tab-list-dismiss aria-label="Закрыть список вкладок">×</button></div><input id="tab-list-search" type="search" autocomplete="off" placeholder="Найти вкладку…" aria-label="Найти вкладку"><div class="tab-list-items"></div><div class="tab-list-footer"><button type="button" data-tab-list-close-lists title="Закрыть все поиски и профили, кроме закреплённых">Закрыть поиски и профили</button><button type="button" data-tab-list-clear title="Закрыть все вкладки, включая закреплённые">Очистить всё</button></div>';
 document.body.append(tabListPanel);
 const tabContextMenu = document.createElement('div');
 tabContextMenu.className = 'tab-context-menu';
@@ -704,7 +704,7 @@ function restoreSession() {
     tabPreferences.artworkTabs = session.tabPreferences.artworkTabs === 'new' ? 'new' : 'preview';
   const allowed = new Set(['home', 'search', 'detail', 'profile', 'bookmarks', 'likes',
     'recommendations', 'follows', 'favorites', 'recent', 'settings']);
-  let hasPreview = false;
+  let hasPreview = false, hasListPreview = false;
   for (const saved of session.tabs) {
     if (!allowed.has(saved.kind) || saved.kind === 'detail' && !saved.item?.key) continue;
     if (saved.kind === 'profile' && !saved.profileRef?.artist) continue;
@@ -734,8 +734,10 @@ function restoreSession() {
       loading: false, started: false,
       scrollTop: Math.max(0, Number(saved.scrollTop) || 0),
       pinned: !!saved.pinned,
-      preview: saved.kind === 'detail' && !!saved.preview && !saved.pinned && !hasPreview });
-    hasPreview ||= tabs.at(-1).preview;
+      preview: !!saved.preview && !saved.pinned &&
+        (saved.kind === 'detail' ? !hasPreview : (saved.kind === 'search' || saved.kind === 'profile') && !hasListPreview) });
+    if (saved.kind === 'detail') hasPreview ||= tabs.at(-1).preview;
+    else if (saved.kind === 'search' || saved.kind === 'profile') hasListPreview ||= tabs.at(-1).preview;
   }
   if (!tabs.length) return false;
   const selected = Math.max(0, Math.min(tabs.length - 1, Number(session.activeIndex) || 0));
@@ -766,11 +768,21 @@ function matchingTab(kind, extra) {
 function createTab(kind, title, extra = {}, options = {}) {
   const existing = !options.forceNew && matchingTab(kind, extra);
   if (existing) { if (!options.background) activate(existing.id); return existing; }
-  const tab = { id: nextId++, kind, title, items: [], errors: {}, page: 0,
+  const replaced = options.replace && tabs.includes(options.replace) ? options.replace : null;
+  const tab = { id: replaced ? replaced.id : nextId++, kind, title, items: [], errors: {}, page: 0,
     loading: false, scrollTop: 0, selectedSources: [...defaultSources],
     rating: 'general', sort: 'recent', feed: 'illustrations', ...extra };
   tab.sort = CatalogLogic.catalogSort(tab);
   delete tab.curationBaseSort;
+  if (replaced) {
+    abortTab(replaced);
+    tabs[tabs.indexOf(replaced)] = tab;
+    if (activeId === replaced.id) activeId = null;
+    main.dataset.tabId = '';
+    if (options.background) { render(); saveSession(); }
+    else activate(tab.id);
+    return tab;
+  }
   tabs.push(tab);
   if (options.background) { render(); saveSession(); }
   else activate(tab.id);
@@ -787,8 +799,14 @@ function openSettings(section = 'content') {
   } else createTab('settings', 'Настройки', { settingsSection: section });
 }
 
+// Artworks and temporary search/profile tabs are replaced in place, so history
+// keeps the exact view object that was shown rather than only the tab id.
+function trackedView(tab) {
+  return !!tab && (tab.kind === 'detail' || !!tab.preview && (tab.kind === 'search' || tab.kind === 'profile'));
+}
+
 function navigationEntry(tab) {
-  return { id: tab.id, view: tab.kind === 'detail' ? tab : null };
+  return { id: tab.id, view: trackedView(tab) ? tab : null };
 }
 
 function recordDetailVisit(tab) {
@@ -899,7 +917,7 @@ function closeTab(id) {
 }
 
 function sameNavigationView(entry, tab) {
-  return !!tab && entry?.id === tab.id && (tab.kind !== 'detail' || entry.view === tab);
+  return !!tab && entry?.id === tab.id && (!trackedView(tab) || entry.view === tab);
 }
 
 function navigationTarget(direction) {
@@ -935,6 +953,45 @@ function closeOtherTabs(id, mode) {
     (mode === 'others' || position > index)).map(tab => tab.id);
   if (closing.includes(activeId)) activate(id);
   for (const closedId of closing) closeTab(closedId);
+}
+
+// A search or profile opened from inside an artwork behaves like the single
+// temporary artwork tab: the next one replaces it, and Back returns to the
+// previous page. Shift+click or the middle button keeps a permanent tab.
+function openTemporaryTab(kind, title, extra = {}, options = {}) {
+  const existing = matchingTab(kind, extra);
+  if (existing) {
+    if (options.separate && existing.preview) pinTab(existing.id);
+    if (!options.background) activate(existing.id);
+    return existing;
+  }
+  const temporary = !!options.temporary && !options.separate && tabPreferences.artworkTabs === 'preview';
+  if (!temporary) return createTab(kind, title, extra, { background: !!options.background });
+  const from = currentTab();
+  if (from) from.scrollTop = main.scrollTop;
+  const slot = tabs.find(tab => (tab.kind === 'search' || tab.kind === 'profile') && tab.preview && !tab.pinned);
+  return createTab(kind, title, { ...extra, preview: true }, { replace: slot, background: !!options.background });
+}
+
+function closeSearchAndProfileTabs() {
+  const doomed = new Set(tabs.filter(tab => (tab.kind === 'search' || tab.kind === 'profile') && !tab.pinned)
+    .map(tab => tab.id));
+  if (!doomed.size) return 0;
+  const activeClosed = doomed.has(activeId);
+  for (const tab of tabs) if (doomed.has(tab.id)) abortTab(tab);
+  for (let index = tabs.length - 1; index >= 0; index--)
+    if (doomed.has(tabs[index].id)) tabs.splice(index, 1);
+  const removedBefore = navigation.slice(0, navPosition + 1).filter(entry => doomed.has(entry.id)).length;
+  navigation = navigation.filter(entry => !doomed.has(entry.id));
+  navPosition = Math.max(-1, navPosition - removedBefore);
+  if (activeClosed) {
+    activeId = null;
+    const successor = tabs.find(tab => tab.kind === 'home') || tabs[0];
+    if (successor) activate(successor.id);
+    else createTab('home', 'Главная');
+  } else { render(); saveSession(); }
+  pruneArtworkRoutes();
+  return doomed.size;
 }
 
 function clearTabs() {
@@ -1030,6 +1087,8 @@ function showTabContextMenu(id, x, y) {
 }
 
 function openSearch(query, options = {}) {
+  const { temporary, separate, background, ...tabOptions } = options;
+  options = tabOptions;
   query = CatalogLogic.normalizeSearch(query);
   if (query) {
     const history = getSearchHistory().filter(entry => entry !== query);
@@ -1041,7 +1100,10 @@ function openSearch(query, options = {}) {
   const feed = 'illustrations';
   const title = query || (
     options.rating === 'explicit' ? 'NSFW иллюстрации' : 'Иллюстрации');
-  return createTab('search', title, { query, rating: options.rating || 'all', ...options, feed });
+  const extra = { query, rating: options.rating || 'all', ...options, feed };
+  return temporary || separate || background
+    ? openTemporaryTab('search', title, extra, { temporary, separate, background })
+    : createTab('search', title, extra);
 }
 
 function getSearchHistory() {
@@ -3338,17 +3400,17 @@ async function loadProfile(tab, append = false) {
   }
 }
 
-function openCreator(item) {
+function openCreator(item, tabOptions = {}) {
   const attribution = CatalogLogic.workAttribution(item);
   const creator = item.profileParticipantTag
     ? attribution.participants.find(person => person.tag === item.profileParticipantTag)
     : attribution.creator || attribution.participants[0];
   if (!creator) { toast('Автор этой работы пока не определён'); return; }
-  createTab('profile', creator.name, { profileRef: CatalogLogic.creatorProfileRef(item, creator.tag),
-    rating: ratingFilterFor(item) });
+  openTemporaryTab('profile', creator.name, { profileRef: CatalogLogic.creatorProfileRef(item, creator.tag),
+    rating: ratingFilterFor(item) }, tabOptions);
 }
 
-function openUploader(item) {
+function openUploader(item, tabOptions = {}) {
   const uploader = CatalogLogic.workAttribution(item).uploader;
   const id = item.uploaderId || (['gelbooru', 'rule34', 'sankaku'].includes(item.source) ? item.artistId : '');
   if (!uploader || !id) { toast('Загрузчик этой работы не указан'); return; }
@@ -3356,14 +3418,14 @@ function openUploader(item) {
     window.open(`https://danbooru.donmai.us/users/${encodeURIComponent(id)}`, '_blank', 'noopener');
     return;
   }
-  createTab('profile', uploader.name, { profileRef: { source: item.source,
-    artist: id, service: '' }, rating: ratingFilterFor(item) });
+  openTemporaryTab('profile', uploader.name, { profileRef: { source: item.source,
+    artist: id, service: '' }, rating: ratingFilterFor(item) }, tabOptions);
 }
 
-function openPreferredAttribution(item, reveal = false) {
+function openPreferredAttribution(item, reveal = false, tabOptions = {}) {
   const primary = CatalogLogic.workAttribution(item, contentPreferences.attributionPriority).primary;
-  if (primary.role === 'creator' || primary.role === 'contributor') openCreator(item, reveal);
-  else if (primary.role === 'uploader') openUploader(item);
+  if (primary.role === 'creator' || primary.role === 'contributor') openCreator(item, tabOptions);
+  else if (primary.role === 'uploader') openUploader(item, tabOptions);
   else if (primary.role === 'original' && item.originalUrl)
     window.open(item.originalUrl, '_blank', 'noopener');
   else toast('Автор пока не определён. Проверьте исходную ссылку и теги работы.');
@@ -6390,7 +6452,7 @@ function renderSettings() {
           <p class="settings-hint">Подписка на художника использует подтверждённый тег. Для определения художника Rule34 нужны ключи Gelbooru и Rule34: список кандидатов берётся из категорий Gelbooru и проверяется на Rule34. Поле owner считается загрузчиком; по нему подписка на художника не создаётся.</p>
         </div>` : section === 'tabs' ? `
         <div class="settings-card"><h2 class="settings-heading">${svg('panels')}<span>Как открывать работы</span></h2>
-          <label class="settings-toggle"><input type="radio" name="artworkTabs" value="preview" ${tabPreferences.artworkTabs === 'preview' ? 'checked' : ''}><span><strong>Одна временная вкладка просмотра</strong><small>Следующий арт заменяет временную вкладку. «Назад» возвращает предыдущую работу и место в выдаче.</small></span></label>
+          <label class="settings-toggle"><input type="radio" name="artworkTabs" value="preview" ${tabPreferences.artworkTabs === 'preview' ? 'checked' : ''}><span><strong>Одна временная вкладка просмотра</strong><small>Следующий арт, поиск по тегу или профиль художника из арта заменяют временную вкладку. «Назад» возвращает предыдущую страницу и место в выдаче. Shift+клик или средняя кнопка мыши оставляют вкладку.</small></span></label>
           <label class="settings-toggle"><input type="radio" name="artworkTabs" value="new" ${tabPreferences.artworkTabs === 'new' ? 'checked' : ''}><span><strong>Каждая работа в отдельной вкладке</strong><small>Открытые работы остаются в верхней строке до закрытия.</small></span></label>
         </div><div class="settings-card"><h2>Управление вкладками</h2><p>Ctrl + клик или средняя кнопка мыши открывает работу в отдельной фоновой вкладке. Ctrl + Shift + клик сразу переключает на неё.</p><p>Двойной клик по временной вкладке или значок закрепления оставляет её открытой. Закреплённые вкладки защищены от команд «Закрыть остальные» и «Закрыть справа».</p><p>Кнопка списка рядом с «+» показывает все вкладки с полными названиями и поиском. Меню по правому клику помогает закрывать несколько вкладок.</p></div>` : section === 'sources' ? `
         <div class="settings-card"><h2 class="settings-heading">${svg('plug')}<span>Источники</span></h2><p>Danbooru доступен без ключа. Gelbooru и Rule34 требуют ваши user ID и API key.</p>
@@ -7028,6 +7090,7 @@ tabListPanel.addEventListener('click', event => {
   event.stopPropagation();
   const close = event.target.closest('[data-tab-list-close]');
   if (close) { changeTabsFromList(() => closeTab(Number(close.dataset.tabListClose))); return; }
+  if (event.target.closest('[data-tab-list-close-lists]')) { changeTabsFromList(closeSearchAndProfileTabs); return; }
   if (event.target.closest('[data-tab-list-clear]')) {
     changeTabsFromList(clearTabs, true); return;
   }
@@ -7419,7 +7482,7 @@ function selectedArtworkTagQuery(tab) {
 function runSelectedTagSearch(tab) {
   const query = selectedArtworkTagQuery(tab);
   if (!query) return;
-  openSearch(query, currentSearchOptions());
+  openSearch(query, { ...currentSearchOptions(), temporary: tab.kind === 'detail' });
 }
 
 function handleArtworkTagClick(event, control, tab) {
@@ -7834,6 +7897,31 @@ main.addEventListener('drop',event=>{
 });
 main.addEventListener('dragend',()=>{favoriteDraggedKey=null;clearFavoriteDropTargets();for(const card of main.querySelectorAll('.favorite-dragging'))card.classList.remove('favorite-dragging');});
 
+// The middle mouse button keeps a permanent background tab for tag searches
+// and artist profiles, as it does for links in a browser.
+const middleClickTabActions = '[data-action="query"], [data-action="creator-profile"], [data-action="uploader-profile"], [data-action="attribution-primary"]';
+main.addEventListener('mousedown', event => {
+  if (event.button === 1 && event.target.closest(middleClickTabActions)) event.preventDefault();
+});
+main.addEventListener('auxclick', event => {
+  if (event.button !== 1) return;
+  const control = event.target.closest(middleClickTabActions);
+  if (!control) return;
+  event.preventDefault();
+  const keep = { separate: true, background: true };
+  const action = control.dataset.action;
+  if (action === 'query') {
+    openSearch(control.dataset.query || '', { ...currentSearchOptions(), ...keep });
+    return;
+  }
+  const item = itemForControl(control);
+  if (!item) return;
+  if (action === 'creator-profile') openCreator(item, keep);
+  else if (action === 'uploader-profile') openUploader(item, keep);
+  else if (control.dataset.creatorId) openCreator(item, keep);
+  else openPreferredAttribution(item, false, keep);
+});
+
 main.addEventListener('click', event => {
   if(Date.now()<favoriteDropClickUntil&&event.target.closest('[data-favorite-draggable]')){event.preventDefault();return;}
   const control = event.target.closest('[data-action]');
@@ -7883,12 +7971,14 @@ main.addEventListener('click', event => {
   else if (action === 'open' && item) openDetail(item, {
     separate: event.ctrlKey || event.metaKey, background: (event.ctrlKey || event.metaKey) && !event.shiftKey, origin: control });
   else if (action === 'attribution-primary' && item) {
-    if (control.dataset.creatorId) openCreator(item);
-    else openPreferredAttribution(item, reveal);
+    const tabOptions = { temporary: tab?.kind === 'detail', separate: event.shiftKey };
+    if (control.dataset.creatorId) openCreator(item, tabOptions);
+    else openPreferredAttribution(item, reveal, tabOptions);
   }
   else if (action === 'creator-profile' && item)
-    openCreator(item);
-  else if (action === 'uploader-profile' && item) openUploader(item);
+    openCreator(item, { temporary: tab?.kind === 'detail', separate: event.shiftKey });
+  else if (action === 'uploader-profile' && item)
+    openUploader(item, { temporary: tab?.kind === 'detail', separate: event.shiftKey });
   else if (action === 'original' && item?.originalUrl)
     window.open(item.originalUrl, '_blank', 'noopener');
   else if (action === 'follow-tag-search' && item?.followedArtistTag)
@@ -7931,7 +8021,8 @@ main.addEventListener('click', event => {
     void toggleFavoriteTag(control.dataset.tag);
   else if (action === 'query') {
     if (!handleArtworkTagClick(event, control, tab))
-      openSearch(control.dataset.query || '', currentSearchOptions());
+      openSearch(control.dataset.query || '', { ...currentSearchOptions(),
+        temporary: tab?.kind === 'detail', separate: event.shiftKey });
   }
   else if (action === 'detail-tags-reset' && tab?.kind === 'detail') {
     tab.selectedTags = [];

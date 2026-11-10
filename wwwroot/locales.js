@@ -210,6 +210,7 @@ The password is not saved. The sign-in token is encrypted by Windows and restore
 How to open works|Как открывать работы|Werke öffnen
 One temporary preview tab|Одна временная вкладка просмотра|Ein temporärer Vorschau-Tab
 The next work replaces the preview tab. Back returns to the previous work and your position in the feed.|Следующий арт заменяет временную вкладку. «Назад» возвращает предыдущую работу и место в выдаче.|Das nächste Werk ersetzt die Vorschau. Zurück öffnet das vorherige Werk an der bisherigen Position.
+The next work, tag search or artist profile opened from an artwork replaces the preview tab. Back returns to the previous page and your position in the feed. Shift+click or the middle mouse button keeps a tab.|Следующий арт, поиск по тегу или профиль художника из арта заменяют временную вкладку. «Назад» возвращает предыдущую страницу и место в выдаче. Shift+клик или средняя кнопка мыши оставляют вкладку.|Das nächste Werk, die Tag-Suche oder das Künstlerprofil aus einem Werk ersetzt die Vorschau. Zurück führt zur vorherigen Seite und Position im Feed. Umschalt+Klick oder die mittlere Maustaste behält den Tab.
 Each work in a separate tab|Каждая работа в отдельной вкладке|Jedes Werk in einem eigenen Tab
 Opened works stay in the tab bar until closed.|Открытые работы остаются в верхней строке до закрытия.|Geöffnete Werke bleiben bis zum Schließen in der Tableiste.
 Ctrl + click or middle-click opens a work in a separate background tab. Ctrl + Shift + click switches to it immediately.|Ctrl + клик или средняя кнопка мыши открывает работу в отдельной фоновой вкладке. Ctrl + Shift + клик сразу переключает на неё.|Strg + Klick oder Mittelklick öffnet ein Werk in einem eigenen Hintergrund-Tab. Strg + Umschalt + Klick wechselt sofort dorthin.
@@ -248,6 +249,8 @@ Close window|Закрыть окно|Fenster schließen
 Close others|Закрыть остальные|Andere schließen
 Close tabs to the right|Закрыть справа|Tabs rechts schließen
 Clear all|Очистить всё|Alle schließen
+Close searches and profiles|Закрыть поиски и профили|Suchen und Profile schließen
+Close all searches and profiles except pinned tabs|Закрыть все поиски и профили, кроме закреплённых|Alle Suchen und Profile außer angehefteten Tabs schließen
 Pin tab|Закрепить вкладку|Tab anheften
 Unpin tab|Открепить вкладку|Tab lösen
 Pinned|Закреплена|Angeheftet
