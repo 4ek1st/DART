@@ -65,7 +65,7 @@ test('the displayed voice profile opens its own tag after a background cache upd
   const calls = [];
   const context = vm.createContext({ CatalogLogic: logic, itemIndex: new Map([[work.key, work]]),
     ratingFilterFor: () => 'all', toast: message => assert.fail(message),
-    createTab: (...args) => calls.push(args) });
+    createTab: (...args) => calls.push(args), openTemporaryTab: (...args) => calls.push(args.slice(0, 3)) });
   for (const [start, end] of [['function itemForControl(', '\nfunction saveSession('],
       ['function openCreator(', '\nfunction openUploader(']])
     vm.runInContext(app.slice(app.indexOf(start), app.indexOf(end, app.indexOf(start))), context);

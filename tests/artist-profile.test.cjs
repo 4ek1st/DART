@@ -21,7 +21,7 @@ test('opening the creator of a Rule34 post creates a profile tab', () => {
   const calls = [];
   const openCreator = extract('function openCreator(', '\nfunction openUploader(',
     'openCreator', { CatalogLogic, ratingFilterFor: () => 'explicit',
-      createTab: (...args) => calls.push(args), toast() {} });
+      createTab: (...args) => calls.push(args), openTemporaryTab: (...args) => calls.push(args.slice(0, 3)), toast() {} });
   openCreator(item);
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], 'profile');

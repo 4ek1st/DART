@@ -48,6 +48,15 @@ Posts open in tabs. Confirmed character tags come first and appear in green;
 `original` appears in purple. To search for a combination of tags, select
 them with **Ctrl + click**, then press **Enter**.
 
+By default, a tag search or artist profile opened from inside a post shares one
+temporary tab (shown in italics) with the next such search or profile, so the tab
+bar does not fill up. **Back** returns to the previous page. **Shift + click**
+keeps the result in its own tab; the **middle mouse button** opens it in a
+background tab. Double-click a temporary tab or use its pin to keep it. Searches
+typed in the search box always open in their own tab. In **Open tabs**, **Close
+searches and profiles** closes every one that is not pinned. Settings > Tabs can
+switch back to a separate tab for every post.
+
 Related variants and copies appear in one card when the source data confirms
 a connection. A post's details can link to its entries on other sources.
 
