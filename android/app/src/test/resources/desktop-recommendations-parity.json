@@ -1,5 +1,5 @@
 {
-  "desktopSha256": "11dde0218699adc8e0e4efba84dee27b76b17c13315bd041c0e187d49e8131d6",
+  "desktopSha256": "61904dcde7b13681790612fb53dd79fa0b40cd19de33b4b300d58b6e8b34d1b2",
   "cases": [
     {
       "name": "manual priority without likes",
@@ -2748,11 +2748,11 @@
       "expected": [
         "danbooru:103",
         "danbooru:102",
-        "danbooru:107",
         "danbooru:104",
         "danbooru:105",
-        "danbooru:106",
-        "danbooru:101"
+        "danbooru:107",
+        "danbooru:101",
+        "danbooru:106"
       ]
     },
     {
