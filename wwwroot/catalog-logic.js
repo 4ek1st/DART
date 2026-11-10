@@ -1958,6 +1958,43 @@
     return result.sort((a, b) => b.weight - a.weight || b.count - a.count || a.query.localeCompare(b.query)).slice(0, 256);
   }
 
+  // Likelihood-ratio affinity: how typical a candidate's tags are of the liked
+  // works compared with a fresh unpersonalized sample. Tags the user has never
+  // liked but which are common elsewhere lower the multiplier; it only reorders
+  // candidates that already match an interest and is bounded.
+  function tasteAffinity(liked, background) {
+    const beta = 1;
+    const ordinary = groupWorks(background || []);
+    if (ordinary.length < 24) return null;
+    const profile = recommendationProfile(liked);
+    const state = recommendationProfiles.get(liked);
+    const total = (state?.supportTotal || liked.length) + 1;
+    const likedSupport = new Map(profile.map(entry => [entry.tag, entry.support]));
+    const prevalence = new Map();
+    for (const item of ordinary)
+      for (const tag of recommendationWorkTags(item)) prevalence.set(tag, (prevalence.get(tag) || 0) + 1);
+    const lo = -2, hi = 2.5;
+    const ratios = new Map();
+    const ratio = tag => {
+      let value = ratios.get(tag);
+      if (value === undefined) {
+        const likedRate = ((likedSupport.get(tag) || 0) + 0.5) / total;
+        const ordinaryRate = ((prevalence.get(tag) || 0) + 0.5) / (ordinary.length + 1);
+        value = Math.max(lo, Math.min(hi, Math.log(likedRate / ordinaryRate)));
+        ratios.set(tag, value);
+      }
+      return value;
+    };
+    return item => {
+      const tags = recommendationWorkTags(item);
+      if (!tags.length) return 1;
+      let sum = 0;
+      for (const tag of tags) sum += (prevalence.get(tag) || likedSupport.get(tag)) ? ratio(tag) : 0;
+      const mean = sum / Math.sqrt(tags.length);
+      return Math.exp(beta * Math.max(-3, Math.min(3, mean / 2)));
+    };
+  }
+
   function rankRecommendations(liked, candidates, rating = 'general', limit = 96,
     preferences = {}, varietySeed = 0, context = {}) {
     const savedKeys = new Set((liked || []).flatMap(item => item.memberKeys || [item.key]));
@@ -1980,6 +2017,7 @@
     const groupedCandidates = groupWorks(candidates || []);
     const boosts = curationBoosts(groupedCandidates, context.curation,
       { ...context, liked, tagPreferences: preferences, tagWeights: weights });
+    const affinity = tasteAffinity(liked, context.background);
     const scored = groupedCandidates.map((item, index) => {
       if (!item?.key || excludedKeys.has(item.key) || seen.has(item.key) ||
           item.memberKeys.some(key => existingKeys.has(key)) ||
@@ -2008,7 +2046,7 @@
         preferences[tag] !== 'priority');
       const seenBefore = item.memberKeys.some(key => recentKeys.has(key));
       return score ? { item, index, score, priorityScore, characters, author: recommendationAuthor(item),
-        variedScore: score * (boosts.get(item.key) || 1) * (seenBefore ? 0.2 : 1) * (varietySeed ? 0.6 +
+        variedScore: score * (boosts.get(item.key) || 1) * (affinity ? affinity(item) : 1) * (seenBefore ? 0.2 : 1) * (varietySeed ? 0.6 +
           recommendationVariety(item.key, varietySeed) * 0.8 : 1),
         variety: varietySeed ? recommendationVariety(item.key, varietySeed) : 0 } : null;
     }).filter(Boolean).sort((a, b) =>
