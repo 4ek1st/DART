@@ -235,7 +235,7 @@ test('an artwork refresh started during a save cannot erase the confirmed Favori
  let reads=0,finishLoad,finishSave;
  const env=controller((url,init)=>init?new Promise(resolve=>finishSave=resolve):++reads===1?Promise.resolve([]):new Promise(resolve=>finishLoad=resolve));
  await env.c.loadArtworks();const saving=env.c.toggleArtwork(work(1));await Promise.resolve();
- const loading=env.c.loadArtworks();finishSave([work(1)]);await saving;finishLoad([]);await loading;
+ const loading=env.c.loadArtworks(true);finishSave([work(1)]);await saving;finishLoad([]);await loading;
  assert.equal(env.c.isArtworkFavorite(work(1)),true);
 });
 test('Favorites reuses entity evidence across renders, tabs, collections and artwork ratings',()=>{

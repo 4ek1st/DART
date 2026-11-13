@@ -599,24 +599,33 @@ function captureClientState() {
   }));
   const session = { tabs: descriptors, savedWorksVersion: 1, activeIndex: tabs.findIndex(tab => tab.id === activeId),
     tabPreferences: { ...tabPreferences }, viewerPreferences };
+  const sessionBody = JSON.stringify(session);
   try {
-    localStorage.setItem('artcatalog-session', JSON.stringify(session));
+    if (captureClientState.sessionBody !== sessionBody) {
+      localStorage.setItem('artcatalog-session', sessionBody);
+      captureClientState.sessionBody = sessionBody;
+    }
   }
   catch { /* Browser storage may be unavailable. */ }
-  return { session, themePreference: globalThis.DartTheme?.preference || 'system',
+  const state = { session, themePreference: globalThis.DartTheme?.preference || 'system',
       favoriteActivityOutbox: typeof favoritesController === 'function' ? favoritesController.instance?.outboxSnapshot() || [] : [],
       recent, searchHistory: getSearchHistory(), recommendationExposure, recommendationExposureGroups,
       mediaDuplicatePairs: detailImageDeduper.duplicates.entries(),
       mediaVerifiedImages: [...detailImageDeduper.verified],
       fingerprintEvidence: typeof fingerprintCache !== 'undefined' ? fingerprintCache.snapshot() : undefined };
+  return typeof DartClientState !== 'undefined' && DartClientState.snapshot
+    ? DartClientState.snapshot(state, sessionBody) : state;
 }
 
 function saveSession() {
   if (!tabs.length) return Promise.resolve(true);
-  return clientStateWriter.save(captureClientState());
+  return clientStateWriter.saveLater
+    ? clientStateWriter.saveLater(captureClientState) : clientStateWriter.save(captureClientState());
 }
 
-function flushClientState() { return saveSession(); }
+function flushClientState() {
+  return tabs.length ? clientStateWriter.save(captureClientState()) : Promise.resolve(true);
+}
 
 async function saveRecommendationTagPreference(tag, mode) {
   const pending = recommendationPreferenceSaveQueue.then(() =>
@@ -1457,7 +1466,7 @@ const groupRepairs = {
 
 async function loadFavoriteTags() {
   try {
-    favoriteTags = await request('/api/favorite-tags');
+    if (!await favoritesController().loadTags(true)) throw new Error('Favorite tags unavailable');
     if (['home', 'search', 'favorites'].includes(currentTab()?.kind)) render();
   } catch { toast('Избранные теги не удалось прочитать'); }
 }
@@ -1997,6 +2006,8 @@ async function mergeRecommendationsAsync(...args) {
           // evidence on the UI thread, including filtered views of this batch.
           if (!CatalogLogic.cacheGroupedWorks(data.value, data.value))
             throw new Error('Invalid recommendation grouping');
+          CatalogLogic.restoreGroupingEvidence?.(data.value, data.groupingEvidence,
+            new Set((data.reusedPrefix || []).map(pair => pair[0])));
           state.jobs.delete(data.id);
           job.resolve(data.value);
         } catch { state.fail(); }
@@ -5704,12 +5715,23 @@ function knownLibraryWorkTokens() {
     const revision = CatalogLogic.groupingRevision?.(items) || 0;
     let cached = libraries.get(items);
     if (!cached || cached.length !== items.length || cached.revision !== revision) {
-      cached = { length: items.length, revision, tokens: items.flatMap(CatalogLogic.workHistoryTokens) };
+      cached = { length: items.length, revision, tokens: new Set(items.flatMap(CatalogLogic.workHistoryTokens)) };
       libraries.set(items, cached);
     }
     return cached.tokens;
   };
-  const tokens = new Set(collections.flatMap(libraryTokens));
+  const sources = collections.map(libraryTokens);
+  function* values() {
+    const yielded = new Set();
+    for (const source of sources) for (const token of source) if (!yielded.has(token)) {
+      yielded.add(token); yield token;
+    }
+  }
+  // Recent changes on every artwork visit. Keep the unchanged saved indexes
+  // separate: a membership check must not copy the entire library again.
+  const tokens = { has: token => sources.some(source => source.has(token)),
+    get size() { let count = 0; for (const token of values()) count++; return count; },
+    values, keys: values, [Symbol.iterator]: values };
   knownLibraryWorkTokens.snapshot = { signature, tokens };
   return tokens;
 }
@@ -6380,8 +6402,10 @@ function profileTransferController() {
     afterImport: async () => {
       // An older in-flight library read must not publish its pre-import snapshot.
       for (const state of Object.values(refreshSavedWorks.states || {})) state.revision++;
+      favoritesController.instance?.invalidateCollections();
       const refreshed = await Promise.all([refreshSavedWorks('likes', true), refreshSavedWorks('bookmarks', true),
-        refreshFollows(), loadViewedTokens(), loadFavoriteTags(), loadRecommendationTagPreferences(), loadContentPreferences()]);
+        refreshFollows(), loadViewedTokens(), loadFavoriteTags(), favoritesController().loadArtworks(true),
+        loadRecommendationTagPreferences(), loadContentPreferences()]);
       const state = await request('/api/client-state');
       if (Array.isArray(state.recent)) {
         recent = CatalogLogic.filterCatalogItems(state.recent).slice(0, 40);

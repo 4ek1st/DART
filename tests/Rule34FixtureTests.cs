@@ -28,6 +28,7 @@ await RunFrontendExtractionFixture();
 RatingSelectionFixtureTests.Run();
 CurationFixtureTests.Run();
 SavedWorksFixtureTests.Run();
+LocalDocumentCacheFixtureTests.Run();
 FavoritesFixtureTests.Run();
 ArtworkActionsFixtureTests.Run();
 FavoriteGroupsFixtureTests.Run();

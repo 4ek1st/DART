@@ -25,9 +25,9 @@ internal static class ProfileTransfer
 
     // Local snapshots contain provider/cache metadata that is stripped below. Apply the
     // portable byte limit to the cleaned document; untrusted input still enters via Parse.
-    internal static JsonObject NormalizeTrustedSnapshot(JsonObject snapshot) => Normalize(snapshot);
+    internal static JsonObject NormalizeTrustedSnapshot(JsonObject snapshot, JsonObject? savedLibrary = null) => Normalize(snapshot, savedLibrary);
 
-    private static JsonObject Normalize(JsonNode parsed)
+    private static JsonObject Normalize(JsonNode parsed, JsonObject? savedLibrary = null)
     {
         var legacyArray = parsed as JsonArray;
         var source = parsed as JsonObject ?? (legacyArray is not null ? new JsonObject { ["bookmarks"] = legacyArray.DeepClone() } :
@@ -42,11 +42,23 @@ internal static class ProfileTransfer
             throw new InvalidDataException("Choose a DART profile JSON file.");
         var result = new JsonObject { ["format"] = "dart-profile", ["version"] = 1 };
         var total = 0;
+        // The encoded work payload alone is a lower bound of the final file.
+        // Stop oversized trusted libraries before materializing every record;
+        // provider/cache fields are still stripped before any size decision.
+        using var workBytes = new PortableSizeCounter();
+        using var measure = new Utf8JsonWriter(workBytes);
         foreach (var collection in Collections)
         {
-            var items = Array(source, collection, 100000); total += items.Count;
+            var items = Array(collection is "likes" or "bookmarks" ? savedLibrary ?? source : source, collection, 100000); total += items.Count;
             if (total > 100000) throw new InvalidDataException("Too many saved works in the profile.");
-            result[collection] = new JsonArray(items.Select(item => (JsonNode)CleanWork(Object(item), 0)).ToArray());
+            var cleaned = new JsonArray();
+            foreach (var item in items)
+            {
+                var work = CleanWork(Object(item), 0);
+                work.WriteTo(measure, Json); measure.Flush(); measure.Reset(workBytes);
+                cleaned.Add(work);
+            }
+            result[collection] = cleaned;
         }
         if (mobile && Number(source, "version") == 1 && !source.ContainsKey("likes"))
             result["likes"] = result["bookmarks"]!.DeepClone();
@@ -64,8 +76,36 @@ internal static class ProfileTransfer
             groups.Add(Strings(keys, "keys", 32, 120, key => WorkKey.IsMatch(key)));
         }
         result["recommendationExposureGroups"] = groups;
-        if (Encoding.UTF8.GetByteCount(result.ToJsonString()) > MaxBytes) throw new InvalidDataException("Profile file exceeds 20 MB.");
+        ValidatePortableSize(result);
         return result;
+    }
+
+    internal static void ValidatePortableSize(JsonNode value)
+    {
+        using var counter = new PortableSizeCounter();
+        using var writer = new Utf8JsonWriter(counter);
+        value.WriteTo(writer, Json); writer.Flush();
+    }
+
+    private sealed class PortableSizeCounter : Stream
+    {
+        private long written;
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => written;
+        public override long Position { get => written; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override void Write(byte[] buffer, int offset, int count) => Add(count);
+        public override void Write(ReadOnlySpan<byte> buffer) => Add(buffer.Length);
+        private void Add(int count)
+        {
+            if (written + count > MaxBytes) throw new InvalidDataException("Profile file exceeds 20 MB.");
+            written += count;
+        }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     internal static JsonObject Counts(JsonObject document) => new([

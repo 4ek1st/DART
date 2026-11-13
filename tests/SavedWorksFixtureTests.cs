@@ -21,6 +21,7 @@ internal static class SavedWorksFixtureTests
         try
         {
             SavedWorksReadCostFixtureTests.Run(Path.Combine(root, "read-cost"));
+            SavedWorksSnapshotCacheFixtureTests.Run(Path.Combine(root, "snapshot-cache"));
             RevisionFixture(Path.Combine(root, "revision"));
             var oldFile = Path.Combine(root, "bookmarks-v4.json");
             const string legacy = """

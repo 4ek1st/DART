@@ -59,6 +59,34 @@ public sealed class CatalogItem
     public List<string> CopyrightTags { get; set; } = [];
     public bool RequiresAuthentication { get; set; }
     public string AccessMessage { get; set; } = "";
+
+    // Store snapshots share immutable strings, never mutable artwork metadata.
+    internal CatalogItem SnapshotCopy()
+    {
+        var copy = (CatalogItem)MemberwiseClone();
+        copy.MemberKeys = MemberKeys?.ToList()!;
+        copy.GroupMembers = GroupMembers?.Select(item => item?.SnapshotCopy()!).ToList()!;
+        copy.Images = Images?.ToList()!;
+        copy.Tags = Tags?.ToList()!;
+        copy.AllTags = AllTags?.ToList()!;
+        copy.CharacterTags = CharacterTags?.ToList()!;
+        copy.CopyrightTags = CopyrightTags?.ToList()!;
+        copy.ImageRecords = ImageRecords?.Select(record => record is null ? null! : new CatalogImageRecord
+            { Url = record.Url, Hash = record.Hash, Owner = record.Owner }).ToList();
+        copy.Participants = Participants?.Select(person => person is null ? null! : new CatalogParticipant
+            { Tag = person.Tag, Name = person.Name, Role = person.Role }).ToList()!;
+        copy.VisualSamples = VisualSamples?.Select(sample => sample is null ? null! : new CatalogVisualSample {
+            Id = sample.Id, Hash = sample.Hash, PerceptualHash = sample.PerceptualHash,
+            Layout = sample.Layout, AspectRatio = sample.AspectRatio, Creator = sample.Creator,
+            Owner = sample.Owner, Tags = sample.Tags?.ToList()!, Source = sample.Source,
+            Characters = sample.Characters?.ToList()!, Uploader = sample.Uploader,
+            Published = sample.Published, Publication = sample.Publication }).ToList()!;
+        copy.VideoSamples = VideoSamples?.Select(sample => sample is null ? null! : new CatalogVideoSample {
+            Url = sample.Url, Duration = sample.Duration, AspectRatio = sample.AspectRatio,
+            Frames = sample.Frames?.Select(frame => frame is null ? null! : new CatalogVideoFrame
+                { Hash = frame.Hash, PerceptualHash = frame.PerceptualHash }).ToList()! }).ToList()!;
+        return copy;
+    }
 }
 
 public sealed class CatalogImageRecord

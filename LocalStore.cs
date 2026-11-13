@@ -210,6 +210,7 @@ internal sealed partial class LocalStore : ISankakuSessionStore
     public List<CatalogItem> GetBookmarks() => savedWorks.Get("bookmarks");
     public List<CatalogItem> GetLikes() => savedWorks.Get("likes");
     public SavedWorksSnapshot GetSavedWorksSnapshot(string collection) => savedWorks.GetSnapshot(collection);
+    public SavedWorksJsonSnapshot GetSavedWorksJsonSnapshot(string collection) => savedWorks.GetJsonSnapshot(collection);
     public SavedWorkChange ChangeSavedWork(string collection, CatalogItem item, bool ensureSaved) =>
         savedWorks.Change(collection, item, ensureSaved);
     public bool RepairSavedGroup(CatalogItem expected, List<CatalogItem> groups) => savedWorks.RepairGroup(expected, groups);
@@ -414,15 +415,10 @@ internal sealed partial class LocalStore : ISankakuSessionStore
 
     public string GetClientStateJson()
     {
-        lock (sync)
+        lock (clientStateSync)
         {
-            if (!File.Exists(clientStateFile)) return "{}";
-            try
-            {
-                var raw = File.ReadAllText(clientStateFile);
-                return CatalogState.CleanClientState(raw);
-            }
-            catch (JsonException) { return "{}"; }
+            using var fileLock = AcquireFileLock(clientStateFile + ".lock");
+            return ReadClientStateSnapshot().Clean;
         }
     }
 
@@ -522,24 +518,28 @@ internal sealed partial class LocalStore : ISankakuSessionStore
 
     public List<string> GetViewedTokens()
     {
-        lock (sync)
+        lock (viewedStateSync)
         {
             using var fileLock = AcquireFileLock(viewedLockFile);
-            return ReadStringListFile(viewedFile).Where(CatalogState.IsSupportedToken).ToList();
+            return ReadViewedSnapshot().Items.Where(CatalogState.IsSupportedToken).ToList();
         }
     }
 
     public void AddViewedTokens(List<string> incoming)
     {
-        lock (sync)
+        lock (viewedStateSync)
         {
             using var fileLock = AcquireFileLock(viewedLockFile);
-            var tokens = ReadStringListFile(viewedFile);
-            var known = tokens.ToHashSet(StringComparer.Ordinal);
-            var changed = false;
-            foreach (var token in incoming.Where(CatalogState.IsSupportedToken))
-                if (known.Add(token)) { tokens.Add(token); changed = true; }
-            if (changed) WriteAtomic(viewedFile, JsonSerializer.SerializeToUtf8Bytes(tokens, Json));
+            var state = ReadViewedSnapshot();
+            var added = incoming.Where(CatalogState.IsSupportedToken).Distinct(StringComparer.Ordinal)
+                .Where(token => !state.Known.Contains(token)).ToArray();
+            if (added.Length == 0) return;
+            // Keep one validated index. Stream the same atomic JSON format;
+            // publishing the new in-memory identities follows successful commit.
+            WriteViewedSnapshot(state.Items, added);
+            state.Items.AddRange(added);
+            state.Known.UnionWith(added);
+            state.Stamp = DocumentStamp(viewedFile);
         }
     }
 
@@ -643,11 +643,21 @@ internal sealed partial class LocalStore : ISankakuSessionStore
 
     public void UpdateClientStateJson(string raw)
     {
-        lock (sync)
+        lock (clientStateSync)
         {
             using var fileLock = AcquireFileLock(clientStateFile + ".lock");
-            var next = JsonNode.Parse(CatalogState.CleanClientState(raw))!.AsObject();
-            var previous = JsonNode.Parse(GetClientStateJson()) as JsonObject;
+            var current = ReadClientStateSnapshot();
+            if (current.LastInput == raw) return;
+        }
+        // Incoming validation is independent of the current file. Keep it out
+        // of the global profile lock and re-read the commit base under ownership.
+        var next = JsonNode.Parse(CatalogState.CleanClientState(raw))!.AsObject();
+        lock (clientStateSync)
+        {
+            using var fileLock = AcquireFileLock(clientStateFile + ".lock");
+            var current = ReadClientStateSnapshot();
+            if (current.LastInput == raw) return;
+            var previous = current.Value;
             if (next["clientWriter"] is JsonValue writerValue && writerValue.TryGetValue<string>(out var writer) &&
                 previous?["clientWriter"] is JsonValue savedWriter && savedWriter.TryGetValue<string>(out var previousWriter) &&
                 previousWriter == writer &&
@@ -677,7 +687,10 @@ internal sealed partial class LocalStore : ISankakuSessionStore
                     uri.Scheme is "http" or "https").Distinct().TakeLast(256).ToArray();
             if (verified.Length > 0 || next.ContainsKey("mediaVerifiedImages"))
                 next["mediaVerifiedImages"] = new JsonArray(verified.Select(key => (JsonNode?)JsonValue.Create(key)).ToArray());
-            WriteAtomic(clientStateFile, Encoding.UTF8.GetBytes(next.ToJsonString()));
+            if (JsonNode.DeepEquals(previous, next)) { current.LastInput = raw; return; }
+            var clean = next.ToJsonString();
+            WriteAtomic(clientStateFile, Encoding.UTF8.GetBytes(clean));
+            clientStateSnapshot = new(DocumentStamp(clientStateFile), clean, next) { LastInput = raw };
         }
     }
 
@@ -706,7 +719,7 @@ internal sealed partial class LocalStore : ISankakuSessionStore
         }
     }
 
-    private RecommendationTagPreferenceState ReadRecommendationTagPreferences()
+    private RecommendationTagPreferenceState ReadRecommendationTagPreferences(JsonObject? capturedClient = null)
     {
         if (File.Exists(recommendationPreferencesFile))
         {
@@ -730,7 +743,15 @@ internal sealed partial class LocalStore : ISankakuSessionStore
         }
         try
         {
-            using var legacy = JsonDocument.Parse(GetClientStateJson());
+            if (capturedClient is not null)
+                return new RecommendationTagPreferenceState { Preferences = ValidRecommendationTagPreferences(
+                    capturedClient["recommendationTagPreferences"]?.Deserialize<Dictionary<string, string>>(Json) ?? []) };
+            // The recommendation-file lock may already be held. An atomic
+            // client-state replacement gives us a stable old/new read without
+            // acquiring its lock in the reverse order of profile transfer.
+            if (!File.Exists(clientStateFile)) return new();
+            using var input = new FileStream(clientStateFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var legacy = JsonDocument.Parse(input);
             if (legacy.RootElement.TryGetProperty("recommendationTagPreferences", out var value) &&
                 value.ValueKind == JsonValueKind.Object)
             {

@@ -208,17 +208,21 @@ internal static class Program
             }
         });
 
-        app.MapGet("/api/bookmarks", (HttpContext context, LocalStore store) =>
+        app.MapGet("/api/bookmarks", async (HttpContext context, LocalStore store) =>
         {
-            var snapshot = store.GetSavedWorksSnapshot("bookmarks");
+            var snapshot = store.GetSavedWorksJsonSnapshot("bookmarks");
             context.Response.Headers["X-DART-Saved-Revision"] = snapshot.Revision;
-            return Results.Ok(snapshot.Items);
+            context.Response.ContentType = "application/json; charset=utf-8";
+            context.Response.ContentLength = snapshot.Json.Length;
+            await context.Response.Body.WriteAsync(snapshot.Json, context.RequestAborted);
         });
-        app.MapGet("/api/likes", (HttpContext context, LocalStore store) =>
+        app.MapGet("/api/likes", async (HttpContext context, LocalStore store) =>
         {
-            var snapshot = store.GetSavedWorksSnapshot("likes");
+            var snapshot = store.GetSavedWorksJsonSnapshot("likes");
             context.Response.Headers["X-DART-Saved-Revision"] = snapshot.Revision;
-            return Results.Ok(snapshot.Items);
+            context.Response.ContentType = "application/json; charset=utf-8";
+            context.Response.ContentLength = snapshot.Json.Length;
+            await context.Response.Body.WriteAsync(snapshot.Json, context.RequestAborted);
         });
         FavoriteEndpoints.Map(app, IsSameOrigin);
         ArtworkActionEndpoints.Map(app, IsSameOrigin);

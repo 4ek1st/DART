@@ -1192,6 +1192,49 @@
     return evidence;
   }
 
+  // The worker computes this through the same owner as incremental grouping.
+  // Send compact derived evidence with its actual result rows, rather than
+  // making the first viewer detail rehash every already-grouped media URL.
+  function validGroupingEvidenceRow(item, row, budget) {
+    if (typeof item?.key !== 'string' || !item.key || !Array.isArray(row) || row.length !== 2 || row[0] !== item.key ||
+        !Array.isArray(row[1]) || row[1].length > 8192 || !row[1].includes(`key:${item.key}`)) return false;
+    budget.count += row[1].length;
+    if (budget.count > 1000000) return false;
+    for (const token of row[1]) {
+      if (typeof token !== 'string' || !token.length || token.length > 4096) return false;
+      budget.characters += token.length;
+      if (budget.characters > 32 * 1024 * 1024) return false;
+    }
+    return true;
+  }
+  function groupingEvidenceSnapshot(items) {
+    if (!Array.isArray(items) || items.length > 100000) throw new Error('Grouping evidence limit exceeded');
+    const rows = [], budget = { count: 0, characters: 0 };
+    for (const item of items) {
+      const row = [item?.key, item && typeof item === 'object' ? groupingEvidence(item) : []];
+      if (!validGroupingEvidenceRow(item, row, budget)) throw new Error('Grouping evidence limit exceeded');
+      rows.push(row);
+    }
+    return { version: 1, rows };
+  }
+
+  function restoreGroupingEvidence(items, snapshot, excluded = new Set()) {
+    if (!Array.isArray(items) || items.length > 100000 || snapshot?.version !== 1 ||
+        !Array.isArray(snapshot.rows) || snapshot.rows.length !== items.length) return false;
+    const budget = { count: 0, characters: 0 };
+    for (let index = 0; index < items.length; index++) {
+      if (!validGroupingEvidenceRow(items[index], snapshot.rows[index], budget)) return false;
+    }
+    for (let index = 0; index < items.length; index++) {
+      // Prefix records can have learned new evidence while the worker was
+      // running. They already own their warm cache, or must recompute locally;
+      // never put a worker's older proof onto a reused current record.
+      if (!excluded.has(index) && !groupingEvidenceCache.has(items[index]))
+        groupingEvidenceCache.set(items[index], Object.freeze(snapshot.rows[index][1].slice()));
+    }
+    return true;
+  }
+
   function mergeGroupedWorks(previous, incoming) {
     incoming = (incoming || []).filter(item => item?.key);
     if (!incoming?.length) return previous || [];
@@ -2588,7 +2631,7 @@
   const api = { normalizeSearch, favoriteTagFromQuery, completeTag, advanceSearchSources,
     rememberSearchPageStats, searchResultCounts,
     workHistoryTokens, hideViewedWorks, sameWork,
-    removeNavigationEntry, groupWorks, cacheGroupedWorks, mergeGroupedWorks, groupingRevision, groupingEvidenceVersion, invalidateGrouping, refineGrouping,
+    removeNavigationEntry, groupWorks, cacheGroupedWorks, mergeGroupedWorks, groupingRevision, groupingEvidenceVersion, groupingEvidenceSnapshot, restoreGroupingEvidence, invalidateGrouping, refineGrouping,
     needsGroupRepair, repairLegacyGroup, replaceRepairedGroups,
     workAttribution, creatorProfileRef, participantRole, participantRoleLabel, workParticipants,
     artworkTags, artworkTagKind, artworkTagText,

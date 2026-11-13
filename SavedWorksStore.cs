@@ -2,15 +2,18 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Runtime.CompilerServices;
 
 namespace ArtCatalog;
 
 public sealed record SavedWorksSnapshot(List<CatalogItem> Items, string Revision);
 public sealed record SavedWorkChange(bool Saved, string PreviousRevision, string Revision);
+public sealed record SavedWorksJsonSnapshot(ReadOnlyMemory<byte> Json, string Revision);
 
 internal sealed class SavedWorksStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions ApiJson = new(JsonSerializerDefaults.Web);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> ProcessLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly string directory;
     private readonly string path;
@@ -18,6 +21,16 @@ internal sealed class SavedWorksStore
     private JsonObject? cachedState;
     private (long Length, long Modified, long Created) cachedStamp;
     private string revision = Guid.NewGuid().ToString("N");
+    private readonly ConditionalWeakTable<JsonObject, RecordSnapshot> recordSnapshots = new();
+    private readonly ConditionalWeakTable<JsonArray, byte[]> responseSnapshots = new();
+    private readonly Dictionary<string, IdentityIndex> identityIndexes = new(StringComparer.Ordinal);
+    private sealed class RecordSnapshot(CatalogItem item)
+    {
+        internal readonly CatalogItem Item = item;
+        internal ReadOnlyMemory<byte>? Json;
+    }
+    private sealed record IdentityIndex(JsonArray Items, Func<JsonObject, IEnumerable<string>> Tokens,
+        Dictionary<string, HashSet<string>> Keys);
 
     public SavedWorksStore(string directory)
     {
@@ -35,9 +48,45 @@ internal sealed class SavedWorksStore
     public SavedWorksSnapshot GetSnapshot(string collection)
     {
         using var fileLock = AcquireLock();
-        var items = Read()[collection]!.Deserialize<List<CatalogItem>>(Json)!
-            .Where(item => CatalogState.IsSupported(item.Source)).ToList();
+        var items = ((JsonArray)Read()[collection]!).OfType<JsonObject>()
+            .Select(Record).Where(record => CatalogState.IsSupported(record.Item.Source))
+            .Select(record => record.Item.SnapshotCopy()).ToList();
         return new(items, revision);
+    }
+
+    public SavedWorksJsonSnapshot GetJsonSnapshot(string collection)
+    {
+        using var fileLock = AcquireLock();
+        var items = (JsonArray)Read()[collection]!;
+        // API data keeps the CatalogItem allowlist; unknown persisted fields
+        // remain on disk, and never escape through a new raw JSON endpoint.
+        var bytes = responseSnapshots.GetValue(items, values => JsonSerializer.SerializeToUtf8Bytes(
+            values.OfType<JsonObject>().Select(Record).Select(record => record.Item)
+                .Where(item => CatalogState.IsSupported(item.Source)), ApiJson));
+        return new(bytes, revision);
+    }
+
+    internal List<string> FindMatchingKeys(string collection, IReadOnlySet<string> tokens,
+        Func<JsonObject, IEnumerable<string>> tokenReader)
+    {
+        using var fileLock = AcquireLock();
+        var items = (JsonArray)Read()[collection]!;
+        if (!identityIndexes.TryGetValue(collection, out var index) ||
+            !ReferenceEquals(index.Items, items) || !index.Tokens.Equals(tokenReader))
+        {
+            var keys = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            foreach (var item in items.OfType<JsonObject>())
+                foreach (var token in tokenReader(item))
+                {
+                    if (!keys.TryGetValue(token, out var owners)) keys[token] = owners = new(StringComparer.Ordinal);
+                    owners.Add(SavedText(item, "key"));
+                }
+            index = new(items, tokenReader, keys);
+            identityIndexes[collection] = index;
+        }
+        var matches = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var token in tokens) if (index.Keys.TryGetValue(token, out var keys)) matches.UnionWith(keys);
+        return matches.Where(key => key.Length > 0).ToList();
     }
 
     public bool Toggle(string collection, CatalogItem item) => Change(collection, item, ensureSaved: false).Saved;
@@ -48,6 +97,8 @@ internal sealed class SavedWorksStore
     // saved-work readers/writers wait until the additive transaction completes.
     internal IDisposable AcquireProfileTransferLock() => AcquireLock();
     internal JsonObject ProfileTransferSnapshot() => Read().DeepClone().AsObject();
+    // Caller holds AcquireProfileTransferLock; every published state is immutable.
+    internal JsonObject CaptureProfileTransferSnapshot() => Read();
     internal void WriteProfileTransferSnapshot(JsonObject snapshot) => Write(snapshot);
     internal void InvalidateProfileTransferSnapshot() => cachedState = null;
 
@@ -69,8 +120,9 @@ internal sealed class SavedWorksStore
         if (ensureSaved && existing.Length > 0) return new(true, previousRevision, revision);
         // Clone only for a real write. A failed atomic write must not change the
         // validated snapshot or another request's acknowledgement.
-        var state = current.DeepClone().AsObject();
+        var state = CloneState(current);
         items = (JsonArray)state[collection]!;
+        responseSnapshots.Remove(items);
         foreach (var index in existing.Reverse()) items.RemoveAt(index);
         if (existing.Length == 0) items.Insert(0, JsonSerializer.SerializeToNode(item, Json));
         Write(state);
@@ -134,7 +186,8 @@ internal sealed class SavedWorksStore
                 // defer copying the complete library until a write is necessary.
                 var refreshed = saved.DeepClone().AsObject();
                 if (!update(refreshed)) continue;
-                state ??= current.DeepClone().AsObject();
+                state ??= CloneState(current);
+                responseSnapshots.Remove((JsonArray)state[collection]!);
                 ((JsonArray)state[collection]!)[index] = refreshed;
             }
         }
@@ -151,7 +204,7 @@ internal sealed class SavedWorksStore
         if (groups.Count is < 1 or > 100 || !expectedKeys.SetEquals(groups.SelectMany(group => Keys(group))))
             throw new InvalidDataException("Repair must retain every saved member.");
         using var fileLock = AcquireLock();
-        var state = Read().DeepClone().AsObject(); var changed = false;
+        var state = CloneState(Read()); var changed = false;
         foreach (var collection in new[] { "likes", "bookmarks" })
         {
             var items = (JsonArray)state[collection]!;
@@ -175,6 +228,7 @@ internal sealed class SavedWorksStore
                 // Clone the original so unknown user fields survive for every
                 // split member. Only matching, still-saved groups are replaced.
                 var ordered = groups.OrderByDescending(group => Keys(group).Contains(expected.Key)).ToArray();
+                responseSnapshots.Remove(items);
                 items.RemoveAt(index);
                 for (var offset = 0; offset < ordered.Length; offset++)
                 {
@@ -244,12 +298,14 @@ internal sealed class SavedWorksStore
             if (!File.Exists(candidate)) continue;
             try
             {
-                var state = JsonNode.Parse(File.ReadAllBytes(candidate)) as JsonObject;
+                var bytes = File.ReadAllBytes(candidate);
+                var state = JsonNode.Parse(bytes) as JsonObject;
                 if (state?["schemaVersion"]?.GetValue<int>() != 1 ||
                     state["likes"] is not JsonArray likes || state["bookmarks"] is not JsonArray bookmarks)
                     throw new JsonException();
                 ValidateItems(likes);
                 ValidateItems(bookmarks);
+                CacheRecordJson(state, bytes);
                 if (candidate != path)
                 {
                     if (File.Exists(path)) File.Copy(path, path + ".corrupt-" + Guid.NewGuid().ToString("N"));
@@ -273,6 +329,7 @@ internal sealed class SavedWorksStore
     {
         cachedState = state;
         cachedStamp = Stamp();
+        identityIndexes.Clear();
         if (!preserveRevision) revision = Guid.NewGuid().ToString("N");
     }
 
@@ -281,7 +338,32 @@ internal sealed class SavedWorksStore
         var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
         {
-            File.WriteAllBytes(temporary, JsonSerializer.SerializeToUtf8Bytes(state, Json));
+            // Unchanged records already have verified serialized fragments.
+            // Stream the atomic file without reserializing every tag or
+            // allocating another complete library-sized byte array.
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024))
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                foreach (var property in state)
+                {
+                    writer.WritePropertyName(property.Key);
+                    if (property.Key is "likes" or "bookmarks" && property.Value is JsonArray items)
+                    {
+                        writer.WriteStartArray();
+                        foreach (var item in items.OfType<JsonObject>())
+                        {
+                            var record = Record(item);
+                            record.Json ??= JsonSerializer.SerializeToUtf8Bytes(item, Json);
+                            writer.WriteRawValue(record.Json.Value.Span, skipInputValidation: true);
+                        }
+                        writer.WriteEndArray();
+                    }
+                    else if (property.Value is null) writer.WriteNullValue();
+                    else property.Value.WriteTo(writer, Json);
+                }
+                writer.WriteEndObject();
+            }
             if (File.Exists(path)) File.Copy(path, path + ".bak", overwrite: true);
             File.Move(temporary, path, overwrite: true);
             Remember(state, preserveRevision);
@@ -289,10 +371,53 @@ internal sealed class SavedWorksStore
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private static void ValidateItems(JsonArray array)
+    private RecordSnapshot Record(JsonObject item) => recordSnapshots.GetValue(item, value => new(
+        value.Deserialize<CatalogItem>(Json) ?? throw new JsonException()));
+
+    private void CacheRecordJson(JsonObject state, byte[] bytes)
+    {
+        // Reuse exact, already validated UTF-8 record slices. Building this
+        // cache must not serialize the entire library on startup or first like.
+        var reader = new Utf8JsonReader(bytes);
+        reader.Read();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            var collection = reader.ValueTextEquals("likes") ? "likes" :
+                reader.ValueTextEquals("bookmarks") ? "bookmarks" : null;
+            reader.Read();
+            if (collection is null) { reader.Skip(); continue; }
+            var items = (JsonArray)state[collection]!;
+            var index = 0;
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+            {
+                var start = checked((int)reader.TokenStartIndex);
+                reader.Skip();
+                var end = checked((int)reader.BytesConsumed);
+                Record((JsonObject)items[index++]!).Json = bytes.AsMemory(start, end - start);
+            }
+        }
+    }
+
+    private JsonObject CloneState(JsonObject state)
+    {
+        var copy = state.DeepClone().AsObject();
+        // Share only immutable cached representations, not JsonNodes or the
+        // mutable CatalogItems returned to callers. Failed writes keep state intact.
+        foreach (var name in new[] { "likes", "bookmarks" })
+        {
+            var before = (JsonArray)state[name]!; var after = (JsonArray)copy[name]!;
+            for (var index = 0; index < before.Count; index++)
+                if (before[index] is JsonObject old && after[index] is JsonObject next &&
+                    recordSnapshots.TryGetValue(old, out var snapshot)) recordSnapshots.Add(next, snapshot);
+            if (responseSnapshots.TryGetValue(before, out var response)) responseSnapshots.Add(after, response);
+        }
+        return copy;
+    }
+
+    private void ValidateItems(JsonArray array)
     {
         if (array.Any(item => item is not JsonObject)) throw new JsonException();
-        _ = array.Deserialize<List<CatalogItem>>(Json) ?? throw new JsonException();
+        foreach (var item in array.OfType<JsonObject>()) _ = Record(item);
     }
 
     private IDisposable AcquireLock()

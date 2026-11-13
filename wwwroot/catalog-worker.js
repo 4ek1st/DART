@@ -46,6 +46,11 @@ self.addEventListener('message', ({ data }) => {
     }
     else value = CatalogLogic.mergeRecommendations(...args);
     const complete = value, reusedPrefix = [];
+    let groupingEvidence;
+    const evidenceItems = Array.isArray(complete) ? complete : data.operation === 'followFeed' ? complete?.items : null;
+    if (Array.isArray(evidenceItems)) try {
+      groupingEvidence = CatalogLogic.groupingEvidenceSnapshot(evidenceItems);
+    } catch { /* Optional warm metadata must not disable the complete result. */ }
     if (Array.isArray(value) && prefix.length) {
       const byKey = new Map(prefix.map((item, index) => [item.key, index]));
       // Creator evidence can rebuild an entire connected prefix even when its
@@ -65,6 +70,7 @@ self.addEventListener('message', ({ data }) => {
       while (groupedReplies.size > 4) groupedReplies.delete(groupedReplies.keys().next().value);
     }
     self.postMessage({ id: data.id, value, ...(reusedPrefix.length ? { reusedPrefix } : {}),
+      ...(groupingEvidence ? { groupingEvidence } : {}),
       ...(groupingKey ? { groupingCacheKey: groupingKey } : {}),
       ...(matchedBase && reusedPrefix.length ? { baseReplyId: matchedBase.id } : {}) });
   } catch (error) {

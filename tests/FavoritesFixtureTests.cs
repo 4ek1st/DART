@@ -115,6 +115,7 @@ internal static class FavoritesFixtureTests
         Directory.CreateDirectory(root);
         try
         {
+            FavoriteArtworksIdentityFixtureTests.Run(Path.Combine(root, "artwork-identities"));
             var empty = Open(Path.Combine(root, "empty"));
             Expect(Store.GetMethod("SetFavoriteArtwork") is not null, "Independent artwork Favorites persistence is missing");
             var favoriteItem = Work("danbooru", "91", new string('9', 32));

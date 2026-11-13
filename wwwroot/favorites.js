@@ -188,8 +188,10 @@
     let outboxSequence = 0;
     let lastKinds = {};
     let artworks = [], artworkLoaded = false, artworkLoading = null, artworkRevision = 0, artworkSaving = Promise.resolve();
+    let tagsLoaded = false, tagsLoading = null, collectionGeneration = 0;
     let membershipItems = null, membership = new Set();
-    const pendingArtworks = new Set();
+    const pendingArtworks = new Map();
+    const currentArtworkSaves = () => [...pendingArtworks.values()].filter(generation => generation === collectionGeneration).length;
     const t = value => deps.t?.(value) || value;
     function cancelPreviewJob() {
       previewJob?.controller.abort();
@@ -255,20 +257,54 @@
       if (membershipItems !== artworks) { membershipItems = artworks; membership = new Set(artworks.flatMap(workTokens)); }
       return workTokens(item).some(token => membership.has(token));
     }
-    async function loadArtworks() {
-      if (artworkLoading) return artworkLoading;
-      const version = artworkRevision;
-      artworkLoading = request('/api/favorite-artworks').then(items => {
-        if (version === artworkRevision && !pendingArtworks.size) artworks = items;
-        artworkLoaded = true; changed(); return true;
-      }).catch(() => false).finally(() => { artworkLoading = null; });
-      return artworkLoading;
+    async function loadTags(force = false) {
+      if (disposed) return false;
+      if (tagsLoaded && !force) return true;
+      if (tagsLoading) {
+        const task = tagsLoading, ready = await task.promise;
+        return task.generation !== collectionGeneration ? loadTags(force) : ready;
+      }
+      const task = { generation: collectionGeneration, choicesVersion: manualRevision };
+      tagsLoading = task;
+      task.promise = request('/api/favorite-tags').then(tags => {
+        if (disposed || task.generation !== collectionGeneration) return false;
+        if (task.choicesVersion === manualRevision) {
+          const merged = new Set(tags);
+          for (const [tag, favorite] of optimistic) favorite ? merged.add(tag) : merged.delete(tag);
+          setTags([...merged]);
+        }
+        tagsLoaded = true; changed(); return true;
+      }).catch(() => false).finally(() => { if (tagsLoading === task) tagsLoading = null; });
+      return task.promise;
     }
+    async function loadArtworks(force = false) {
+      if (disposed) return false;
+      if (artworkLoaded && !force) return true;
+      if (artworkLoading) {
+        const task = artworkLoading, ready = await task.promise;
+        return task.generation !== collectionGeneration ? loadArtworks(force) : ready;
+      }
+      const task = { generation: collectionGeneration, version: artworkRevision };
+      artworkLoading = task;
+      task.promise = request('/api/favorite-artworks').then(items => {
+        if (disposed || task.generation !== collectionGeneration) return false;
+        if (task.version === artworkRevision && !currentArtworkSaves()) {
+          artworks = items; artworkLoaded = true; changed();
+        }
+        return artworkLoaded || currentArtworkSaves() > 0;
+      }).catch(() => false).finally(() => { if (artworkLoading === task) artworkLoading = null; });
+      return task.promise;
+    }
+    function invalidateCollections() {
+      collectionGeneration++; artworkRevision++; manualRevision++;
+      tagsLoaded = false; artworkLoaded = false; optimistic.clear(); mark();
+    }
+
     async function toggleArtwork(item) {
       if (!item?.key || pendingArtworks.has(item.key)) return false;
       if (!artworkLoaded && !await loadArtworks()) { toast('Could not load favorite artworks. Please try again.'); return false; }
-      const favorite = !isArtworkFavorite(item), previous = artworks;
-      pendingArtworks.add(item.key); artworkRevision++;
+      const favorite = !isArtworkFavorite(item), previous = artworks, generation = collectionGeneration;
+      pendingArtworks.set(item.key, generation); artworkRevision++;
       const tokens = new Set(workTokens(item));
       artworks = artworks.filter(saved => !workTokens(saved).some(token => tokens.has(token)));
       if (favorite) artworks = [item, ...artworks];
@@ -278,31 +314,35 @@
           const saved = await request('/api/favorite-artworks', { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ item, favorite }) });
           // Other optimistic operations are reconciled by their later serialized replies.
-          if (pendingArtworks.size === 1) artworks = saved;
+          if (generation === collectionGeneration && currentArtworkSaves() === 1) { artworks = saved; artworkLoaded = true; }
           return true;
         } catch {
+          if (generation !== collectionGeneration) return false;
           const currentTokens = new Set(workTokens(item));
           artworks = artworks.filter(saved => !workTokens(saved).some(token => currentTokens.has(token)));
           const restore = previous.filter(saved => workTokens(saved).some(token => currentTokens.has(token)));
           artworks = [...artworks, ...restore];
           toast('Could not save Favorite. Please try again.'); return false;
-        } finally { pendingArtworks.delete(item.key); artworkRevision++; changed(); }
+        } finally {
+          pendingArtworks.delete(item.key); artworkRevision++; changed();
+          if (generation !== collectionGeneration && !pendingArtworks.size && !disposed) void loadArtworks(true);
+        }
       });
       artworkSaving = result.catch(() => {}); return result;
     }
-    async function load(tab, force = false) {
+    async function load(tab, force = false, { collections: refreshCollections = force } = {}) {
       if (disposed) return;
       if (tab.favoriteLoading) return;
       if (!force && tab.favoriteRevision === revision && tab.favoriteLoadedAt > Date.now() - 15000) return;
       tab.favoriteLoading = true; tab.favoriteError = ''; changed();
       try {
-        const version = revision, choicesVersion = manualRevision;
+        const version = revision, choicesVersion = manualRevision, generation = collectionGeneration;
         const evidence = deps.analyze && tab.favoriteType !== 'artwork' ? evidenceFor(tab, force) : null;
-        const [summary, tags, worksReady] = await Promise.all([
-          request('/api/favorites?rating=all', { priority: 'background' }), request('/api/favorite-tags'), loadArtworks(), evidence?.promise
+        const [summary, tagsReady, worksReady] = await Promise.all([
+          request('/api/favorites?rating=all', { priority: 'background' }), loadTags(refreshCollections), loadArtworks(refreshCollections), evidence?.promise
         ]);
-        if (disposed) return;
-        if (!worksReady) throw new Error('Favorite artworks unavailable');
+        if (disposed || generation !== collectionGeneration) return;
+        if (!tagsReady || !worksReady) throw new Error('Favorite collections unavailable');
         if (evidence && tab.favoriteType !== 'artwork') {
           let current = evidenceFor(tab);
           while (current.state === 'pending' || current.state === 'stale') {
@@ -312,24 +352,21 @@
           }
           if (current.state === 'failed') throw new Error('Favorite analysis unavailable');
         }
+        if (disposed || generation !== collectionGeneration) return;
         tab.favoriteSummary = summary;
-        const merged = new Set(tags);
-        for (const [tag, favorite] of optimistic) favorite ? merged.add(tag) : merged.delete(tag);
-        if (choicesVersion === manualRevision) {
-          setTags([...merged]); lastKinds = summary.kinds || {};
-        }
+        if (choicesVersion === manualRevision) lastKinds = summary.kinds || {};
         tab.favoriteRevision = version; tab.favoriteLoadedAt = Date.now();
       } catch { tab.favoriteError = 'Could not load Favorites. Your choices are still saved.'; }
       finally {
         tab.favoriteLoading = false;
         if (!disposed && (!deps.getActiveTab || deps.getActiveTab() === tab)) changed();
-        if (!disposed && !tab.favoriteError && tab.favoriteRevision !== revision && deps.getActiveTab?.() === tab) void load(tab, true);
+        if (!disposed && !tab.favoriteError && tab.favoriteRevision !== revision && deps.getActiveTab?.() === tab) void load(tab, true, { collections: false });
       }
     }
     function toggle(value, kind = null, requested) {
       const tag = normalize(value);
       if (!tag || pending.has(tag)) return Promise.resolve(false);
-      const was = getTags().includes(tag), favorite = requested ?? !was;
+      const was = getTags().includes(tag), favorite = requested ?? !was, generation = collectionGeneration;
       pending.add(tag); optimistic.set(tag, favorite);
       manualRevision++;
       setTags(favorite ? [...new Set([...getTags(), tag])] : getTags().filter(value => value !== tag));
@@ -340,18 +377,23 @@
         try {
           const tags = await request('/api/favorite-tags', { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tag, kind: kind || undefined, favorite }) });
-          manualRevision++;
           optimistic.delete(tag);
+          if (generation !== collectionGeneration) return true;
+          manualRevision++;
           const merged = new Set(tags);
           for (const [other, state] of optimistic) state ? merged.add(other) : merged.delete(other);
-          setTags([...merged]); mark(); return true;
+          setTags([...merged]); tagsLoaded = true; mark(); return true;
         } catch {
-          manualRevision++;
           optimistic.delete(tag);
+          if (generation !== collectionGeneration) return false;
+          manualRevision++;
           if (previousKind) lastKinds[tag] = previousKind; else delete lastKinds[tag];
           setTags(was ? [...new Set([...getTags(), tag])] : getTags().filter(value => value !== tag));
           toast('Could not save Favorite. Please try again.'); return false;
-        } finally { pending.delete(tag); changed(); }
+        } finally {
+          pending.delete(tag); changed();
+          if (generation !== collectionGeneration && !disposed) void loadTags(true);
+        }
       });
       saving = result.catch(() => {}); return result;
     }
@@ -420,7 +462,7 @@
       })();
       await sending; sending = null; inFlight = []; deps.outboxChanged?.();
       const active = deps.getActiveTab?.();
-      if (!failed && active?.kind === 'favorites') void load(active, true);
+      if (!failed && active?.kind === 'favorites') void load(active, true, { collections: false });
       if (queue.length && !keepalive && !disposed && timer === null)
         timer = schedule(() => { timer = null; void flush(); }, failed ? 5000 : 0);
     }
@@ -564,7 +606,7 @@
       }
       return false;
     }
-    return { load, render, handle, add, toggle, cards, invalidate: mark, loadArtworks, toggleArtwork, isArtworkFavorite, outboxSnapshot, restoreOutbox,
+    return { load, render, handle, add, toggle, cards, invalidate: mark, invalidateCollections, loadTags, loadArtworks, toggleArtwork, isArtworkFavorite, outboxSnapshot, restoreOutbox,
       artworks:()=>artworks, isArtworkPending: item => pendingArtworks.has(item?.key),
       record: item => enqueue(item, false), metadata: item => enqueue(item, true), flush,
       dispose() { disposed = true; cancelPreviewJob(); if (timer !== null) unschedule(timer); timer = null; } };

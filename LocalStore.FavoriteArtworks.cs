@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ArtCatalog;
 
@@ -23,6 +24,9 @@ internal sealed partial class LocalStore
             return favoriteArtworkLibrary = new SavedWorksStore(ownedDirectory);
         }
     }
+    private static IEnumerable<string> FavoriteArtworkTokens(JsonObject item) =>
+        TransferWorkTokens(item).Where(token => !TransferWeakParent(token));
+
     public List<CatalogItem> GetFavoriteArtworks()
     {
         lock (sync) return FavoriteArtworkLibrary.Get("bookmarks");
@@ -38,12 +42,17 @@ internal sealed partial class LocalStore
         {
             using var fileLock = AcquireFileLock(Path.Combine(directory, "favorite-artworks.lock"));
             var library = FavoriteArtworkLibrary;
-            var tokens = TransferWorkTokens(JsonSerializer.SerializeToNode(item, FavoriteJson)!.AsObject())
-                .Where(token => !TransferWeakParent(token)).ToHashSet(StringComparer.Ordinal);
-            var existing = library.Get("bookmarks").Where(saved => TransferWorkTokens(
-                JsonSerializer.SerializeToNode(saved, FavoriteJson)!.AsObject()).Any(token => !TransferWeakParent(token) && tokens.Contains(token))).ToArray();
-            if (favorite && existing.Length == 0) library.Change("bookmarks", item, ensureSaved: true);
-            if (!favorite) foreach (var saved in existing) library.Change("bookmarks", saved, ensureSaved: false);
+            var tokens = FavoriteArtworkTokens(JsonSerializer.SerializeToNode(item, FavoriteJson)!.AsObject())
+                .ToHashSet(StringComparer.Ordinal);
+            var existing = library.FindMatchingKeys("bookmarks", tokens, FavoriteArtworkTokens);
+            if (favorite && existing.Count == 0) library.Change("bookmarks", item, ensureSaved: true);
+            if (!favorite && existing.Count > 0)
+            {
+                // One removal covers every matching primary key. Repeated
+                // toggle calls can reinsert an empty row after an earlier
+                // overlapping saved group has already removed that key.
+                library.Change("bookmarks", new CatalogItem { Key = existing[0], MemberKeys = existing.Skip(1).ToList() }, ensureSaved: false);
+            }
             return library.Get("bookmarks");
         }
     }

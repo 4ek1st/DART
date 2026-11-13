@@ -8,33 +8,67 @@ internal sealed partial class LocalStore
 {
     public JsonObject ExportProfileTransfer()
     {
-        lock (sync)
+        JsonObject library;
+        Dictionary<string, byte[]?> captured;
+        // Consistent capture uses the existing transaction/file owners, not the
+        // global store monitor. Parsing and allowlist normalization run after
+        // releasing those locks, so an export cannot freeze unrelated settings.
+        using (var libraryLock = savedWorks.AcquireProfileTransferLock())
+        using (var locks = AcquireTransferFileLocks())
         {
-            using var libraryLock = savedWorks.AcquireProfileTransferLock();
-            using var locks = AcquireTransferFileLocks();
-            var library = savedWorks.ProfileTransferSnapshot();
-            var client = ReadTransferObject(clientStateFile);
-            var document = new JsonObject
-            {
-                ["format"] = "dart-profile", ["version"] = 1,
-                ["likes"] = library["likes"]!.DeepClone(), ["bookmarks"] = library["bookmarks"]!.DeepClone(),
-                ["history"] = client["recent"]?.DeepClone() ?? new JsonArray(),
-                ["follows"] = new JsonArray(ReadTransferArray(followsFile).OfType<JsonObject>()
-                    .Select(follow => (JsonNode)ProfileTransfer.CleanFollow(follow)).ToArray()),
-                ["viewedIdentities"] = ReadTransferArray(viewedFile),
-                ["favoriteTags"] = ReadTransferArray(favoriteTagsFile),
-                ["recommendationTags"] = JsonSerializer.SerializeToNode(ReadRecommendationTagPreferences().Preferences, Json),
-                ["preferences"] = ReadTransferObject(contentPreferencesFile),
-                ["recommendationExposureGroups"] = client["recommendationExposureGroups"]?.DeepClone() ?? new JsonArray()
-            };
-            // Use the import allowlist and portable-URL policy, then check only the
-            // cleaned output size. Large internal metadata never crosses devices.
-            var clean = ProfileTransfer.NormalizeTrustedSnapshot(document);
-            clean["createdAt"] = DateTimeOffset.UtcNow.ToString("O"); clean["platform"] = "windows";
-            if (JsonSerializer.SerializeToUtf8Bytes(clean, ProfileTransfer.Json).Length > ProfileTransfer.MaxBytes)
-                throw new InvalidDataException("Profile file exceeds 20 MB.");
-            return clean;
+            library = savedWorks.CaptureProfileTransferSnapshot();
+            captured = new[] { clientStateFile, followsFile, viewedFile, favoriteTagsFile,
+                recommendationPreferencesFile, contentPreferencesFile }
+                .SelectMany(path => new[] { path, path + ".bak" })
+                .ToDictionary(path => path, path => File.Exists(path) ? File.ReadAllBytes(path) : null, StringComparer.OrdinalIgnoreCase);
         }
+        JsonNode Read(string path, bool array)
+        {
+            if (captured[path] is null) return array ? new JsonArray() : new JsonObject();
+            foreach (var candidate in new[] { path, path + ".bak" })
+                if (captured[candidate] is { } bytes)
+                    try
+                    {
+                        var node = JsonNode.Parse(bytes);
+                        if (array && node is JsonArray || !array && node is JsonObject) return node!;
+                    }
+                    catch (JsonException) { }
+            throw new InvalidDataException("Could not read the existing profile. Its files have been preserved.");
+        }
+        var client = Read(clientStateFile, false).AsObject();
+        Dictionary<string, string> RecommendationTags()
+        {
+            if (captured[recommendationPreferencesFile] is not null)
+            {
+                foreach (var path in new[] { recommendationPreferencesFile, recommendationPreferencesFile + ".bak" })
+                    if (captured[path] is { } bytes)
+                        try
+                        {
+                            var choices = JsonSerializer.Deserialize<Dictionary<string, string>>(bytes, Json);
+                            if (choices is not null) return ValidRecommendationTagPreferences(choices);
+                        }
+                        catch (JsonException) { }
+                return [];
+            }
+            try { return ValidRecommendationTagPreferences(client["recommendationTagPreferences"]?.Deserialize<Dictionary<string, string>>(Json) ?? []); }
+            catch (JsonException) { return []; }
+        }
+        var document = new JsonObject
+        {
+            ["format"] = "dart-profile", ["version"] = 1,
+            ["history"] = client["recent"]?.DeepClone() ?? new JsonArray(),
+            ["follows"] = Read(followsFile, true), ["viewedIdentities"] = Read(viewedFile, true),
+            ["favoriteTags"] = Read(favoriteTagsFile, true),
+            ["recommendationTags"] = JsonSerializer.SerializeToNode(RecommendationTags(), Json),
+            ["preferences"] = Read(contentPreferencesFile, false),
+            ["recommendationExposureGroups"] = client["recommendationExposureGroups"]?.DeepClone() ?? new JsonArray()
+        };
+        // Never attach/reparent the immutable library nodes or clone provider
+        // caches. The shared codec reads them through its trusted snapshot view.
+        var clean = ProfileTransfer.NormalizeTrustedSnapshot(document, library);
+        clean["createdAt"] = DateTimeOffset.UtcNow.ToString("O"); clean["platform"] = "windows";
+        ProfileTransfer.ValidatePortableSize(clean);
+        return clean;
     }
 
     public JsonObject ImportProfileTransfer(JsonObject incoming, bool applySettings)
@@ -55,7 +89,7 @@ internal sealed partial class LocalStore
             var viewed = ReadTransferArray(viewedFile);
             var favorites = ReadTransferArray(favoriteTagsFile);
             var preferences = ReadTransferObject(contentPreferencesFile);
-            var recTags = JsonSerializer.SerializeToNode(ReadRecommendationTagPreferences().Preferences, Json)!.AsObject();
+            var recTags = JsonSerializer.SerializeToNode(ReadRecommendationTagPreferences(client).Preferences, Json)!.AsObject();
             var added = new JsonObject(); var skipped = new JsonObject();
             foreach (var collection in new[] { "likes", "bookmarks" })
             {
@@ -112,7 +146,7 @@ internal sealed partial class LocalStore
             AddIfChanged(clientStateFile, originalClient, client);
             AddIfChanged(viewedFile, ReadTransferArray(viewedFile), viewed);
             AddIfChanged(favoriteTagsFile, ReadTransferArray(favoriteTagsFile), favorites);
-            AddIfChanged(recommendationPreferencesFile, JsonSerializer.SerializeToNode(ReadRecommendationTagPreferences().Preferences, Json)!, recTags);
+            AddIfChanged(recommendationPreferencesFile, JsonSerializer.SerializeToNode(ReadRecommendationTagPreferences(client).Preferences, Json)!, recTags);
             AddIfChanged(contentPreferencesFile, ReadTransferObject(contentPreferencesFile), preferences);
             var libraryChanged = !JsonNode.DeepEquals(originalLibrary, library);
             var libraryPath = Path.Combine(directory, "saved-works-v1.json");

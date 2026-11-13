@@ -85,6 +85,10 @@
           try {
             if (data.error) throw new Error(data.error);
             const value = hydrate(data, job);
+            const evidenceItems = Array.isArray(value) ? value : value?.items;
+            if (Array.isArray(evidenceItems) && root.CatalogLogic?.restoreGroupingEvidence)
+              root.CatalogLogic.restoreGroupingEvidence(evidenceItems, data.groupingEvidence,
+                new Set((data.reusedPrefix || []).map(pair => pair[0])));
             if (job.key) remember(job.key, data.id, job.input, job.inputRevision, value, job.base, data.reusedPrefix);
             job.resolve(value);
           } catch (error) { forget(job); job.reject(error); }
