@@ -10,6 +10,7 @@
     <ApplicationIcon>wwwroot\brand\dart.ico</ApplicationIcon>
     <AssemblyName>DART</AssemblyName>
     <Product>DART — Discover Art</Product>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
@@ -18,8 +19,44 @@
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="wwwroot\**\*" LogicalName="ArtCatalogFrontend/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Compile Remove="tests\**\*.cs" />
-    <Compile Remove="Updates\Launcher\**\*.cs" />
-    <Compile Remove="Updates\ReleaseTool\**\*.cs" />
+    <Compile Include="ArtworkActionEndpoints.cs" />
+    <Compile Include="CatalogCredits.cs" />
+    <Compile Include="CatalogImageContent.cs" />
+    <Compile Include="CatalogRule34Metadata.cs" />
+    <Compile Include="CatalogSankaku.cs" />
+    <Compile Include="CatalogService.cs" />
+    <Compile Include="CatalogState.cs" />
+    <Compile Include="DanbooruRequestClient.cs" />
+    <Compile Include="EmbeddedFrontend.cs" />
+    <Compile Include="FavoriteEndpoints.cs" />
+    <Compile Include="GelbooruSearchAliases.cs" />
+    <Compile Include="ImageUpscaleService.cs" />
+    <Compile Include="LocalStore.ArtworkActions.cs" />
+    <Compile Include="LocalStore.FavoriteArtworks.cs" />
+    <Compile Include="LocalStore.FavoriteGroups.cs" />
+    <Compile Include="LocalStore.Favorites.cs" />
+    <Compile Include="LocalStore.MediaRecovery.cs" />
+    <Compile Include="LocalStore.ProfileTransfer.cs" />
+    <Compile Include="LocalStore.cs" />
+    <Compile Include="PreviewMp4Layout.cs" />
+    <Compile Include="PreviewMp4Samples.cs" />
+    <Compile Include="ProfileTransfer.cs" />
+    <Compile Include="ProfileTransferEndpoints.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="Rule34RequestClient.cs" />
+    <Compile Include="SankakuApi.cs" />
+    <Compile Include="SavedWorksStore.cs" />
+    <Compile Include="ScreenCaptureProtection.cs" />
+    <Compile Include="SourceAvailability.cs" />
+    <Compile Include="SourceStatusEndpoints.cs" />
+    <Compile Include="UpdateEndpoints.cs" />
+    <Compile Include="Updates\ReleaseProtocol.cs" />
+    <Compile Include="Updates\ReleasePublisher.cs" />
+    <Compile Include="Updates\ShortcutIcons.cs" />
+    <Compile Include="Updates\UpdateService.cs" />
+    <Compile Include="UpscaleComponent.cs" />
+    <Compile Include="UpscaleEndpoints.cs" />
+    <Compile Include="VideoPreviewProxy.cs" />
+    <Compile Include="WindowChrome.cs" />
   </ItemGroup>
 </Project>
