@@ -2,6 +2,8 @@
 
 User instructions: for concrete implementation tasks proceed without asking for another confirmation. Preserve concurrent work and personal data. Do not create archives.
 
+Use the repository owner's configured Git identity. Add assistant or vendor co-author attribution only when the user explicitly requests it.
+
 ## Authoritative source and releases
 
 - This repository is the canonical desktop source. Android is a separate project.

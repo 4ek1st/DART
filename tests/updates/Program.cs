@@ -446,6 +446,7 @@ Reject(() => ReleasePublisher.CheckBase(publicationRoot, folder), "publisher acc
 File.WriteAllText(Path.Combine(folder, ".dart-release-base.json"), JsonSerializer.Serialize(new { buildId = initial.BuildId }));
 ReleasePublisher.CheckBase(publicationRoot, folder);
 Console.WriteLine("Publisher canonical directory, missing base and stale base guards: PASS");
+SourceHistoryFixture.Run(folder, key, initial);
 receipt[0] ^= 1; File.WriteAllBytes(Path.Combine(installation, "active-release.bin"), receipt);
 Reject(() => installed.Current(), "corrupt receipt silently reset version floor");
 Console.WriteLine("Signed release, tampering, ancestry, version floor, atomic activation and profile preservation: PASS");

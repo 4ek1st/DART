@@ -16,6 +16,20 @@ dotnet run --project ArtCatalog.csproj -- --data-dir <test-profile>
 The `ArtCatalog` project name and namespace remain for compatibility.
 The app is called **DART — Discover Art**. Android is a separate project.
 
+## Commit attribution
+
+Use the repository owner's configured Git identity. Add assistant or vendor
+co-author attribution only at the user's explicit request. Project settings
+disable automatic commit attribution.
+
+The owner-approved attribution cleanup on 2026-11-13 rewrote six messages
+after 0.2.78. Each commit retains its file tree, author, committer and dates.
+The signed 0.2.81 source anchor maps from
+`dcfbceafa908d5cc91cefdbf57b24878dcf7b18b` to
+`dcd98e46ec5eac6fe1eae0c1e3771fac368256d9`.
+The publisher accepts that exact corrected ancestry for that signed build.
+The updater fixtures reject stale sources and unapproved same-tree rewrites.
+
 ## Checks
 
 In PowerShell:
