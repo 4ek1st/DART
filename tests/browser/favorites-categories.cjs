@@ -23,6 +23,7 @@ const works = Array.from({ length: 12 }, (_, index) => {
     thumbnail: 'https://example.test/neutral-' + index + '.svg',
     images: ['https://example.test/original-' + index + '.svg'], published: '2026-11-04T10:00:00Z' };
 });
+let windowWorks = [];
 const originalWorks = JSON.stringify(works), manualTags = ['cum', 'fern'];
 const large = process.argv.includes('--large'), entryOnly = process.argv.includes('--entry-only');
 const hero = 'fixture_hero', fog = 'coastal_fog', unavailable = 'unavailable_character';
@@ -88,7 +89,7 @@ const server = http.createServer(async (req, res) => {
       if (url.pathname === '/api/viewed-identities') return json(res, viewedTokens);
       if (['/api/favorite-artwork-groups', '/api/follows', '/api/hidden-artworks'].includes(url.pathname)) return json(res, []);
       if (url.pathname === '/api/search' || url.pathname === '/api/profile') return json(res, { items: works, errors: {}, hasMore: false, hasMoreSources: [] });
-      if (url.pathname === '/api/detail') return json(res, [...works, member, other, viewedTag].find(item =>
+      if (url.pathname === '/api/detail') return json(res, [...windowWorks, ...works, member, other, viewedTag].find(item =>
         item.id === url.searchParams.get('id')) || works[0]);
       if (url.pathname === '/api/image') {
         res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
@@ -226,6 +227,51 @@ let browser;
       }, [{ tag: hero, kind: 'character' }, { tag: fog, kind: 'tag' },
         ...manualTags.filter(tag => tag.startsWith('missing_neutral')).map(tag => ({ tag, kind: 'tag' }))]);
       check(report.performance.coverBatch.matched === 2, 'one-large-batch-resolves-both-viewed-covers');
+    }
+    if (process.argv.includes('--virtual-window')) {
+      windowWorks = Array.from({ length: 180 }, (_, i) => ({ ...works[8], key: 'rule34:' + (90000 + i),
+        id: String(90000 + i), title: 'Neutral window cover ' + i, characterTags: ['window_character_' + i],
+        tags: ['window_character_' + i], thumbnail: 'https://example.test/window-thumb-' + i + '.svg',
+        images: ['https://example.test/window-full-' + i + '.svg'] }));
+      const entitySummary = { totalWorks: 180, kinds: {},
+        entries: windowWorks.map((work, i) => ({ tag: work.characterTags[0], kind: 'character', count: 180 - i,
+          lastWorkKey: work.key })), works: windowWorks.filter((_, i) => i % 3 !== 1) };
+      Object.assign(summary, entitySummary);
+      manualTags.splice(0, manualTags.length, ...windowWorks.map(work => work.characterTags[0]));
+      await page.evaluate(({ works, summary, tags }) => {
+        favoriteTags = tags;
+        const tab = currentTab();
+        tab.favoriteType = 'character'; tab.favoriteOrigin = 'mine'; tab.favoriteSummary = summary;
+        tab.virtualState = {}; tab.scrollTop = 0; main.scrollTop = 0;
+        works.forEach(rememberItem); favoritesController().invalidate(); render();
+      }, { works: entitySummary.works, summary: entitySummary, tags: manualTags });
+      await page.locator('[data-grid-key="favorites"].virtual-grid .favorite-entity').first().waitFor(); await frames();
+      let mounted = await page.locator('.favorite-entity').count();
+      check(mounted < 90, 'window:mounted-entity-count-bounded', { mounted });
+      const sourceSize = await page.evaluate(() => currentTab().items.length);
+      check(sourceSize === 120, 'window:complete-viewer-source-with-missing-covers', { sourceSize });
+      const first = entity('window_character_0');
+      await first.locator('button.card-art[data-action="open"]').hover(); await page.keyboard.press('Space');
+      await page.waitForFunction(() => quickPreview.open);
+      check(await page.evaluate(() => quickPreviewWork.key) === windowWorks[0].key, 'window:first-space-cover-matches');
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => { main.scrollTop = main.scrollHeight; main.dispatchEvent(new Event('scroll')); });
+      await entity('window_character_179').waitFor(); await frames();
+      mounted = await page.locator('.favorite-entity').count();
+      check(mounted < 90, 'window:tail-entity-count-bounded', { mounted });
+      const tail = entity('window_character_179');
+      await tail.locator('button.card-art[data-action="open"]').hover(); await page.keyboard.press('Space');
+      await page.waitForFunction(() => quickPreview.open);
+      check(await page.evaluate(() => quickPreviewWork.key) === windowWorks[179].key, 'window:tail-space-cover-matches');
+      await page.keyboard.press('Escape'); await frames();
+      check(await tail.isVisible(), 'window:space-return-restores-tail');
+      await page.setViewportSize({ width: 900, height: 760 }); await frames();
+      await page.evaluate(() => { main.scrollTop = main.scrollHeight; main.dispatchEvent(new Event('scroll')); });
+      await entity('window_character_179').waitFor();
+      check(await page.locator('.favorite-entity').count() < 60, 'window:narrow-mounted-count-bounded');
+      check(await page.locator('.favorites-page').evaluate(node => node.scrollWidth <= node.clientWidth + 1), 'window:narrow-grid-fits');
+      await page.evaluate(() => { main.scrollTop = 0; main.dispatchEvent(new Event('scroll')); });
+      await first.waitFor(); check(true, 'window:scroll-back-restores-first-cover');
     }
     check(report.errors.length === 0, 'no-browser-or-server-errors', { errors: report.errors });
     if (process.argv.includes('--expect-regression'))

@@ -1095,15 +1095,19 @@ function openSearch(query, options = {}) {
     history.unshift(query);
     localStorage.setItem('artcatalog-search-history', JSON.stringify(history.slice(0, 12)));
   }
-  searchInput.value = query;
   hidePopover();
   const feed = 'illustrations';
   const title = query || (
     options.rating === 'explicit' ? 'NSFW иллюстрации' : 'Иллюстрации');
   const extra = { query, rating: options.rating || 'all', ...options, feed };
-  return temporary || separate || background
+  const tab = temporary || separate || background
     ? openTemporaryTab('search', title, extra, { temporary, separate, background })
     : createTab('search', title, extra);
+  if (!background) {
+    delete tab.searchDraft;
+    searchInput.value = query;
+  }
+  return tab;
 }
 
 function getSearchHistory() {
@@ -1344,16 +1348,36 @@ async function refreshSavedWorks(collection, force = false) {
 }
 
 function refreshSavedDetail(detail) {
+  // Compare only the matching work, never serialize the saved library. Detail
+  // hydration creates fresh arrays/records even when their values are unchanged.
+  const sameValues = (first, second) => {
+    if (first === second) return true;
+    if (!first || !second || typeof first !== 'object' || typeof second !== 'object' ||
+        Array.isArray(first) !== Array.isArray(second)) return false;
+    const fields = Object.keys(first);
+    return fields.length === Object.keys(second).length && fields.every(field =>
+      Object.prototype.hasOwnProperty.call(second, field) && sameValues(first[field], second[field]));
+  };
   const keys = new Set([detail.key, ...(detail.memberKeys || [])]);
   for (const [collection, items] of [['likes', likes], ['bookmarks', bookmarks]]) {
     const changed = [];
-    const merged = items.map(item => {
-      if (![item.key, ...(item.memberKeys || [])].some(key => keys.has(key))) return item;
+    let merged = null;
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      if (!keys.has(item.key) && !(item.memberKeys || []).some(key => keys.has(key))) continue;
       const next = CatalogLogic.mergeDetailPages(item, detail);
+      // Hydrating another catalog member can reorder the same membership set.
+      // Retain its established order as well as the selected media order.
+      if (item.memberKeys?.length === next.memberKeys?.length) {
+        const members = new Set(item.memberKeys);
+        if (next.memberKeys.every(key => members.has(key))) next.memberKeys = item.memberKeys;
+      }
+      if (sameValues(item, next)) continue;
+      merged ||= items.slice();
+      merged[index] = next;
       changed.push(next);
-      return next;
-    });
-    if (changed.length) setSavedWorks(collection, merged, changed);
+    }
+    if (merged) setSavedWorks(collection, merged, changed);
   }
 }
 
@@ -1547,6 +1571,7 @@ function favoritesController() {
     getActiveTab: currentTab, outboxChanged: () => { void saveSession(); },
     workTokens: item => CatalogLogic.workHistoryTokens(item),
     renderArtworks: items => renderFavoriteArtworkGrid(items),
+    renderEntities: (cards, entity) => renderFavoriteEntityGrid(cards, entity),
     viewedExamples: favoriteViewedExamples,
     renderEntityCard: card => card.cover ? renderCard(card.cover,false,{label:card.tag.replaceAll('_',' '),query:card.tag}) : '',
     allowed: item => !CatalogLogic.isWorkHidden(item, contentPreferences) && !artworkActionsController().isHidden(item),
@@ -1968,6 +1993,10 @@ async function mergeRecommendationsAsync(...args) {
             data.value[position] = job.prefix[prefixIndex];
           if (data.value.some(item => !item || typeof item !== 'object' || typeof item.key !== 'string'))
             throw new Error('Invalid recommendation worker record');
+          // Ranking already grouped these records in the worker. Preserve that
+          // evidence on the UI thread, including filtered views of this batch.
+          if (!CatalogLogic.cacheGroupedWorks(data.value, data.value))
+            throw new Error('Invalid recommendation grouping');
           state.jobs.delete(data.id);
           job.resolve(data.value);
         } catch { state.fail(); }
@@ -4511,9 +4540,10 @@ function revealQuickPreviewReturn(target, retry = false) {
     let card = findCard();
     const state = tab.virtualState?.[key];
     if (!card && represented && state && wrapper?.classList.contains('virtual-grid')) {
-      const row = Math.floor(index / Math.max(1, state.cols));
-      state.startRow = Math.max(0, row - 4);
-      state.endRow = Math.min(state.totalRows, state.startRow + (state.visibleRows || 1) + 8);
+      const row = Math.floor((state.itemIndexes?.get(represented.key) ?? index) / Math.max(1, state.cols));
+      const overscan = state.overscan ?? 4;
+      state.startRow = Math.max(0, row - overscan);
+      state.endRow = Math.min(state.totalRows, state.startRow + (state.visibleRows || 1) + overscan * 2);
       const top = Math.max(0, (tab.gridTops?.[key] || 0) + row * state.pitch -
         Math.max(0, (main.clientHeight - state.pitch) / 2));
       if (main.scrollTo) main.scrollTo({ top, behavior: 'instant' }); else main.scrollTop = top;
@@ -4803,8 +4833,12 @@ function renderChrome() {
     const nav = button.dataset.nav;
     button.classList.toggle('active', nav === CatalogLogic.navigationSection(current));
   });
-  if (currentTab()?.kind === 'detail') searchInput.value = '';
-  else searchInput.value = currentTab()?.query || '';
+  const tab = currentTab();
+  const query = tab?.kind === 'detail' ? '' : tab?.query || '';
+  const value = tab?.searchDraft?.query === query ? tab.searchDraft.value : query;
+  // A pagination, media or collection publication must not replace an unsent
+  // query or reset its caret. Drafts belong to the tab, not its loaded results.
+  if (searchInput.value !== value) searchInput.value = value;
 }
 
 function pauseDetailVideos() {
@@ -5945,29 +5979,54 @@ function renderGrid(items, key = '', newKeys = new Set(), alreadyGrouped = false
   }
   if (!works.length) return emptyFeedMessage(tab, key);
   if (tab) { tab.artworkLists ||= new Map(); tab.artworkLists.set(key || tab.kind, works); }
+  return renderVirtualGrid(works, key, item => renderFeedCard(item, tab, newKeys, key));
+}
+
+// Artwork and Favorite entity grids share one measured window and scroll
+// lifecycle. Only the card renderer differs; full source lists stay available
+// to the viewer, including covers outside the mounted window.
+function renderVirtualGrid(items, key, renderItem, { threshold = 160, overscan = 4, pitch = 260, gridClass = '' } = {}) {
+  const tab = currentTab();
   const attribute = key ? ` data-grid-key="${escapeHtml(key)}"` : '';
-  if (!key || works.length <= 160 || !tab)
-    return `<div${attribute}><div class="grid" data-render-key="cards">${works.map(item =>
-      renderFeedCard(item, tab, newKeys, key)).join('')}</div></div>`;
+  const grid = `grid${gridClass ? ` ${gridClass}` : ''}`;
+  if (!key || items.length <= threshold || !tab)
+    return `<div${attribute}><div class="${grid}" data-render-key="cards">${items.map(renderItem).join('')}</div></div>`;
   tab.virtualState ||= {};
-  const state = tab.virtualState[key] ||= { cols: 7, pitch: 260, startRow: 0, endRow: 0 };
+  const state = tab.virtualState[key] ||= { cols: 7, pitch, startRow: 0, endRow: 0 };
   const cols = Math.max(1, state.cols);
-  const totalRows = Math.ceil(works.length / cols);
+  const totalRows = Math.ceil(items.length / cols);
   state.totalRows = totalRows;
   const scrollTop = main.dataset.tabId === String(tab.id) ? main.scrollTop : tab.scrollTop || 0;
   const gridTop = tab.gridTops?.[key] ?? 0;
-  const row = Math.max(0, Math.floor((scrollTop - gridTop) / state.pitch));
+  const row = Math.max(0, Math.min(totalRows - 1, Math.floor((scrollTop - gridTop) / state.pitch)));
   state.visibleRows = Math.max(1, Math.ceil((main.clientHeight || 1440) / state.pitch));
-  if (state.startRow > 0 && row < state.startRow + 2 ||
+  state.overscan = overscan;
+  if (state.startRow >= totalRows || state.startRow > 0 && row < state.startRow + 2 ||
       state.endRow < totalRows && row > state.endRow - state.visibleRows - 2) {
-    state.startRow = Math.max(0, Math.min(totalRows - 1, row - 4));
+    state.startRow = Math.max(0, row - overscan);
   }
-  state.endRow = Math.min(totalRows, state.startRow + state.visibleRows + 8);
-  const visible = works.slice(state.startRow * cols, state.endRow * cols);
+  state.endRow = Math.min(totalRows, state.startRow + state.visibleRows + overscan * 2);
+  const visible = items.slice(state.startRow * cols, state.endRow * cols);
   const top = Math.round(state.startRow * state.pitch);
   const bottom = Math.round(Math.max(0, totalRows - state.endRow) * state.pitch);
-  return `<div class="virtual-grid"${attribute}><div class="virtual-spacer" data-render-key="top" style="height:${top}px"></div><div class="grid" data-render-key="cards">${visible.map(item =>
-    renderFeedCard(item, tab, newKeys, key)).join('')}</div><div class="virtual-spacer" data-render-key="bottom" style="height:${bottom}px"></div></div>`;
+  return `<div class="virtual-grid"${attribute}><div class="virtual-spacer" data-render-key="top" style="height:${top}px"></div><div class="${grid}" data-render-key="cards">${visible.map(renderItem).join('')}</div><div class="virtual-spacer" data-render-key="bottom" style="height:${bottom}px"></div></div>`;
+}
+
+function renderFavoriteEntityGrid(cards, entity) {
+  const tab = currentTab();
+  const key = 'favorites';
+  const indexes = new Map();
+  cards.forEach((card, index) => {
+    if (card.cover && !indexes.has(card.cover.key)) indexes.set(card.cover.key, index);
+  });
+  if (tab) {
+    tab.artworkLists ||= new Map();
+    tab.artworkLists.set(key, tab.items);
+  }
+  const markup = renderVirtualGrid(cards, key, entity,
+    { threshold: 80, overscan: 2, pitch: 340, gridClass: 'favorites-entity-grid' });
+  if (tab?.virtualState?.[key]) tab.virtualState[key].itemIndexes = indexes;
+  return markup;
 }
 
 function renderFeedCard(item, tab, newKeys, gridKey = '') {
@@ -5986,7 +6045,7 @@ function measureVirtualGrids(tab) {
     tab.gridTops[key] = main.scrollTop + wrapper.getBoundingClientRect().top - mainTop;
     const state = tab.virtualState?.[key];
     if (!state || !wrapper.classList.contains('virtual-grid')) return;
-    const cards = [...wrapper.querySelectorAll('.grid > .card')];
+    const cards = [...(wrapper.querySelector('.grid')?.children || [])];
     if (cards.length < 2) return;
     const firstTop = cards[0].getBoundingClientRect().top;
     let cols = 0;
@@ -7176,7 +7235,11 @@ document.getElementById('search-form').addEventListener('submit', event => {
   openSearch(searchInput.value, currentSearchOptions());
 });
 searchInput.addEventListener('focus', showPopover);
-searchInput.addEventListener('input', showPopover);
+searchInput.addEventListener('input', () => {
+  const tab = currentTab();
+  if (tab) tab.searchDraft = { query: tab.kind === 'detail' ? '' : tab.query || '', value: searchInput.value };
+  showPopover();
+});
 // Mouse ownership follows the real pointer across the modal and sidebar. The
 // modal makes main inert and fires pointerleave without moving the mouse;
 // tracking main alone either loses its position or retains an obsolete one.
@@ -8200,9 +8263,17 @@ globalThis.DartKeyboardScroll?.attach(document, {
   scope: currentTab
 });
 
-Promise.allSettled([refreshBookmarks(), refreshLikes(), refreshFollows(), loadSettings(),
-  loadContentPreferences(), loadClientState(), loadRecommendationTagPreferences(),
-  loadViewedTokens(), loadFavoriteTags(), favoritesController().loadArtworks(), artworkActionsController().load(), favoriteGroupsController().load()]).finally(() => {
-  void recordViewedWorks([...recent, ...likes, ...bookmarks]);
-  if (!restoreSession()) createTab('home', 'Главная');
-});
+function bootstrapApplication() {
+  // Favorites-only data can arrive after the first tab; their controllers
+  // already publish into the affected screen. Keep visibility and ranking
+  // inputs ready before starting feeds so hidden/saved works cannot flash in.
+  void Promise.allSettled([loadFavoriteTags(), favoritesController().loadArtworks(), favoriteGroupsController().load()]);
+  return Promise.allSettled([refreshBookmarks(), refreshLikes(), refreshFollows(), loadSettings(),
+    loadContentPreferences(), loadClientState(), loadRecommendationTagPreferences(),
+    loadViewedTokens(), artworkActionsController().load()]).then(() => {
+    void recordViewedWorks([...recent, ...likes, ...bookmarks]);
+    if (!restoreSession()) createTab('home', 'Главная');
+  });
+}
+
+void bootstrapApplication();

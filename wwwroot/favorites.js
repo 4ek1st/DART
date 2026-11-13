@@ -181,6 +181,7 @@
       openSearch = () => {}, openDetail = () => {}, schedule = setTimeout, unschedule = clearTimeout } = deps;
     const pending = new Set(), optimistic = new Map(), observed = new Map(), cache = new Map();
     const emptyLikes = [];
+    const entitySources = new WeakMap();
     let evidenceInputs = null, currentEvidence = null, previousSuggestions = null;
     let previewJob = null;
     let saving = Promise.resolve(), queue = [], timer = null, sending = null, inFlight = [], revision = 0, manualRevision = 0, disposed = false;
@@ -485,8 +486,18 @@
       const evidenceLoading = type !== 'artwork' && tab.favoriteEvidenceLoading;
       const loading = tab.favoriteLoading || evidenceLoading;
       const error = tab.favoriteError || (type !== 'artwork' ? tab.favoriteEvidenceError : '');
-      tab.items = type === 'artwork' ? artworks.filter(item => ratingMatches(item, rating) && allowed(item)) :
-        [...new Map(values.filter(card => card.cover).map(card => [card.cover.key, card.cover])).values()];
+      if (type === 'artwork') tab.items = artworks.filter(item => ratingMatches(item, rating) && allowed(item));
+      else {
+        let source = entitySources.get(tab);
+        if (source?.cards !== values) {
+          source = { cards: values, items: [...new Map(values.filter(card => card.cover)
+            .map(card => [card.cover.key, card.cover])).values()] };
+          entitySources.set(tab, source);
+        }
+        // The viewer shares this complete sequence, even when only a viewport
+        // of entity cards is mounted. Keep an unchanged route publication warm.
+        tab.items = source.items;
+      }
       const choose = (action, value, label, active) => button(action,t(label),`class="filter-button${action==='rating'&&value==='explicit'?' adult-filter':''}${active ? ' active' : ''}" data-value="${value}" aria-pressed="${active}"`);
       const coverLabels = {
         liked: 'From liked artworks',
@@ -523,7 +534,7 @@
         ${error ? `<div class="error" role="alert">${t(error)} ${button('refresh',t('Try again'),'class="inline-retry"')}</div>` : ''}
         ${loading && (!summary || !values.length && type !== 'artwork') ? '<div class="empty" role="status">Loading Favorites…</div>' : ''}
         ${rating==='none' ? deps.emptyRating?.()||'<div class="empty">No NSFW ratings selected. Right-click NSFW to enable Q or NSFW.</div>' : type==='artwork' ? (tab.items.length ? deps.renderArtworks?.(tab.items)||'' : !loading ? artworks.length ? '<div class="empty">No favorite artworks match these filters.</div>' : '<div class="empty">No favorite artworks yet<br>Right-click an artwork or use its more menu to add it.</div>' : '') :
-          values.length ? `<div class="grid favorites-entity-grid">${values.map(entity).join('')}</div>` : !loading && !error ?
+          values.length ? (deps.renderEntities?.(values, entity) || `<div class="grid favorites-entity-grid">${values.map(entity).join('')}</div>`) : !loading && !error ?
             `<div class="empty"><h2>${t(origin==='mine'?'Your Favorites start here':'Keep exploring')}</h2><p>${t(origin==='mine'?'Add a character or tag, or save a System pick from its menu.':'Like artworks or prioritize tags in Recommendations to discover your favorites.')}</p></div>` : ''}
       </section>`;
     }

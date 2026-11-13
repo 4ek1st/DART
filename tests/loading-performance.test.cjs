@@ -192,7 +192,8 @@ test('recommendation ranking runs outside the UI and preserves grouping and orde
   }
   const merge = vm.runInNewContext(source.slice(start, end) + '\nmergeRecommendationsAsync', {
     Worker, setTimeout, clearTimeout,
-    CatalogLogic: { mergeRecommendations: (...args) => { mainCalls++; return CatalogLogic.mergeRecommendations(...args); } }
+    CatalogLogic: { cacheGroupedWorks: CatalogLogic.cacheGroupedWorks,
+      mergeRecommendations: (...args) => { mainCalls++; return CatalogLogic.mergeRecommendations(...args); } }
   });
   const liked = [{ key: 'saved', tags: ['latex'] }];
   const candidates = [{ kind: 'other', items: ['danbooru', 'gelbooru'].map(source => ({

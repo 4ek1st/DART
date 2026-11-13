@@ -21,6 +21,19 @@ test('legacy still-poster fingerprints cannot bypass video sequence validation',
  a.originalUrl=b.originalUrl='';a.videoSamples=b.videoSamples=[];
  assert.equal(logic.groupWorks([a,b]).length,2);
 });
+
+test('a sparse preferred mirror retains tagged leaf video evidence during incremental merges', () => {
+  const a = make(201, 26.8667, { key: 'danbooru:201', source: 'danbooru',
+    tags: ['neutral_tag_0', 'neutral_tag_1', 'neutral_tag_2'], contentHash: 'a'.repeat(32), originalUrl: '' });
+  const b = make(202, 26.8667, { contentHash: 'a'.repeat(32), originalUrl: '' });
+  const c = make(203, 26.8667, { contentHash: 'b'.repeat(32), originalUrl: '' });
+  const previous = logic.groupWorks([a, b]);
+  assert.equal(previous.length, 1);
+  assert.equal(previous[0].tags.length, 3);
+  const actual = logic.mergeGroupedWorks(previous, [c]);
+  assert.equal(actual.length, 1);
+  assert.deepEqual(actual, logic.groupWorks(structuredClone([a, b, c])));
+});
 test('four identical poster frames cannot outweigh the different body of a clip',()=>{
  const a=make(1),b=make(2);
  for(const item of [a,b])item.videoSamples[0].frames=item.videoSamples[0].frames.map(()=>({...frames[0]}));

@@ -343,13 +343,13 @@ test('related works admit partial tag overlap and rank stronger matches first', 
 });
 
 test('related works show other artists ahead of near duplicates from the same creator', () => {
-  const artwork = { key: 'gelbooru:a:1', source: 'gelbooru', artistId: 'a',
+  const artwork = { key: 'gelbooru:a:1', source: 'gelbooru', artistId: 'upload_a', creatorTag: 'a',
     rating: 'unrated', tags: ['latex', 'catsuit'] };
   const candidates = [
-    { key: 'gelbooru:a:2', source: 'gelbooru', artistId: 'a', tags: ['latex', 'catsuit'] },
-    { key: 'gelbooru:a:3', source: 'gelbooru', artistId: 'a', tags: ['latex', 'catsuit'] },
+    { key: 'gelbooru:a:2', source: 'gelbooru', artistId: 'upload_b', creatorTag: 'a', tags: ['latex', 'catsuit'] },
+    { key: 'gelbooru:a:3', source: 'gelbooru', artistId: 'upload_c', creatorTag: 'a', tags: ['latex', 'catsuit'] },
     { key: 'danbooru:b:4', source: 'danbooru', artistId: 'b', tags: ['latex'] },
-    { key: 'gelbooru:c:5', source: 'gelbooru', artistId: 'c', tags: ['latex'] }
+    { key: 'gelbooru:c:5', source: 'gelbooru', artistId: 'upload_a', creatorTag: 'c', tags: ['latex'] }
   ];
   assert.deepEqual(rankRelated(artwork, candidates, 3).map(item => item.key),
     ['danbooru:b:4', 'gelbooru:c:5', 'gelbooru:a:2']);

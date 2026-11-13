@@ -694,6 +694,7 @@
 
   const groupedCache = new WeakMap();
   const groupingBatches = new WeakMap(), groupedOrigins = new WeakMap();
+  const dirtyGroupedRecords = new WeakSet();
   let groupingBatchSequence = 0;
   const groupingRevisions = new WeakMap();
   function groupingRevision(items) { return groupingRevisions.get(items) || 0; }
@@ -705,7 +706,10 @@
     const batch = { valid: true, revision: 0, sequence: ++groupingBatchSequence };
     if (Array.isArray(items)) { groupedCache.set(items, result); groupingBatches.set(items, batch); }
     groupingBatches.set(result, batch);
-    for (const item of result) groupedOrigins.set(item, batch);
+    for (const item of result) {
+      groupedOrigins.set(item, batch);
+      dirtyGroupedRecords.delete(item);
+    }
     return result;
   }
   function cacheGroupedWorks(items, result) {
@@ -817,15 +821,21 @@
   function invalidateGrouping(items) {
     if (!Array.isArray(items)) return;
     const invalidated = new Set();
-    const invalidate = batch => {
-      if (!batch || invalidated.has(batch)) return;
+    const invalidate = (batch, whole = false) => {
+      if (!batch) return;
+      // An original input array can hold raw records distinct from its grouped
+      // output. Its invalidation cannot identify just one changed output row.
+      if (whole) batch.wholeInvalid = true;
+      if (invalidated.has(batch)) return;
       invalidated.add(batch); batch.valid = false; batch.revision++;
     };
-    invalidate(groupingBatches.get(items));
+    const whole = groupingBatches.has(items);
+    invalidate(groupingBatches.get(items), whole);
     groupingRevisions.set(items, groupingRevision(items) + 1);
     groupedCache.delete(items);
     for (const item of items) if (item && typeof item === 'object') {
-      invalidate(groupedOrigins.get(item));
+      dirtyGroupedRecords.add(item);
+      invalidate(groupedOrigins.get(item), whole);
       groupingEvidenceCache.delete(item);
       identityCache.delete(item);
       attributionCache.delete(item); sampleCache.delete(item); contentCache.delete(item);
@@ -958,7 +968,16 @@
   }
 
   function groupWorks(items) {
-    if (Array.isArray(items) && groupedCache.has(items)) return groupedCache.get(items);
+    const cached = Array.isArray(items) && groupedCache.get(items);
+    // A later worker publication can adopt these same prefix records. A
+    // learned identity then invalidates their newer origin, so checking only
+    // this array's older registration would leave its cached grouping stale.
+    if (cached && groupingBatches.get(items)?.valid &&
+        cached.every(item => groupedOrigins.get(item)?.valid)) return cached;
+    // Filtering/rating a verified grouped batch cannot create new duplicates.
+    // Keep those records and their derived evidence warm; learned hashes and
+    // mutations invalidate the origin and force the ordinary grouping path.
+    if (canonicalRecommendationView(items)) return items;
     const works = groupInputs(items);
     const roots = works.map((_, index) => index);
     const publications = works.map(publicationIdentities);
@@ -1157,9 +1176,17 @@
     if (groupingEvidenceCache.has(item)) return groupingEvidenceCache.get(item);
     // Every inferred series/visual match shares a creator or sample owner;
     // exact copies and explicit relationships share an identity token.
-    const creator = visualCreator(item);
+    const members = hasGroupMembers(item) && item.groupMembers?.length ? item.groupMembers : [item];
+    const creators = members.filter(member => member.tags?.length >= 12)
+      .map(visualCreator).filter(Boolean);
     const evidence = [...new Set([...memberKeysOf(item).map(key => `key:${key}`), ...itemIdentities(item),
-      ...(creator ? [`bucket:creator:${creator}`] : []),
+      // Upload-batch and video inference require at least twelve raw tags.
+      // Visual matches, including legacy low-tag samples, have their own owner
+      // bucket below. A creator name alone cannot connect a sparse listing to
+      // every work in that artist's archive.
+      // Inspect every canonical leaf: a preferred sparse mirror can represent
+      // another catalog's fully tagged video or upload-batch evidence.
+      ...creators.map(creator => `bucket:creator:${creator}`),
       ...itemVisualSamples(item).map(sample => `bucket:${sample.owner}`)])];
     groupingEvidenceCache.set(item, evidence);
     return evidence;
@@ -1170,7 +1197,22 @@
     if (!incoming?.length) return previous || [];
     if (!previous?.length) return groupWorks(incoming);
     const known = new Set(previous);
-    if (incoming.every(item => known.has(item))) return previous;
+    const trusted = item => {
+      const origin = groupedOrigins.get(item);
+      // A changed child invalidates the whole canonical view, but an
+      // incremental route only needs that child's connected component.
+      return origin && !dirtyGroupedRecords.has(item) &&
+        (origin.valid || !origin.wholeInvalid);
+    };
+    if (incoming.every(item => known.has(item) &&
+        (!groupedOrigins.has(item) || trusted(item)))) return previous;
+    // Route reads include the entire visible publication. Existing immutable
+    // records add no evidence; starting from all of them would connect every
+    // creator bucket and regroup the whole route for one learned detail/page.
+    // Explicitly invalidated origins still participate so new identities can
+    // retire old copies, including after an in-place metadata enrichment.
+    incoming = incoming.filter(item => !known.has(item) || !trusted(item));
+    if (!incoming.length) return previous;
     const buckets = new Map();
     previous.forEach((item, index) => {
       for (const evidence of groupingEvidence(item)) {
@@ -1637,7 +1679,13 @@
     };
     const referenceNorm = Math.sqrt(reference.reduce((sum, tag) => sum + weightOf(tag) ** 2, 0)) || 1;
     const scored = [];
-    const referenceArtist = item.artistId || '';
+    // Creator tags are shared across catalogs. On mirror sites artistId is
+    // the uploader, and neither that account nor voice/sound credits identify
+    // the artist whose work we are trying to diversify.
+    const creators = work => [...new Set(workParticipants(work)
+      .filter(person => person.role === 'artist' || person.role === 'animator')
+      .map(person => normalizeTag(person.tag)).filter(Boolean))];
+    const referenceArtists = new Set(creators(item));
     for (const { candidate, tags } of pool) {
       const overlap = tagOverlap(reference, tags);
       if (!overlap) continue;
@@ -1650,11 +1698,9 @@
       // Weighted cosine similarity; the square root keeps a rich tag list from
       // being punished as heavily as a plain cosine would.
       const similarity = 10 * dot / (referenceNorm * Math.sqrt(candidateNorm * referenceNorm));
-      const candidateArtist = candidate.artistId || '';
-      const sameArtist = !!referenceArtist && item.source === candidate.source &&
-        referenceArtist === candidateArtist;
-      scored.push({ candidate, sameArtist, authorKey: candidate.source + ':' +
-        (candidateArtist || candidate.key),
+      const authorKeys = creators(candidate);
+      const sameArtist = authorKeys.some(key => referenceArtists.has(key));
+      scored.push({ candidate, sameArtist, authorKeys,
       score: similarity + (candidate.source !== item.source ? 0.25 : 0) -
         (sameArtist ? 5 : 0), index: scored.length });
     }
@@ -1665,10 +1711,9 @@
     const artistCounts = new Map();
     for (const entry of scored) {
       if (entry.sameArtist) continue;
-      const count = artistCounts.get(entry.authorKey) || 0;
-      if (count >= 3) continue;
+      if (entry.authorKeys.some(key => (artistCounts.get(key) || 0) >= 3)) continue;
       selected.push(entry);
-      artistCounts.set(entry.authorKey, count + 1);
+      for (const key of entry.authorKeys) artistCounts.set(key, (artistCounts.get(key) || 0) + 1);
       if (selected.length === limit) break;
     }
     if (selected.length < limit)
